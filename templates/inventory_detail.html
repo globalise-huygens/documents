@@ -1,0 +1,152 @@
+{% extends "base.html" %} {% block title %}{{ inventory.inventory_number }} -
+GLOBALISE Documents{% endblock %} {% block content %}
+<h1>Inventory: {{ inventory.inventory_number }}</h1>
+
+<div class="card">
+  <h2>Inventory Details</h2>
+  <div class="info-row">
+    <strong>Inventory Number:</strong>
+    <span>{{ inventory.inventory_number }}</span>
+  </div>
+  <div class="info-row">
+    <strong>NA Identifier:</strong>
+    <span
+      >{{ inventory.na_identifier if inventory.na_identifier else 'N/A' }}</span
+    >
+  </div>
+  <div class="info-row">
+    <strong>Date Range:</strong>
+    <span>
+      {% if inventory.date_start and inventory.date_end %} {{
+      inventory.date_start }} - {{ inventory.date_end }} {% elif
+      inventory.date_start %} From {{ inventory.date_start }} {% else %} Unknown
+      {% endif %}
+    </span>
+  </div>
+  <div class="info-row">
+    <strong>Handle:</strong>
+    <span>
+      {% if inventory.handle %}
+      <a href="{{ inventory.handle }}" target="_blank"
+        >{{ inventory.handle }}</a
+      >
+      {% else %} N/A {% endif %}
+    </span>
+  </div>
+
+  {% if inventory.titles %}
+  <div class="info-row">
+    <strong>Titles:</strong>
+    <div>
+      {% for title in inventory.titles %}
+      <p>{{ title.title }}</p>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+{% if series_paths %}
+<div class="card">
+  <h2>Series Membership</h2>
+  <div class="series-hierarchy">
+    {% for path in series_paths %}
+      {% if path %}
+        <ul>
+          {% for node in path %}
+            <li>
+              {{ node.title }}
+              {% if not loop.last %}
+                <ul>
+              {% endif %}
+          {% endfor %}
+          {% for node in path %}
+            {% if not loop.first %}
+                </ul>
+              </li>
+            {% endif %}
+          {% endfor %}
+            </li>
+        </ul>
+      {% endif %}
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>Statistics</h2>
+  <div class="info-row">
+    <strong>Documents:</strong>
+    <span>{{ documents|length }}</span>
+  </div>
+  <div class="info-row">
+    <strong>Scans:</strong>
+    <span>{{ scan_count }}</span>
+  </div>
+  <div class="info-row">
+    <strong>Pages:</strong>
+    <span>{{ page_count }}</span>
+  </div>
+</div>
+
+{% if documents %}
+<div class="card">
+  <h2>Documents ({{ documents|length }})</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Title</th>
+        <th>Date</th>
+        <th>Pages</th>
+        <th>Method</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for doc in documents %}
+      <tr>
+        <td>
+          <a href="/document/{{ doc.id }}"
+            >{{ doc.title if doc.title else 'Untitled' }}</a
+          >
+        </td>
+        <td>{{ doc|date_range }}</td>
+        <td>{{ doc.number_of_pages }}</td>
+        <td>{{ doc.method.name if doc.method else 'N/A' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %} {% if scans %}
+<div class="card">
+  <h2>Scans Preview (showing {{ scans|length }} of {{ scan_count }})</h2>
+  {% if scan_count > 50 %}
+  <p class="alert alert-info">
+    Showing first 50 scans.
+    <a href="/scans?inventory_id={{ inventory.id }}">View all scans</a>
+  </p>
+  {% endif %}
+  <div class="image-grid">
+    {% for scan in scans %}
+    <div class="image-item">
+      <a href="/scan/{{ scan.id }}">
+        <img
+          src="{{ scan.get_thumbnail_url() }}"
+          alt="{{ scan.filename }}"
+          loading="lazy"
+        />
+      </a>
+      <p><small>{{ scan.filename }}</small></p>
+    </div>
+    {% endfor %}
+  </div>
+  {% if scan_count > 50 %}
+  <p style="text-align: center; margin-top: 1rem">
+    <a href="/scans?inventory_id={{ inventory.id }}"
+      >View all {{ scan_count }} scans</a
+    >
+  </p>
+  {% endif %}
+</div>
+{% endif %} {% endblock %}

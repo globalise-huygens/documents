@@ -1,0 +1,113 @@
+{% extends "base.html" %} {% block title %}{{ document.title if document.title
+else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}
+<h1>{{ document.title if document.title else 'Untitled Document' }}</h1>
+
+<div class="card">
+  <h2>Document Information</h2>
+  <div class="info-row">
+    <strong>Inventory:</strong>
+    <span
+      ><a href="/inventory/{{ document.inventory.id }}"
+        >{{ document.inventory.inventory_number }}</a
+      ></span
+    >
+  </div>
+  <div class="info-row">
+    <strong>Date:</strong>
+    <span>{{ document|date_range }}</span>
+  </div>
+  {% if document.date_text %}
+  <div class="info-row">
+    <strong>Date Text:</strong>
+    <span>{{ document.date_text }}</span>
+  </div>
+  {% endif %}
+  <div class="info-row">
+    <strong>Number of Pages:</strong>
+    <span>{{ document.number_of_pages }}</span>
+  </div>
+  <div class="info-row">
+    <strong>Identification Method:</strong>
+    <span>
+      {{ document.method.name if document.method else 'N/A' }} {% if
+      document.method and document.method.date %} ({{ document.method.date }})
+      {% endif %}
+    </span>
+  </div>
+  {% if document.part_of %}
+  <div class="info-row">
+    <strong>Part of:</strong>
+    <span
+      ><a href="/document/{{ document.part_of.id }}"
+        >{{ document.part_of.title if document.part_of.title else 'Parent
+        Document' }}</a
+      ></span
+    >
+  </div>
+  {% endif %} {% if document.location_id %}
+  <div class="info-row">
+    <strong>Location:</strong>
+    <span>{{ document.location_id }}</span>
+  </div>
+  {% endif %}
+</div>
+
+{% if document.document_types %}
+<div class="card">
+  <h2>Document Types</h2>
+  {% for dt in document.document_types %}
+  <span class="badge badge-primary">{{ dt.document_type }}</span>
+  {% endfor %}
+</div>
+{% endif %} {% if sub_documents %}
+<div class="card">
+  <h2>Sub-documents ({{ sub_documents|length }})</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Title</th>
+        <th>Date</th>
+        <th>Pages</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for subdoc in sub_documents %}
+      <tr>
+        <td>
+          <a href="/document/{{ subdoc.id }}"
+            >{{ subdoc.title if subdoc.title else 'Untitled' }}</a
+          >
+        </td>
+        <td>{{ subdoc|date_range }}</td>
+        <td>{{ subdoc.number_of_pages }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %} {% if page_docs %}
+<div class="card">
+  <h2>Pages ({{ page_docs|length }})</h2>
+  <div class="image-grid">
+    {% for page_doc in page_docs %} {% if page_doc.page and page_doc.page.scan
+    %}
+    <div class="image-item">
+      <a href="/page/{{ page_doc.page.id }}">
+        <img
+          src="{{ page_doc.page.scan.get_thumbnail_url() }}"
+          alt="Page {{ page_doc.index }}"
+          loading="lazy"
+        />
+      </a>
+      <p>
+        <strong>Page {{ page_doc.index }}</strong><br />
+        {% if page_doc.page.page_or_folio_number %} Folio: {{
+        page_doc.page.page_or_folio_number }} {% endif %} {% if
+        page_doc.page.recto_verso %} ({{ page_doc.page.recto_verso.value }}) {%
+        endif %}
+      </p>
+    </div>
+    {% endif %} {% endfor %}
+  </div>
+</div>
+{% endif %} {% endblock %}

@@ -1,0 +1,107 @@
+{% extends "base.html" %} {% block title %}Search - GLOBALISE Documents{%
+endblock %} {% block content %}
+<h1>Search Archive</h1>
+
+<div class="search-box">
+  <form method="get" action="/search">
+    <input
+      type="text"
+      name="q"
+      placeholder="Search documents, inventories, and scans..."
+      value="{{ query }}"
+      autofocus
+    />
+  </form>
+</div>
+
+{% if results %}
+<div class="card">
+  <h2>Search Results for "{{ query }}"</h2>
+
+  {% if results.documents %}
+  <h3>Documents ({{ results.documents|length }})</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Title</th>
+        <th>Inventory</th>
+        <th>Date</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for doc in results.documents %}
+      <tr>
+        <td>
+          <a href="/document/{{ doc.id }}"
+            >{{ doc.title if doc.title else 'Untitled' }}</a
+          >
+        </td>
+        <td>
+          <a href="/inventory/{{ doc.inventory.id }}"
+            >{{ doc.inventory.inventory_number }}</a
+          >
+        </td>
+        <td>{{ doc|date_range }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %} {% if results.inventories %}
+  <h3>Inventories ({{ results.inventories|length }})</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Inventory Number</th>
+        <th>Date Range</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for inv in results.inventories %}
+      <tr>
+        <td>
+          <a href="/inventory/{{ inv.id }}">{{ inv.inventory_number }}</a>
+        </td>
+        <td>
+          {% if inv.date_start and inv.date_end %} {{ inv.date_start }} - {{
+          inv.date_end }} {% elif inv.date_start %} From {{ inv.date_start }} {%
+          else %} Unknown {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %} {% if results.scans %}
+  <h3>Scans ({{ results.scans|length }})</h3>
+  <div class="image-grid">
+    {% for scan in results.scans %}
+    <div class="image-item">
+      <a href="/scan/{{ scan.id }}">
+        <img
+          src="{{ scan.get_thumbnail_url() }}"
+          alt="{{ scan.filename }}"
+          loading="lazy"
+        />
+      </a>
+      <p><small>{{ scan.filename }}</small></p>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %} {% if not results.documents and not results.inventories and not
+  results.scans %}
+  <p class="alert alert-info">No results found for "{{ query }}"</p>
+  {% endif %}
+</div>
+{% elif query %}
+<div class="alert alert-info">
+  <p>No results found. Try a different search term.</p>
+</div>
+{% else %}
+<div class="card">
+  <h2>Search Tips</h2>
+  <ul>
+    <li>Enter keywords to search across documents, inventories, and scans</li>
+    <li>Search by inventory number, document title, or filename</li>
+    <li>Results are limited to 20 items per category</li>
+  </ul>
+</div>
+{% endif %} {% endblock %}

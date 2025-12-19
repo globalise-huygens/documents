@@ -1,0 +1,106 @@
+{% extends "base.html" %} {% block title %}{{ scan.filename }} - GLOBALISE
+Documents{% endblock %} {% block content %}
+<h1>Scan: {{ scan.filename }}</h1>
+
+<div class="card">
+  <h2>Scan Information</h2>
+  <div class="info-row">
+    <strong>Filename:</strong>
+    <span>{{ scan.filename }}</span>
+  </div>
+  <div class="info-row">
+    <strong>Inventory:</strong>
+    <span
+      ><a href="/inventory/{{ scan.inventory.id }}"
+        >{{ scan.inventory.inventory_number }}</a
+      ></span
+    >
+  </div>
+  <div class="info-row">
+    <strong>Dimensions:</strong>
+    <span>{{ scan.width }}x{{ scan.height }}px</span>
+  </div>
+  {% if scan.scan_type %}
+  <div class="info-row">
+    <strong>Scan Type:</strong>
+    <span
+      ><span class="badge badge-primary">{{ scan.scan_type.value }}</span></span
+    >
+  </div>
+  {% endif %} {% if scan.na_identifier %}
+  <div class="info-row">
+    <strong>NA Identifier:</strong>
+    <span>{{ scan.na_identifier }}</span>
+  </div>
+  {% endif %}
+  <div class="info-row">
+    <strong>IIIF Image Info:</strong>
+    <span
+      ><a href="{{ scan.iiif_image_info }}" target="_blank"
+        >{{ scan.iiif_image_info }}</a
+      ></span
+    >
+  </div>
+</div>
+
+<div class="card">
+  <h2>Image Preview</h2>
+  <div style="text-align: center">
+    <img
+      src="{{ scan.get_image_url('800,') }}"
+      alt="{{ scan.filename }}"
+      style="max-width: 100%; height: auto"
+    />
+  </div>
+  <p style="text-align: center; margin-top: 1rem">
+    <a href="{{ scan.get_image_url('full') }}" target="_blank"
+      >View full size image</a
+    >
+  </p>
+</div>
+
+{% if pages %}
+<div class="card">
+  <h2>Pages on this Scan ({{ pages|length }})</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Folio Number</th>
+        <th>Recto/Verso</th>
+        <th>Languages</th>
+        <th>Features</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for page in pages %}
+      <tr>
+        <td>
+          {{ page.page_or_folio_number if page.page_or_folio_number else 'N/A'
+          }}
+        </td>
+        <td>{{ page.recto_verso.value if page.recto_verso else 'N/A' }}</td>
+        <td>
+          {{ page.detected_languages if page.detected_languages else 'N/A' }}
+        </td>
+        <td>
+          {% if page.has_marginalia %}<span class="badge badge-success"
+            >Marginalia</span
+          >{% endif %} {% if page.has_table %}<span class="badge badge-success"
+            >Table</span
+          >{% endif %} {% if page.has_illustration %}<span
+            class="badge badge-success"
+            >Illustration</span
+          >{% endif %} {% if page.has_print %}<span class="badge badge-success"
+            >Print</span
+          >{% endif %} {% if page.is_blank %}<span class="badge badge-warning"
+            >Blank</span
+          >{% endif %}
+        </td>
+        <td><a href="/page/{{ page.id }}">View Details</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %} {% endblock %}

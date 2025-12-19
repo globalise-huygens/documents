@@ -1,0 +1,77 @@
+{% extends "base.html" %} {% block title %}Documents - GLOBALISE Documents{%
+endblock %} {% block content %}
+<h1>Documents</h1>
+
+<div class="search-box">
+  <form method="get" action="/documents">
+    <input
+      type="text"
+      name="search"
+      placeholder="Search documents by title or inventory number..."
+      value="{{ search }}"
+      autofocus
+    />
+  </form>
+</div>
+
+{% if search %}
+<p>Search results for: <strong>{{ search }}</strong></p>
+{% endif %}
+
+<table>
+  <thead>
+    <tr>
+      <th>Title</th>
+      <th>Inventory</th>
+      <th>Date</th>
+      <th>Pages</th>
+      <th>Method</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for doc in documents %}
+    <tr>
+      <td>
+        <a href="/document/{{ doc.id }}"
+          >{{ doc.title if doc.title else 'Untitled Document' }}</a
+        >
+      </td>
+      <td>
+        <a href="/inventory/{{ doc.inventory.id }}"
+          >{{ doc.inventory.inventory_number }}</a
+        >
+      </td>
+      <td>{{ doc|date_range }}</td>
+      <td>{{ doc.number_of_pages }}</td>
+      <td>{{ doc.method.name if doc.method else 'N/A' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if total_pages > 1 %}
+<div class="pagination">
+  {% if page > 1 %}
+  <a href="?page=1{% if search %}&search={{ search }}{% endif %}">First</a>
+  <a href="?page={{ page - 1 }}{% if search %}&search={{ search }}{% endif %}"
+    >Previous</a
+  >
+  {% endif %} {% for p in range(1, total_pages + 1) %} {% if p == page %}
+  <span class="current">{{ p }}</span>
+  {% elif p <= 3 or p > total_pages - 3 or (p >= page - 2 and p <= page + 2) %}
+  <a href="?page={{ p }}{% if search %}&search={{ search }}{% endif %}"
+    >{{ p }}</a
+  >
+  {% elif p == 4 or p == total_pages - 3 %}
+  <span>...</span>
+  {% endif %} {% endfor %} {% if page < total_pages %}
+  <a href="?page={{ page + 1 }}{% if search %}&search={{ search }}{% endif %}"
+    >Next</a
+  >
+  <a
+    href="?page={{ total_pages }}{% if search %}&search={{ search }}{% endif %}"
+    >Last</a
+  >
+  {% endif %}
+</div>
+{% endif %} {% endblock %}

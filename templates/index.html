@@ -1,0 +1,79 @@
+{% extends "base.html" %} {% block title %}Home - GLOBALISE Documents{% endblock
+%} {% block content %}
+<h1>Welcome to GLOBALISE Document Archive</h1>
+
+<div class="stats">
+  <div class="stat-box">
+    <h3>{{ stats.inventories }}</h3>
+    <p>Inventories</p>
+  </div>
+  <div class="stat-box">
+    <h3>{{ stats.documents }}</h3>
+    <p>Documents</p>
+  </div>
+  <div class="stat-box">
+    <h3>{{ stats.scans }}</h3>
+    <p>Scans</p>
+  </div>
+  <div class="stat-box">
+    <h3>{{ stats.pages }}</h3>
+    <p>Pages</p>
+  </div>
+</div>
+
+<div class="card">
+  <h2>About This System</h2>
+  <p>
+    This web application provides an interface to browse and inspect historical
+    documents from the GLOBALISE archive. You can explore inventories, view
+    documents, examine scans, and analyze individual pages.
+  </p>
+</div>
+
+{% if recent_inventories %}
+<div class="card">
+  <h2>Recent Inventories</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Inventory Number</th>
+        <th>Handle</th>
+        <th>Date Range</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for inventory in recent_inventories %}
+      <tr>
+        <td>
+          <a href="/inventory/{{ inventory.id }}"
+            >{{ inventory.inventory_number }}</a
+          >
+        </td>
+        <td>
+          {% if inventory.handle %}
+          <a href="{{ inventory.handle }}" target="_blank">View</a>
+          {% else %} N/A {% endif %}
+        </td>
+        <td>
+          {% if inventory.date_start and inventory.date_end %} {{
+          inventory.date_start }} - {{ inventory.date_end }} {% elif
+          inventory.date_start %} From {{ inventory.date_start }} {% else %}
+          Unknown {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>Quick Links</h2>
+  <ul>
+    <li><a href="/inventories">Browse all inventories</a></li>
+    <li><a href="/documents">Browse all documents</a></li>
+    <li><a href="/scans">Browse all scans</a></li>
+    <li><a href="/search">Search the archive</a></li>
+  </ul>
+</div>
+{% endblock %}

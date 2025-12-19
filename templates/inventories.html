@@ -1,0 +1,72 @@
+{% extends "base.html" %} {% block title %}Inventories - GLOBALISE Documents{%
+endblock %} {% block content %}
+<h1>Inventories</h1>
+<p>Browse all inventory records in the archive.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Inventory Number</th>
+      <th>NA Identifier</th>
+      <th>Date Range</th>
+      <th>Series</th>
+      <th>Handle</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for inventory in inventories %}
+    <tr>
+      <td>
+        <a href="/inventory/{{ inventory.id }}"
+          >{{ inventory.inventory_number }}</a
+        >
+      </td>
+      <td>
+        {{ inventory.na_identifier if inventory.na_identifier else 'N/A' }}
+      </td>
+      <td>
+        {% if inventory.date_start and inventory.date_end %} {{
+        inventory.date_start }} - {{ inventory.date_end }} {% elif
+        inventory.date_start %} From {{ inventory.date_start }} {% else %}
+        Unknown {% endif %}
+      </td>
+      <td>
+        {% if inventory.member_of_series %} {% set names =
+        inventory.member_of_series[:2] %} {% for s in names %}
+        <span title="{{ s.title }}"
+          >{{ s.title[:40] }}{% if loop.index < names|length %}, {% endif
+          %}</span
+        >
+        {% endfor %} {% if inventory.member_of_series|length > 2 %}
+        <span>+{{ inventory.member_of_series|length - 2 }} more</span>
+        {% endif %} {% else %}
+        <span>N/A</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if inventory.handle %}
+        <a href="{{ inventory.handle }}" target="_blank">View</a>
+        {% else %} N/A {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if total_pages > 1 %}
+<div class="pagination">
+  {% if page > 1 %}
+  <a href="?page=1">First</a>
+  <a href="?page={{ page - 1 }}">Previous</a>
+  {% endif %} {% for p in range(1, total_pages + 1) %} {% if p == page %}
+  <span class="current">{{ p }}</span>
+  {% elif p <= 3 or p > total_pages - 3 or (p >= page - 2 and p <= page + 2) %}
+  <a href="?page={{ p }}">{{ p }}</a>
+  {% elif p == 4 or p == total_pages - 3 %}
+  <span>...</span>
+  {% endif %} {% endfor %} {% if page < total_pages %}
+  <a href="?page={{ page + 1 }}">Next</a>
+  <a href="?page={{ total_pages }}">Last</a>
+  {% endif %}
+</div>
+{% endif %} {% endblock %}

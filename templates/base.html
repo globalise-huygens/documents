@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{% block title %}GLOBALISE Documents{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      :root {
+        --font-sans: "Noto Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
+          Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        --mint: #bfeeca;
+        --ink: #1d1c1a;
+        --blue: #bde6fe;
+        --coral: #ff9f84;
+        --lilac: #e7d3ff;
+        --white: #ffffff;
+        --border: rgba(29, 28, 26, 0.1);
+        --shadow: 0 8px 24px rgba(29, 28, 26, 0.08);
+        --radius: 12px;
+      }
+
+      body {
+        font-family: var(--font-sans);
+        line-height: 1.6;
+        color: var(--ink);
+        background: linear-gradient(180deg, var(--blue) 0%, var(--mint) 100%);
+        background-attachment: fixed;
+      }
+
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 0 20px;
+      }
+
+      header {
+        background-color: var(--ink);
+        color: var(--white);
+        padding: 1rem 0;
+        box-shadow: var(--shadow);
+        border-bottom: 3px solid var(--lilac);
+      }
+
+      header h1 {
+        margin-bottom: 0.5rem;
+      }
+
+      nav {
+        background: linear-gradient(
+          135deg,
+          rgba(255, 255, 255, 0.95) 0%,
+          rgba(255, 255, 255, 0.85) 100%
+        );
+        backdrop-filter: blur(12px);
+        padding: 0;
+        margin-bottom: 2rem;
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        border: 1px solid var(--border);
+      }
+
+      nav ul {
+        list-style: none;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0;
+        margin: 0;
+        padding: 0;
+      }
+
+      nav li {
+        flex: 1;
+        min-width: 120px;
+      }
+
+      nav a {
+        display: block;
+        color: var(--ink);
+        text-decoration: none;
+        padding: 1rem 1.25rem;
+        text-align: center;
+        font-weight: 500;
+        position: relative;
+        transition: all 0.2s ease;
+        border-right: 1px solid var(--border);
+      }
+
+      nav li:first-child a {
+        border-top-left-radius: var(--radius);
+        border-bottom-left-radius: var(--radius);
+      }
+
+      nav li:last-child a {
+        border-right: none;
+        border-top-right-radius: var(--radius);
+        border-bottom-right-radius: var(--radius);
+      }
+
+      nav a::before {
+        content: "";
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 3px;
+        background: linear-gradient(90deg, var(--coral), var(--lilac));
+        transform: scaleX(0);
+        transition: transform 0.3s ease;
+      }
+
+      nav a:hover {
+        background-color: rgba(191, 238, 202, 0.3);
+        color: var(--ink);
+      }
+
+      nav a:hover::before {
+        transform: scaleX(1);
+      }
+
+      nav a:active {
+        transform: scale(0.98);
+      }
+
+      nav a.active {
+        color: var(--ink);
+        font-weight: 600;
+      }
+
+      nav a.active::before {
+        background: linear-gradient(90deg, var(--coral), var(--lilac));
+        transform: scaleX(1);
+      }
+
+      main {
+        background-color: var(--white);
+        padding: 2rem;
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        margin-bottom: 2rem;
+        min-height: 60vh;
+        border: 1px solid var(--border);
+      }
+
+      h2,
+      h3 {
+        margin-bottom: 1rem;
+        color: var(--ink);
+      }
+
+      .card {
+        background-color: var(--white);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 1.25rem 1.5rem;
+        margin-bottom: 1.25rem;
+        box-shadow: var(--shadow);
+      }
+
+      .card h3 {
+        margin-top: 0;
+        color: var(--ink);
+      }
+
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        margin-bottom: 2rem;
+      }
+
+      .stat-box {
+        position: relative;
+        background: var(--white);
+        color: var(--ink);
+        padding: 1.25rem 1.5rem;
+        border-radius: var(--radius);
+        text-align: center;
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow);
+      }
+      .stat-box::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: var(--radius);
+        padding-top: 0.25rem;
+        background: linear-gradient(
+          90deg,
+          var(--coral),
+          var(--lilac),
+          var(--blue)
+        );
+        mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+        -webkit-mask: linear-gradient(#000 0 0) content-box,
+          linear-gradient(#000 0 0);
+        -webkit-mask-composite: xor;
+        mask-composite: exclude;
+      }
+
+      .stat-box h3 {
+        color: #1d1c1a;
+        font-size: 2rem;
+        margin-bottom: 0.5rem;
+      }
+
+      .stat-box p {
+        opacity: 0.9;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 1rem;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        overflow: hidden;
+        background: var(--white);
+        box-shadow: var(--shadow);
+      }
+
+      th,
+      td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+        border-bottom: 1px solid var(--border);
+      }
+
+      th {
+        background-color: var(--lilac);
+        font-weight: 600;
+        color: var(--ink);
+      }
+
+      tr:nth-child(even) td {
+        background-color: #fafafa;
+      }
+      tr:hover td {
+        background-color: #f5f5f5;
+      }
+
+      a {
+        color: var(--ink);
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+      a:hover {
+        color: var(--coral);
+      }
+
+      .pagination {
+        display: flex;
+        justify-content: center;
+        gap: 0.5rem;
+        margin-top: 2rem;
+        flex-wrap: wrap;
+      }
+
+      .pagination a,
+      .pagination span {
+        padding: 0.5rem 1rem;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        text-decoration: none;
+        background: var(--white);
+        box-shadow: var(--shadow);
+      }
+
+      .pagination a:hover {
+        background-color: var(--coral);
+        color: var(--white);
+        text-decoration: none;
+      }
+
+      .pagination .current {
+        background-color: var(--ink);
+        color: var(--white);
+      }
+
+      .search-box {
+        margin-bottom: 2rem;
+      }
+
+      .search-box input {
+        width: 100%;
+        padding: 0.85rem 1rem;
+        border: 1.5px solid var(--border);
+        border-radius: 10px;
+        font-size: 1rem;
+        background: var(--white);
+        box-shadow: var(--shadow);
+      }
+
+      .image-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 1rem;
+        margin-top: 1rem;
+      }
+
+      .image-item {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 0.5rem;
+        text-align: center;
+        background-color: var(--white);
+        box-shadow: var(--shadow);
+      }
+
+      .image-item img {
+        max-width: 100%;
+        height: auto;
+        border-radius: 4px;
+      }
+
+      .badge {
+        display: inline-block;
+        padding: 0.25rem 0.75rem;
+        border-radius: 12px;
+        font-size: 0.875rem;
+        font-weight: 500;
+      }
+
+      .badge-primary {
+        background-color: var(--blue);
+        color: var(--ink);
+      }
+
+      .badge-success {
+        background-color: var(--mint);
+        color: var(--ink);
+      }
+
+      .badge-warning {
+        background-color: var(--coral);
+        color: var(--ink);
+      }
+
+      .info-row {
+        display: flex;
+        margin-bottom: 0.5rem;
+      }
+
+      .info-row strong {
+        min-width: 150px;
+        color: var(--ink);
+      }
+
+      footer {
+        text-align: center;
+        padding: 2rem 0;
+        color: var(--ink);
+        border-top: 2px solid var(--mint);
+        margin-top: 2rem;
+      }
+
+      .alert {
+        padding: 1rem;
+        border-radius: 4px;
+        margin-bottom: 1rem;
+      }
+
+      .alert-info {
+        background-color: var(--lilac);
+        border: 2px solid var(--blue);
+        color: var(--ink);
+      }
+
+      /* Buttons */
+      .btn {
+        display: inline-block;
+        padding: 0.6rem 1rem;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: var(--white);
+        color: var(--ink);
+        text-decoration: none;
+        box-shadow: var(--shadow);
+        transition: background 0.2s, color 0.2s, transform 0.1s;
+      }
+      .btn:hover {
+        transform: translateY(-1px);
+      }
+      .btn-primary {
+        background: var(--coral);
+        color: var(--white);
+        border-color: var(--coral);
+      }
+      .btn-primary:hover {
+        background: var(--ink);
+        border-color: var(--ink);
+      }
+
+      .form-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 0.75rem 1rem;
+      }
+
+      .form-group label {
+        display: block;
+        margin-bottom: 0.35rem;
+        font-weight: 600;
+      }
+
+      .form-group input,
+      .form-group textarea {
+        width: 100%;
+        padding: 0.6rem 0.75rem;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        font: inherit;
+      }
+
+      /* Series hierarchy nested lists */
+      .series-hierarchy ul {
+        list-style-type: disc;
+        margin-left: 1.5rem;
+        margin-top: 0.25rem;
+        margin-bottom: 0.25rem;
+      }
+
+      .series-hierarchy > ul {
+        margin-left: 0;
+      }
+
+      .series-hierarchy li {
+        margin: 0.25rem 0;
+        line-height: 1.5;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="container">
+        <h1>GLOBALISE Documents</h1>
+        <p>Document Archive Inspection System</p>
+      </div>
+    </header>
+
+    <nav>
+      <div class="container">
+        <ul>
+          <li>
+            <a href="/" class="{% if request.path == '/' %}active{% endif %}"
+              >Home</a
+            >
+          </li>
+          <li>
+            <a
+              href="/inventories"
+              class="{% if request.path.startswith('/inventor') %}active{% endif %}"
+              >Inventories</a
+            >
+          </li>
+          <li>
+            <a
+              href="/documents"
+              class="{% if request.path.startswith('/document') %}active{% endif %}"
+              >Documents</a
+            >
+          </li>
+          <li>
+            <a
+              href="/methods"
+              class="{% if request.path.startswith('/method') %}active{% endif %}"
+              >Methods</a
+            >
+          </li>
+          <li>
+            <a
+              href="/scans"
+              class="{% if request.path.startswith('/scan') %}active{% endif %}"
+              >Scans</a
+            >
+          </li>
+          <li>
+            <a
+              href="/pages"
+              class="{% if request.path.startswith('/page') %}active{% endif %}"
+              >Pages</a
+            >
+          </li>
+          <li>
+            <a
+              href="/search"
+              class="{% if request.path == '/search' %}active{% endif %}"
+              >Search</a
+            >
+          </li>
+        </ul>
+      </div>
+    </nav>
+
+    <div class="container">
+      <main>{% block content %}{% endblock %}</main>
+
+      <footer>
+        <p>GLOBALISE Document Archive System &copy; 2025</p>
+      </footer>
+    </div>
+  </body>
+</html>

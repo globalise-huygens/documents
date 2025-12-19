@@ -1,0 +1,6 @@
+Flask==3.1.2
+SQLAlchemy==2.0.45
+Werkzeug==3.1.4
+pandas==2.3.3
+lxml==6.0.2
+unidecode==1.4.0

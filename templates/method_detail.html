@@ -1,0 +1,133 @@
+{% extends "base.html" %} {% block title %}{{ method.name }} - Document
+Identification Method{% endblock %} {% block content %}
+<h1>{{ method.name }}</h1>
+
+<div class="card">
+  <h2>Method Information</h2>
+  <form action="/method/{{ method.id }}/edit" method="post" class="form-grid">
+    <div class="form-group">
+      <label for="name">Name *</label>
+      <input
+        type="text"
+        id="name"
+        name="name"
+        value="{{ method.name }}"
+        required
+      />
+    </div>
+
+    <div class="form-group">
+      <label for="date">Date (YYYY-MM-DD)</label>
+      <input
+        type="text"
+        id="date"
+        name="date"
+        value="{{ method.date if method.date else '' }}"
+        placeholder="2025-01-01"
+      />
+    </div>
+
+    <div class="form-group">
+      <label for="url">URL</label>
+      <input
+        type="url"
+        id="url"
+        name="url"
+        value="{{ method.url if method.url else '' }}"
+        placeholder="https://"
+      />
+    </div>
+
+    <div class="form-group" style="grid-column: 1 / -1">
+      <label for="description">Description</label>
+      <textarea id="description" name="description" rows="4">
+{{ method.description if method.description else '' }}</textarea
+      >
+    </div>
+
+    <div class="form-group" style="grid-column: 1 / -1">
+      <label>Total Documents</label>
+      <p style="margin: 0; font-weight: 600">{{ total_docs }}</p>
+    </div>
+
+    <div
+      class="form-actions"
+      style="
+        grid-column: 1 / -1;
+        text-align: right;
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.5rem;
+      "
+    >
+      <button type="submit" class="btn btn-primary">Save</button>
+    </div>
+  </form>
+
+  <form
+    action="/method/{{ method.id }}/delete"
+    method="post"
+    style="margin-top: 0.5rem; text-align: right"
+  >
+    <button
+      type="submit"
+      class="btn"
+      style="background: #ffe5e0; border-color: #ff9f84"
+    >
+      Delete
+    </button>
+  </form>
+</div>
+
+{% if documents %}
+<div class="card">
+  <h2>Documents Using This Method</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Title</th>
+        <th>Inventory</th>
+        <th>Date</th>
+        <th>Pages</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for doc in documents %}
+      <tr>
+        <td>
+          <a href="/document/{{ doc.id }}"
+            >{{ doc.title if doc.title else 'Untitled Document' }}</a
+          >
+        </td>
+        <td>
+          <a href="/inventory/{{ doc.inventory.id }}"
+            >{{ doc.inventory.inventory_number }}</a
+          >
+        </td>
+        <td>{{ doc|date_range }}</td>
+        <td>{{ doc.number_of_pages }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if total_pages > 1 %}
+  <div class="pagination">
+    {% if page > 1 %}
+    <a href="?page=1">First</a>
+    <a href="?page={{ page - 1 }}">Previous</a>
+    {% endif %} {% for p in range(1, total_pages + 1) %} {% if p == page %}
+    <span class="current">{{ p }}</span>
+    {% elif p <= 3 or p > total_pages - 3 or (p >= page - 2 and p <= page + 2)
+    %}
+    <a href="?page={{ p }}">{{ p }}</a>
+    {% elif p == 4 or p == total_pages - 3 %}
+    <span>...</span>
+    {% endif %} {% endfor %} {% if page < total_pages %}
+    <a href="?page={{ page + 1 }}">Next</a>
+    <a href="?page={{ total_pages }}">Last</a>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endif %} {% endblock %}

@@ -1,0 +1,93 @@
+{% extends "base.html" %} {% block title %}Document Identification Methods -
+GLOBALISE Documents{% endblock %} {% block content %}
+<h1>Document Identification Methods</h1>
+
+<div class="card" style="margin-bottom: 1.5rem">
+  <div
+    style="
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.75rem;
+    "
+  >
+    <h2 style="margin: 0">Add Method</h2>
+    <button
+      type="button"
+      class="btn"
+      style="
+        background: var(--coral);
+        color: var(--white);
+        border-color: var(--coral);
+      "
+      onclick="const f = document.getElementById('add-method-form'); f.hidden = !f.hidden; this.textContent = f.hidden ? 'Show form' : 'Hide form';"
+    >
+      Show form
+    </button>
+  </div>
+  <div style="margin-top: 1rem" id="add-method-form" hidden>
+    <form action="/methods/new" method="post" class="form-grid">
+      <div class="form-group">
+        <label for="name">Name *</label>
+        <input type="text" id="name" name="name" required />
+      </div>
+      <div class="form-group">
+        <label for="date">Date (YYYY-MM-DD)</label>
+        <input type="text" id="date" name="date" placeholder="2025-01-01" />
+      </div>
+      <div class="form-group">
+        <label for="url">URL</label>
+        <input type="url" id="url" name="url" placeholder="https://" />
+      </div>
+      <div class="form-group" style="grid-column: 1 / -1">
+        <label for="description">Description</label>
+        <textarea id="description" name="description" rows="3"></textarea>
+      </div>
+      <div class="form-actions" style="grid-column: 1 / -1; text-align: right">
+        <button type="submit" class="btn btn-primary">Add Method</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Date</th>
+      <th>Description</th>
+      <th>Documents</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for method in methods %}
+    <tr>
+      <td><a href="/method/{{ method.id }}">{{ method.name }}</a></td>
+      <td>{{ method.date if method.date else 'N/A' }}</td>
+      <td>
+        {{ method.description[:100] if method.description else 'N/A' }}{% if
+        method.description and method.description|length > 100 %}...{% endif %}
+      </td>
+      <td>{{ method.documents|length if method.documents else 0 }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if total_pages > 1 %}
+<div class="pagination">
+  {% if page > 1 %}
+  <a href="?page=1">First</a>
+  <a href="?page={{ page - 1 }}">Previous</a>
+  {% endif %} {% for p in range(1, total_pages + 1) %} {% if p == page %}
+  <span class="current">{{ p }}</span>
+  {% elif p <= 3 or p > total_pages - 3 or (p >= page - 2 and p <= page + 2) %}
+  <a href="?page={{ p }}">{{ p }}</a>
+  {% elif p == 4 or p == total_pages - 3 %}
+  <span>...</span>
+  {% endif %} {% endfor %} {% if page < total_pages %}
+  <a href="?page={{ page + 1 }}">Next</a>
+  <a href="?page={{ total_pages }}">Last</a>
+  {% endif %}
+</div>
+{% endif %} {% endblock %}

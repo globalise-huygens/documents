@@ -1,0 +1,144 @@
+{% extends "base.html" %} {% block title %}Page Details - GLOBALISE Documents{%
+endblock %} {% block content %}
+<h1>Page Details</h1>
+
+<div class="card">
+  <h2>Page Information</h2>
+  <div class="info-row">
+    <strong>Inventory:</strong>
+    <span>
+      {% if page.inventory %}
+      <a href="/inventory/{{ page.inventory.id }}"
+        >{{ page.inventory.inventory_number }}</a
+      >
+      {% else %} N/A {% endif %}
+    </span>
+  </div>
+  <div class="info-row">
+    <strong>Scan:</strong>
+    <span>
+      {% if page.scan %}
+      <a href="/scan/{{ page.scan.id }}">{{ page.scan.filename }}</a>
+      {% else %} N/A {% endif %}
+    </span>
+  </div>
+  <div class="info-row">
+    <strong>Folio Number:</strong>
+    <span
+      >{{ page.page_or_folio_number if page.page_or_folio_number else 'N/A'
+      }}</span
+    >
+  </div>
+  <div class="info-row">
+    <strong>Recto/Verso:</strong>
+    <span>{{ page.recto_verso.value if page.recto_verso else 'N/A' }}</span>
+  </div>
+  {% if page.header %}
+  <div class="info-row">
+    <strong>Header:</strong>
+    <span>{{ page.header }}</span>
+  </div>
+  {% endif %} {% if page.detected_languages %}
+  <div class="info-row">
+    <strong>Detected Languages:</strong>
+    <span>{{ page.detected_languages }}</span>
+  </div>
+  {% endif %} {% if page.signatures %}
+  <div class="info-row">
+    <strong>Signatures:</strong>
+    <span>{{ page.signatures }}</span>
+  </div>
+  {% endif %}
+  <div class="info-row">
+    <strong>Rotation:</strong>
+    <span>{{ page.rotation }}°</span>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Page Features</h2>
+  <div class="info-row">
+    <strong>Has Marginalia:</strong>
+    <span
+      >{{ 'Yes' if page.has_marginalia else 'No' if page.has_marginalia is not
+      none else 'Unknown' }}</span
+    >
+  </div>
+  <div class="info-row">
+    <strong>Has Table:</strong>
+    <span
+      >{{ 'Yes' if page.has_table else 'No' if page.has_table is not none else
+      'Unknown' }}</span
+    >
+  </div>
+  <div class="info-row">
+    <strong>Has Illustration:</strong>
+    <span
+      >{{ 'Yes' if page.has_illustration else 'No' if page.has_illustration is
+      not none else 'Unknown' }}</span
+    >
+  </div>
+  <div class="info-row">
+    <strong>Has Print:</strong>
+    <span
+      >{{ 'Yes' if page.has_print else 'No' if page.has_print is not none else
+      'Unknown' }}</span
+    >
+  </div>
+  <div class="info-row">
+    <strong>Is Blank:</strong>
+    <span
+      >{{ 'Yes' if page.is_blank else 'No' if page.is_blank is not none else
+      'Unknown' }}</span
+    >
+  </div>
+</div>
+
+{% if page.scan %}
+<div class="card">
+  <h2>Image Preview</h2>
+  <div style="text-align: center">
+    <img
+      src="{{ page.scan.get_image_url('800,') }}"
+      alt="Page image"
+      style="max-width: 100%; height: auto"
+    />
+  </div>
+  <p style="text-align: center; margin-top: 1rem">
+    <a href="{{ page.scan.get_image_url('full') }}" target="_blank"
+      >View full size image</a
+    >
+  </p>
+</div>
+{% endif %} {% if page_docs %}
+<div class="card">
+  <h2>Documents ({{ page_docs|length }})</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Title</th>
+        <th>Inventory</th>
+        <th>Page Index</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for page_doc in page_docs %}
+      <tr>
+        <td>
+          <a href="/document/{{ page_doc.document.id }}">
+            {{ page_doc.document.title if page_doc.document.title else
+            'Untitled' }}
+          </a>
+        </td>
+        <td>
+          <a href="/inventory/{{ page_doc.document.inventory.id }}">
+            {{ page_doc.document.inventory.inventory_number }}
+          </a>
+        </td>
+        <td>{{ page_doc.index }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %} {% endblock %}

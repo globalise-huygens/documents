@@ -1,0 +1,92 @@
+{% extends "base.html" %} {% block title %}Pages - GLOBALISE Documents{%
+endblock %} {% block content %}
+<h1>Pages</h1>
+
+{% if inventory_id %}
+<p><a href="/pages">View all pages</a></p>
+{% endif %}
+
+<table>
+  <thead>
+    <tr>
+      <th>Preview</th>
+      <th>Folio Number</th>
+      <th>Recto/Verso</th>
+      <th>Scan</th>
+      <th>Features</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for page in pages %}
+    <tr>
+      <td>
+        {% if page.scan %}
+        <a href="/page/{{ page.id }}">
+          <img
+            src="{{ page.scan.get_thumbnail_url() }}"
+            alt="Page preview"
+            style="max-width: 100px; height: auto"
+          />
+        </a>
+        {% else %} N/A {% endif %}
+      </td>
+      <td>
+        {{ page.page_or_folio_number if page.page_or_folio_number else 'N/A' }}
+      </td>
+      <td>{{ page.recto_verso.value if page.recto_verso else 'N/A' }}</td>
+      <td>
+        {% if page.scan %}
+        <a href="/scan/{{ page.scan.id }}">{{ page.scan.filename }}</a>
+        {% else %} N/A {% endif %}
+      </td>
+      <td>
+        {% if page.has_marginalia %}<span class="badge badge-success"
+          >Marginalia</span
+        >{% endif %} {% if page.has_table %}<span class="badge badge-success"
+          >Table</span
+        >{% endif %} {% if page.has_illustration %}<span
+          class="badge badge-success"
+          >Illustration</span
+        >{% endif %} {% if page.has_print %}<span class="badge badge-success"
+          >Print</span
+        >{% endif %} {% if page.is_blank %}<span class="badge badge-warning"
+          >Blank</span
+        >{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if total_pages > 1 %}
+<div class="pagination">
+  {% if page > 1 %}
+  <a
+    href="?page=1{% if inventory_id %}&inventory_id={{ inventory_id }}{% endif %}"
+    >First</a
+  >
+  <a
+    href="?page={{ page - 1 }}{% if inventory_id %}&inventory_id={{ inventory_id }}{% endif %}"
+    >Previous</a
+  >
+  {% endif %} {% for p in range(1, total_pages + 1) %} {% if p == page %}
+  <span class="current">{{ p }}</span>
+  {% elif p <= 3 or p > total_pages - 3 or (p >= page - 2 and p <= page + 2) %}
+  <a
+    href="?page={{ p }}{% if inventory_id %}&inventory_id={{ inventory_id }}{% endif %}"
+    >{{ p }}</a
+  >
+  {% elif p == 4 or p == total_pages - 3 %}
+  <span>...</span>
+  {% endif %} {% endfor %} {% if page < total_pages %}
+  <a
+    href="?page={{ page + 1 }}{% if inventory_id %}&inventory_id={{ inventory_id }}{% endif %}"
+    >Next</a
+  >
+  <a
+    href="?page={{ total_pages }}{% if inventory_id %}&inventory_id={{ inventory_id }}{% endif %}"
+    >Last</a
+  >
+  {% endif %}
+</div>
+{% endif %} {% endblock %}
