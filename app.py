@@ -4,6 +4,7 @@ Provides a web interface to browse inventories, documents, scans, and pages.
 """
 
 from flask import Flask, render_template, request, abort, Response, redirect, url_for
+from flask_cors import CORS
 from datetime import datetime
 from sqlalchemy import create_engine, desc, func, event
 from sqlalchemy.orm import sessionmaker, scoped_session
@@ -18,6 +19,7 @@ from models import (
     Series,
 )
 from export import (  # type: ignore[import-not-found]
+    inventory_to_manifest_jsonld,
     scan_to_jsonld,
     page_to_jsonld,
     document_physical_to_jsonld,
@@ -34,6 +36,10 @@ app.config["SECRET_KEY"] = os.environ.get(
 app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
     "DATABASE_URL", "sqlite:///globalise_documents.db"
 )
+
+# CORS
+
+CORS(app)
 
 # Initialize database
 engine = create_engine(app.config["SQLALCHEMY_DATABASE_URI"], echo=False)
@@ -533,6 +539,21 @@ def inventory_jsonld(inventory_id):
     db_session = Session()
     inventory = get_or_404(db_session.query(Inventory).filter_by(id=inventory_id))
     data = inventory_to_jsonld(inventory)
+    import json
+
+    return Response(
+        json.dumps(data, ensure_ascii=False, indent=2), mimetype="application/ld+json"
+    )
+
+
+@app.route("/inventory/<inventory_id>/manifest")
+def inventory_manifest(inventory_id):
+    db_session = Session()
+    inventory = get_or_404(db_session.query(Inventory).filter_by(id=inventory_id))
+
+    manifest_uri = request.url
+
+    data = inventory_to_manifest_jsonld(inventory, manifest_uri)
     import json
 
     return Response(
