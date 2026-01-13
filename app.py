@@ -285,14 +285,14 @@ def scans():
     )
 
 
-@app.route("/scan/<scan_id>")
-def scan_detail(scan_id):
+@app.route("/scan/<filename>")
+def scan_detail(filename):
     """Show details of a specific scan."""
     db_session = Session()
-    scan = get_or_404(db_session.query(Scan).filter_by(id=scan_id))
+    scan = get_or_404(db_session.query(Scan).filter_by(filename=filename))
 
     # Get pages for this scan
-    pages = db_session.query(Page).filter_by(scan_id=scan_id).all()
+    pages = db_session.query(Page).filter_by(scan_id=scan.id).all()
 
     return render_template("scan_detail.html", scan=scan, pages=pages)
 
@@ -500,10 +500,10 @@ def method_delete(method_id):
     return redirect(url_for("methods"))
 
 
-@app.route("/scan/<scan_id>/jsonld")
-def scan_jsonld(scan_id):
+@app.route("/scan/<filename>/jsonld")
+def scan_jsonld(filename):
     db_session = Session()
-    scan = get_or_404(db_session.query(Scan).filter_by(id=scan_id))
+    scan = get_or_404(db_session.query(Scan).filter_by(filename=filename))
     data = scan_to_jsonld(scan)
     import json
 

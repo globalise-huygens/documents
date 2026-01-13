@@ -75,7 +75,7 @@ endblock %} {% block content %}
   <div class="image-grid">
     {% for scan in results.scans %}
     <div class="image-item">
-      <a href="/scan/{{ scan.id }}">
+      <a href="/scan/{{ scan.filename }}">
         <img
           src="{{ scan.get_thumbnail_url() }}"
           alt="{{ scan.filename }}"

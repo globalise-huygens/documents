@@ -36,7 +36,7 @@ endblock %} {% block content %}
       <td>{{ page.recto_verso.value if page.recto_verso else 'N/A' }}</td>
       <td>
         {% if page.scan %}
-        <a href="/scan/{{ page.scan.id }}">{{ page.scan.filename }}</a>
+        <a href="/scan/{{ page.scan.filename }}">{{ page.scan.filename }}</a>
         {% else %} N/A {% endif %}
       </td>
       <td>
