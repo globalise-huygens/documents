@@ -37,7 +37,7 @@ endblock %} {% block content %}
           >
         </td>
         <td>
-          <a href="/inventory/{{ doc.inventory.id }}"
+          <a href="/inventory/{{ doc.inventory.inventory_number }}"
             >{{ doc.inventory.inventory_number }}</a
           >
         </td>
@@ -59,7 +59,7 @@ endblock %} {% block content %}
       {% for inv in results.inventories %}
       <tr>
         <td>
-          <a href="/inventory/{{ inv.id }}">{{ inv.inventory_number }}</a>
+          <a href="/inventory/{{ inv.inventory_number }}">{{ inv.inventory_number }}</a>
         </td>
         <td>
           {% if inv.date_start and inv.date_end %} {{ inv.date_start }} - {{

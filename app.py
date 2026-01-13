@@ -141,27 +141,29 @@ def inventories():
     )
 
 
-@app.route("/inventory/<inventory_id>")
-def inventory_detail(inventory_id):
+@app.route("/inventory/<inventory_number>")
+def inventory_detail(inventory_number):
     """Show details of a specific inventory."""
     db_session = Session()
-    inventory = get_or_404(db_session.query(Inventory).filter_by(id=inventory_id))
+    inventory = get_or_404(
+        db_session.query(Inventory).filter_by(inventory_number=inventory_number)
+    )
 
     # Get documents in this inventory
-    documents = db_session.query(Document).filter_by(inventory_id=inventory_id).all()
+    documents = db_session.query(Document).filter_by(inventory_id=inventory.id).all()
 
     # Get scans in this inventory
     scans = (
         db_session.query(Scan)
-        .filter_by(inventory_id=inventory_id)
+        .filter_by(inventory_id=inventory.id)
         .order_by(Scan.filename)
         .limit(50)
         .all()
     )
-    scan_count = db_session.query(Scan).filter_by(inventory_id=inventory_id).count()
+    scan_count = db_session.query(Scan).filter_by(inventory_id=inventory.id).count()
 
     # Get pages in this inventory
-    page_count = db_session.query(Page).filter_by(inventory_id=inventory_id).count()
+    page_count = db_session.query(Page).filter_by(inventory_id=inventory.id).count()
 
     # Build series paths (breadcrumbs) for this inventory
     # Path goes from root (biggest) to leaf (most specific)

@@ -8,7 +8,7 @@ endblock %} {% block content %}
     <strong>Inventory:</strong>
     <span>
       {% if page.inventory %}
-      <a href="/inventory/{{ page.inventory.id }}"
+      <a href="/inventory/{{ page.inventory.inventory_number }}"
         >{{ page.inventory.inventory_number }}</a
       >
       {% else %} N/A {% endif %}
@@ -131,7 +131,7 @@ endblock %} {% block content %}
           </a>
         </td>
         <td>
-          <a href="/inventory/{{ page_doc.document.inventory.id }}">
+          <a href="/inventory/{{ page_doc.document.inventory.inventory_number }}">
             {{ page_doc.document.inventory.inventory_number }}
           </a>
         </td>
