@@ -48,11 +48,12 @@ Place the following files in the `data/` directory:
 3. **page_metadata.csv** - Page-level metadata including folio numbers and scan types
 4. **page_metadata_new_inventories.csv** - Page metadata for newly added inventories
 5. **inventory2dates.json** - Date ranges for each inventory
-6. **inventory2handle.json** - Handle URLs for inventories
-7. **inventory2titles.json** - Titles for inventories
-8. **inventory2uuid.json** - UUID mappings for inventories
-9. **inventories.json** - Complete inventory information
-10. **archival_hierarchy.json** - Archival series and hierarchy structure
+6. **inventory2dates_extra.json** - Extra dates missing in EAD for inventories
+7. **inventory2handle.json** - Handle URLs for inventories
+8. **inventory2titles.json** - Titles for inventories
+9. **inventory2uuid.json** - UUID mappings for inventories
+10. **inventories.json** - Complete inventory information
+11. **archival_hierarchy.json** - Archival series and hierarchy structure
 
 Your `data/` directory should look like:
 
@@ -63,6 +64,7 @@ data/
 ├── page_metadata.csv
 ├── page_metadata_new_inventories.csv
 ├── inventory2dates.json
+├── inventory2dates_extra.json
 ├── inventory2handle.json
 ├── inventory2titles.json
 ├── inventory2uuid.json

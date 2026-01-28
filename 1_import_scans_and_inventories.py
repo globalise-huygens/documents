@@ -111,6 +111,12 @@ def main():
     with open(os.path.join(data_dir, "inventory2dates.json")) as f:
         inventory2dates = json.load(f)
 
+    with open(os.path.join(data_dir, "inventory2dates_extra.json")) as f:
+        inventory2dates_extra = json.load(f)
+
+    # Merge extra dates into main dates dictionary and overwrite existing entries
+    inventory2dates.update(inventory2dates_extra)
+
     with open(os.path.join(data_dir, "inventory2handle.json")) as f:
         inventory2handle = json.load(f)
 
@@ -361,6 +367,7 @@ if __name__ == "__main__":
         "documents_for_django.csv",
         "documents_for_django_2025.csv",  # <-- new inventories
         "inventory2dates.json",
+        "inventory2dates_extra.json",  # <-- missing dates
         "inventory2handle.json",
         "inventory2titles.json",
     ]
