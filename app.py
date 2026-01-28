@@ -26,6 +26,7 @@ from export import (  # type: ignore[import-not-found]
     inventory_to_jsonld,
     series_to_jsonld,
 )
+import json
 import os
 
 # Initialize Flask app
@@ -505,7 +506,6 @@ def scan_jsonld(filename):
     db_session = Session()
     scan = get_or_404(db_session.query(Scan).filter_by(filename=filename))
     data = scan_to_jsonld(scan)
-    import json
 
     return Response(
         json.dumps(data, ensure_ascii=False, indent=2), mimetype="application/ld+json"
@@ -517,7 +517,6 @@ def page_jsonld(page_id):
     db_session = Session()
     page = get_or_404(db_session.query(Page).filter_by(id=page_id))
     data = page_to_jsonld(page)
-    import json
 
     return Response(
         json.dumps(data, ensure_ascii=False, indent=2), mimetype="application/ld+json"
@@ -529,34 +528,35 @@ def document_physical_jsonld(document_id):
     db_session = Session()
     document = get_or_404(db_session.query(Document).filter_by(id=document_id))
     data = document_physical_to_jsonld(document)
-    import json
 
     return Response(
         json.dumps(data, ensure_ascii=False, indent=2), mimetype="application/ld+json"
     )
 
 
-@app.route("/inventory/<inventory_id>/jsonld")
-def inventory_jsonld(inventory_id):
+@app.route("/inventory/<inventory_number>/jsonld")
+def inventory_jsonld(inventory_number):
     db_session = Session()
-    inventory = get_or_404(db_session.query(Inventory).filter_by(id=inventory_id))
+    inventory = get_or_404(
+        db_session.query(Inventory).filter_by(inventory_number=inventory_number)
+    )
     data = inventory_to_jsonld(inventory)
-    import json
 
     return Response(
         json.dumps(data, ensure_ascii=False, indent=2), mimetype="application/ld+json"
     )
 
 
-@app.route("/inventory/<inventory_id>/manifest")
-def inventory_manifest(inventory_id):
+@app.route("/inventory/<inventory_number>/manifest")
+def inventory_manifest(inventory_number):
     db_session = Session()
-    inventory = get_or_404(db_session.query(Inventory).filter_by(id=inventory_id))
+    inventory = get_or_404(
+        db_session.query(Inventory).filter_by(inventory_number=inventory_number)
+    )
 
     manifest_uri = request.url
 
     data = inventory_to_manifest_jsonld(inventory, manifest_uri)
-    import json
 
     return Response(
         json.dumps(data, ensure_ascii=False, indent=2), mimetype="application/ld+json"
@@ -568,7 +568,6 @@ def series_jsonld(series_id):
     db_session = Session()
     series = get_or_404(db_session.query(Series).filter_by(id=series_id))
     data = series_to_jsonld(series)
-    import json
 
     return Response(
         json.dumps(data, ensure_ascii=False, indent=2), mimetype="application/ld+json"
