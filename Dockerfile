@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install Python dependencies
 COPY requirements.txt ./
 RUN pip install --no-cache-dir --upgrade pip \
- && pip install --no-cache-dir -r requirements.txt gunicorn
+ && pip install --no-cache-dir -r requirements.txt waitress
 
 # Copy application code
 COPY . .
@@ -29,5 +29,5 @@ USER appuser
 
 EXPOSE 8000
 
-# Gunicorn entrypoint
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "app:app"]
+# Waitress entrypoint
+CMD ["waitress-serve", "--host=0.0.0.0", "--port=8000", "app:app"]
