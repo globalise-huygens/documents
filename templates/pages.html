@@ -26,6 +26,7 @@ endblock %} {% block content %}
             src="{{ page.scan.get_thumbnail_url() }}"
             alt="Page preview"
             style="max-width: 100px; height: auto"
+            loading="lazy"
           />
         </a>
         {% else %} N/A {% endif %}

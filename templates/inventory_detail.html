@@ -174,7 +174,7 @@ GLOBALISE Documents{% endblock %}
 <div class="card">
   <h2>Document Identification Timeline</h2>
   <p>
-    This visualization shows how different identification methods detected documents across <b>{{ timeline_data.total_pages }}</b> sequential pages in this inventory.
+    This visualization shows how different identification methods detected documents across <b>{{ timeline_data.total_pages - 1 }}</b> sequential pages in this inventory.
     Each row represents a different identification method, and each bar represents a document.
   </p>
   <div id="timeline-container"></div>
@@ -203,31 +203,7 @@ GLOBALISE Documents{% endblock %}
     orientation: 'top',
     selectable: true,
     multiselect: false,
-    showCurrentTime: false,
-    format: {
-      minorLabels: {
-        millisecond:'SSS',
-        second:     's',
-        minute:     'HH:mm',
-        hour:       'HH:mm',
-        weekday:    'ddd D',
-        day:        'D',
-        week:       'w',
-        month:      'MMM',
-        year:       'YYYY'
-      },
-      majorLabels: {
-        millisecond:'HH:mm:ss',
-        second:     'D MMMM HH:mm',
-        minute:     'ddd D MMMM',
-        hour:       'ddd D MMMM',
-        weekday:    'MMMM YYYY',
-        day:        'MMMM YYYY',
-        week:       'MMMM YYYY',
-        month:      'YYYY',
-        year:       ''
-      }
-    },
+    showCurrentTime: false,    
     xss: {
       disabled: false,
       filterOptions: {
@@ -238,7 +214,8 @@ GLOBALISE Documents{% endblock %}
       followMouse: true,
       overflowMethod: 'cap'
     },
-    timeAxis: {scale: 'millisecond', step: 1}
+    timeAxis: {scale: 'millisecond', step: 1},
+    showMajorLabels: false,
   };
   
   // Create the Timeline

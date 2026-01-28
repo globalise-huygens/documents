@@ -50,6 +50,7 @@ Documents{% endblock %} {% block content %}
       src="{{ scan.get_image_url('800,') }}"
       alt="{{ scan.filename }}"
       style="max-width: 100%; height: auto"
+      loading="lazy"
     />
   </div>
   <p style="text-align: center; margin-top: 1rem">
