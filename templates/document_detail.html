@@ -27,6 +27,22 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}
     <span>{{ document.number_of_pages }}</span>
   </div>
   <div class="info-row">
+    <strong>Start Scan:</strong>
+    <span>
+      {% if first_scan_filename %}
+      <a href="/scan/{{ first_scan_filename }}">{{ first_scan_filename }}</a>
+      {% else %} N/A {% endif %}
+    </span>
+  </div>
+  <div class="info-row">
+    <strong>End Scan:</strong>
+    <span>
+      {% if last_scan_filename %}
+      <a href="/scan/{{ last_scan_filename }}">{{ last_scan_filename }}</a>
+      {% else %} N/A {% endif %}
+    </span>
+  </div>
+  <div class="info-row">
     <strong>Identification Method:</strong>
     <span>
       {{ document.method.name if document.method else 'N/A' }} {% if

@@ -117,9 +117,27 @@ This script:
 - Updates inventory records with series information
 - Expected runtime: 1-2 minutes
 
+### Step 4: Identify Documents (Optional)
+
+```bash
+uv run python 4_identify_documents_baseline.py
+```
+
+This script implements a baseline document identification method for early modern archival documents:
+
+- Creates a document identification method record
+- Skips empty pages at the beginning of inventories (covers, archival covers)
+- Identifies document boundaries based on:
+  - Empty page sequences (is_blank=True)
+  - Pages with signatures (indicating document end)
+- Creates Document records and links them to pages
+- Expected runtime: Varies based on inventory size
+
+**Note:** This is a baseline implementation. More sophisticated document identification methods can be added as additional scripts that create different DocumentIdentificationMethod records.
+
 ### Verify Database
 
-After running all three scripts, you should have a populated `globalise_documents.db` file.
+After running the import scripts, you should have a populated `globalise_documents.db` file.
 
 ## Running the Application
 
@@ -166,6 +184,7 @@ The application uses SQLite with the following main tables:
 - **Scan** - Digital scans with IIIF URLs
 - **Page** - Individual pages with folio numbers and metadata
 - **Document** - Document records with date ranges
+- **DocumentIdentificationMethod** - Methods used to identify documents
 - **Page2Document** - Many-to-many relationships between pages and documents
 
 ## Development
@@ -181,6 +200,7 @@ documents/
 ├── 1_import_scans_and_inventories.py # Import script (step 1)
 ├── 2_import_pages.py # Import script (step 2)
 ├── 3_import_hierarchy.py # Import script (step 3)
+├── 4_identify_documents_baseline.py # Document identification (baseline method)
 ├── requirements.txt # Python dependencies (for pip)
 ├── pyproject.toml # UV/project configuration
 ├── data/ # Data files (not in repo)

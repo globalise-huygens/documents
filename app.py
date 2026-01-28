@@ -150,8 +150,36 @@ def inventory_detail(inventory_number):
         db_session.query(Inventory).filter_by(inventory_number=inventory_number)
     )
 
-    # Get documents in this inventory
+    # Get documents in this inventory with scan information
     documents = db_session.query(Document).filter_by(inventory_id=inventory.id).all()
+
+    # Add scan filename information to each document
+    for doc in documents:
+        if doc.pages:
+            # Sort pages by index to get first and last
+            sorted_pages = sorted(doc.pages, key=lambda p: p.index)
+            if sorted_pages:
+                first_page = (
+                    db_session.query(Page).filter_by(id=sorted_pages[0].page_id).first()
+                )
+                last_page = (
+                    db_session.query(Page)
+                    .filter_by(id=sorted_pages[-1].page_id)
+                    .first()
+                )
+
+                doc.first_scan_filename = (
+                    first_page.scan.filename if first_page and first_page.scan else None
+                )
+                doc.last_scan_filename = (
+                    last_page.scan.filename if last_page and last_page.scan else None
+                )
+            else:
+                doc.first_scan_filename = None
+                doc.last_scan_filename = None
+        else:
+            doc.first_scan_filename = None
+            doc.last_scan_filename = None
 
     # Get scans in this inventory
     scans = (
@@ -162,6 +190,49 @@ def inventory_detail(inventory_number):
         .all()
     )
     scan_count = db_session.query(Scan).filter_by(inventory_id=inventory.id).count()
+
+    # Add detailed page information for each scan
+    for scan in scans:
+        pages_on_scan = (
+            db_session.query(Page)
+            .filter_by(scan_id=scan.id)
+            .order_by(
+                Page.recto_verso.desc()  # Verso (V) before Recto (R) alphabetically
+            )
+            .all()
+        )
+
+        scan.pages_info = []
+        for page in pages_on_scan:
+            # Get features for this page
+            features = []
+            if page.is_blank:
+                features.append("Blank")
+            if page.has_marginalia:
+                features.append("Marginalia")
+            if page.has_table:
+                features.append("Table")
+            if page.has_illustration:
+                features.append("Illustration")
+            if page.has_print:
+                features.append("Print")
+            if page.signatures:
+                features.append("Signature")
+
+            # Check if page is part of any document
+            is_in_document = (
+                db_session.query(Page2Document).filter_by(page_id=page.id).first()
+                is not None
+            )
+
+            scan.pages_info.append(
+                {
+                    "page": page,
+                    "features": ", ".join(features) if features else "No features",
+                    "recto_verso": page.recto_verso.value if page.recto_verso else None,
+                    "is_in_document": is_in_document,
+                }
+            )
 
     # Get pages in this inventory
     page_count = db_session.query(Page).filter_by(inventory_id=inventory.id).count()
@@ -181,6 +252,9 @@ def inventory_detail(inventory_number):
         for s in inventory.member_of_series:
             series_paths.append(build_series_path(s))
 
+    # Prepare timeline data for document identification visualization
+    timeline_data = prepare_timeline_data(db_session, inventory.id)
+
     return render_template(
         "inventory_detail.html",
         inventory=inventory,
@@ -189,7 +263,89 @@ def inventory_detail(inventory_number):
         scan_count=scan_count,
         page_count=page_count,
         series_paths=series_paths,
+        timeline_data=timeline_data,
     )
+
+
+def prepare_timeline_data(db_session, inventory_id):
+    """
+    Prepare data for vis.js timeline visualization of document identification methods.
+
+    Returns a dictionary with:
+    - groups: list of identification methods
+    - items: list of documents with their page ranges
+    """
+    from sqlalchemy import func
+
+    # Get all pages for this inventory, ordered by scan filename and page id
+    pages = (
+        db_session.query(Page)
+        .filter(Page.inventory_id == inventory_id)
+        .join(Scan)
+        .order_by(Scan.filename, Page.id)
+        .all()
+    )
+
+    if not pages:
+        return {"groups": [], "items": []}
+
+    # Create page index mapping
+    page_to_index = {page.id: idx for idx, page in enumerate(pages)}
+
+    # Get all documents for this inventory grouped by method
+    documents = (
+        db_session.query(Document)
+        .filter(Document.inventory_id == inventory_id)
+        .join(DocumentIdentificationMethod)
+        .all()
+    )
+
+    # Build groups (one per identification method)
+    methods = {}
+    for doc in documents:
+        if doc.method_id not in methods:
+            methods[doc.method_id] = {
+                "id": doc.method_id,
+                "content": doc.method.name,
+                "order": len(methods),
+            }
+
+    groups = list(methods.values())
+
+    # Build items (one per document)
+    items = []
+    for doc in documents:
+        # Get page indices for this document
+        if doc.pages:
+            page_indices = [
+                page_to_index[p.page_id]
+                for p in doc.pages
+                if p.page_id in page_to_index
+            ]
+            if page_indices:
+                start_idx = min(page_indices)
+                end_idx = max(page_indices)
+
+                items.append(
+                    {
+                        "id": doc.id,
+                        "group": doc.method_id,
+                        "start": start_idx + 1,  # Shift to 1-based for display
+                        "end": end_idx + 2,  # vis.js uses exclusive end, +2 for 1-based
+                        "content": (
+                            doc.title
+                            if doc.title
+                            else f"Document ({len(page_indices)} pages)"
+                        ),
+                        "title": f"{doc.method.name}: {doc.title if doc.title else 'Untitled'}<br>Pages: {start_idx+1}-{end_idx+1}",
+                    }
+                )
+
+    return {
+        "groups": groups,
+        "items": items,
+        "total_pages": len(pages) + 1,  # +1 for 1-based display range
+    }
 
 
 @app.route("/documents")
@@ -229,25 +385,53 @@ def documents():
 @app.route("/document/<document_id>")
 def document_detail(document_id):
     """Show details of a specific document."""
+    from sqlalchemy import case
+
     db_session = Session()
     document = get_or_404(db_session.query(Document).filter_by(id=document_id))
 
-    # Get pages for this document (ordered by index)
+    # Get pages for this document
+    # Order by scan filename, then by recto_verso (Verso before Recto for double spreads)
+    # For double page spreads: verso (left) comes before recto (right)
     page_docs = (
         db_session.query(Page2Document)
-        .filter_by(document_id=document_id)
-        .order_by(Page2Document.index)
+        .join(Page)
+        .join(Scan)
+        .filter(Page2Document.document_id == document_id)
+        .order_by(
+            Scan.filename,
+            case(
+                (Page.recto_verso == "Verso", 1),
+                (Page.recto_verso == "Recto", 2),
+                else_=3,
+            ),
+            Page.id,
+        )
         .all()
     )
 
     # Get sub-documents
     sub_documents = db_session.query(Document).filter_by(part_of_id=document_id).all()
 
+    # Add scan filename information
+    first_scan_filename = None
+    last_scan_filename = None
+    if page_docs:
+        first_page = db_session.query(Page).filter_by(id=page_docs[0].page_id).first()
+        last_page = db_session.query(Page).filter_by(id=page_docs[-1].page_id).first()
+
+        if first_page and first_page.scan:
+            first_scan_filename = first_page.scan.filename
+        if last_page and last_page.scan:
+            last_scan_filename = last_page.scan.filename
+
     return render_template(
         "document_detail.html",
         document=document,
         page_docs=page_docs,
         sub_documents=sub_documents,
+        first_scan_filename=first_scan_filename,
+        last_scan_filename=last_scan_filename,
     )
 
 
@@ -313,9 +497,8 @@ def pages():
     if inventory_id:
         page_query = page_query.filter(Page.inventory_id == inventory_id)
 
-    # Order by scan_id instead of joining to scan table for filename
-    # This is much faster - we can still display scan info via the relationship
-    page_query = page_query.order_by(Page.scan_id)
+    # Order by scan filename and page id
+    page_query = page_query.join(Scan).order_by(Scan.filename, Page.id)
 
     # Use faster count on indexed column without joins
     total = db_session.query(func.count(Page.id))
@@ -345,7 +528,37 @@ def page_detail(page_id):
     # Get documents for this page
     page_docs = db_session.query(Page2Document).filter_by(page_id=page_id).all()
 
-    return render_template("page_detail.html", page=page, page_docs=page_docs)
+    # Get previous and next pages in the same inventory
+    prev_page = None
+    next_page = None
+
+    if page.inventory_id:
+        # Get all pages in this inventory ordered by scan filename and page id
+        all_pages = (
+            db_session.query(Page)
+            .filter(Page.inventory_id == page.inventory_id)
+            .join(Scan)
+            .order_by(Scan.filename, Page.id)
+            .all()
+        )
+
+        # Find current page index
+        try:
+            current_index = next(i for i, p in enumerate(all_pages) if p.id == page.id)
+            if current_index > 0:
+                prev_page = all_pages[current_index - 1]
+            if current_index < len(all_pages) - 1:
+                next_page = all_pages[current_index + 1]
+        except StopIteration:
+            pass
+
+    return render_template(
+        "page_detail.html",
+        page=page,
+        page_docs=page_docs,
+        prev_page=prev_page,
+        next_page=next_page,
+    )
 
 
 @app.route("/search")

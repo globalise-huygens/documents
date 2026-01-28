@@ -2,6 +2,34 @@
 endblock %} {% block content %}
 <h1>Page Details</h1>
 
+<div style="margin-bottom: 1rem; display: flex; gap: 1rem; align-items: center">
+  {% if prev_page %}
+  <a
+    href="/page/{{ prev_page.id }}"
+    class="button"
+    style="text-decoration: none"
+  >
+    ← Previous Page
+  </a>
+  {% else %}
+  <span class="button" style="opacity: 0.5; cursor: not-allowed">
+    ← Previous Page
+  </span>
+  {% endif %} {% if next_page %}
+  <a
+    href="/page/{{ next_page.id }}"
+    class="button"
+    style="text-decoration: none"
+  >
+    Next Page →
+  </a>
+  {% else %}
+  <span class="button" style="opacity: 0.5; cursor: not-allowed">
+    Next Page →
+  </span>
+  {% endif %}
+</div>
+
 <div class="card">
   <h2>Page Information</h2>
   <div class="info-row">
@@ -33,22 +61,20 @@ endblock %} {% block content %}
     <strong>Recto/Verso:</strong>
     <span>{{ page.recto_verso.value if page.recto_verso else 'N/A' }}</span>
   </div>
-  {% if page.header %}
   <div class="info-row">
     <strong>Header:</strong>
-    <span>{{ page.header }}</span>
+    <span>{{ page.header if page.header else 'N/A' }}</span>
   </div>
-  {% endif %} {% if page.detected_languages %}
   <div class="info-row">
-    <strong>Detected Languages:</strong>
-    <span>{{ page.detected_languages }}</span>
+    <strong>Languages:</strong>
+    <span
+      >{{ page.detected_languages if page.detected_languages else 'N/A' }}</span
+    >
   </div>
-  {% endif %} {% if page.signatures %}
   <div class="info-row">
     <strong>Signatures:</strong>
-    <span>{{ page.signatures }}</span>
+    <span>{{ page.signatures if page.signatures else 'N/A' }}</span>
   </div>
-  {% endif %}
   <div class="info-row">
     <strong>Rotation:</strong>
     <span>{{ page.rotation }}°</span>
@@ -131,7 +157,9 @@ endblock %} {% block content %}
           </a>
         </td>
         <td>
-          <a href="/inventory/{{ page_doc.document.inventory.inventory_number }}">
+          <a
+            href="/inventory/{{ page_doc.document.inventory.inventory_number }}"
+          >
             {{ page_doc.document.inventory.inventory_number }}
           </a>
         </td>

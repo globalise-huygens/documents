@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -10,6 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
+    {% block extra_head %}{% endblock %}
     <style>
       * {
         margin: 0;
@@ -17,8 +18,9 @@
         box-sizing: border-box;
       }
       :root {
-        --font-sans: "Noto Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
-          Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        --font-sans:
+          "Noto Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Oxygen, Ubuntu, Cantarell, sans-serif;
         --mint: #bfeeca;
         --ink: #1d1c1a;
         --blue: #bde6fe;
@@ -201,8 +203,11 @@
           var(--lilac),
           var(--blue)
         );
-        mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-        -webkit-mask: linear-gradient(#000 0 0) content-box,
+        mask:
+          linear-gradient(#000 0 0) content-box,
+          linear-gradient(#000 0 0);
+        -webkit-mask:
+          linear-gradient(#000 0 0) content-box,
           linear-gradient(#000 0 0);
         -webkit-mask-composite: xor;
         mask-composite: exclude;
@@ -386,7 +391,10 @@
         color: var(--ink);
         text-decoration: none;
         box-shadow: var(--shadow);
-        transition: background 0.2s, color 0.2s, transform 0.1s;
+        transition:
+          background 0.2s,
+          color 0.2s,
+          transform 0.1s;
       }
       .btn:hover {
         transform: translateY(-1px);
