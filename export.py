@@ -492,7 +492,7 @@ def inventory_to_jsonld(inventory) -> Dict[str, Any]:
                             # }
                             inventory_to_manifest_jsonld(
                                 inventory,
-                                manifest_uri=f"https://data.globalise.huygens.nl/iiif/inventory/{inventory.inventory_number}/manifest",
+                                manifest_uri=f"https://data.globalise.huygens.nl/hdl:20.500.14722/inventory:{inventory.inventory_number}.manifest",
                             )
                         ],
                         "conforms_to": [
@@ -572,7 +572,7 @@ def inventory_to_manifest_jsonld(inventory, manifest_uri: str) -> Dict[str, Any]
         # Sort scans by filename for consistent ordering
         sorted_scans = sorted(inventory.scans, key=lambda s: s.filename or "")
         for scan in sorted_scans:
-            canvas_id = f"{manifest_uri}/canvas/{scan.id}"
+            canvas_id = f"https://data.globalise.huygens.nl/hdl:20.500.14722/canvas:{scan.filename}"
             # Determine recto/verso from related pages, if present
             rv_label = None
             if getattr(scan, "pages", None):
@@ -620,11 +620,11 @@ def inventory_to_manifest_jsonld(inventory, manifest_uri: str) -> Dict[str, Any]
                 ],
                 "items": [
                     {
-                        "id": f"{canvas_id}/annotation_page/1",
+                        "id": f"https://data.globalise.huygens.nl/hdl:20.500.14722/annotations:painting:{scan.filename}",
                         "type": "AnnotationPage",
                         "items": [
                             {
-                                "id": f"{canvas_id}/annotation/1",
+                                "id": f"https://data.globalise.huygens.nl/hdl:20.500.14722/annotations:painting:{scan.filename}#annotation:1",
                                 "type": "Annotation",
                                 "motivation": "painting",
                                 "body": {
@@ -696,6 +696,167 @@ def inventory_to_manifest_jsonld(inventory, manifest_uri: str) -> Dict[str, Any]
                 ]
 
     # Add Range for each Document in Inventory
-    # TODO
+    # Create IIIF Presentation 3.0 structures (ranges) for navigation
+    if getattr(inventory, "documents", None):
+        # Create a top-level Range for table of contents
+        top_range: Dict[str, Any] = {
+            "id": f"https://data.globalise.huygens.nl/hdl:20.500.14722/inventory:{inventory.inventory_number}.manifest/range/top",
+            "type": "Range",
+            "label": {"en": ["Table of Contents"], "nl": ["Inhoudsopgave"]},
+            "items": [],
+        }
+
+        # Sort documents by their first page index to maintain order
+        def get_first_page_index(doc):
+            """Get the index of the first page in a document for sorting."""
+            if doc.pages:
+                return min(p.index for p in doc.pages)
+            return float("inf")
+
+        # Only process top-level documents (those without a parent)
+        top_level_docs = [doc for doc in inventory.documents if doc.part_of_id is None]
+        sorted_docs = sorted(top_level_docs, key=get_first_page_index)
+
+        def create_document_range(doc, doc_index=None):
+            """Create a Range for a document and its subdocuments recursively."""
+            # Create range ID with optional index for uniqueness
+            range_id_suffix = f"doc-{doc.id}"
+            if doc_index is not None:
+                range_id_suffix = f"doc-{doc_index}-{doc.id[:8]}"
+
+            # Determine label from title or ID
+            if doc.title:
+                label_text = doc.title
+            else:
+                label_text = f"Document {doc.id[:8]}"
+
+            doc_range: Dict[str, Any] = {
+                "id": f"https://data.globalise.huygens.nl/hdl:20.500.14722/inventory:{inventory.inventory_number}.manifest/range/{range_id_suffix}",
+                "type": "Range",
+                "label": {"en": [label_text]},
+                "metadata": [],
+                "items": [],
+            }
+
+            # Add metadata to the range
+            # Title
+            if doc.title:
+                doc_range["metadata"].append(
+                    {
+                        "label": {"en": ["Title"]},
+                        "value": {"en": [doc.title]},
+                    }
+                )
+
+            # Date
+            if doc.date_text:
+                doc_range["metadata"].append(
+                    {
+                        "label": {"en": ["Date"]},
+                        "value": {"none": [doc.date_text]},
+                    }
+                )
+            elif doc.date_earliest_begin or doc.date_latest_end:
+                date_str = ""
+                if doc.date_earliest_begin and doc.date_latest_end:
+                    date_str = f"{doc.date_earliest_begin} / {doc.date_latest_end}"
+                elif doc.date_earliest_begin:
+                    date_str = str(doc.date_earliest_begin)
+                elif doc.date_latest_end:
+                    date_str = str(doc.date_latest_end)
+                if date_str:
+                    doc_range["metadata"].append(
+                        {
+                            "label": {"en": ["Date"]},
+                            "value": {"none": [date_str]},
+                        }
+                    )
+
+            # Type (from document_types)
+            if doc.document_types:
+                for doc_type in doc.document_types:
+                    doc_range["metadata"].append(
+                        {
+                            "label": {"en": ["Type"]},
+                            "value": {"none": [doc_type.document_type]},
+                        }
+                    )
+
+            # Inventory number
+            doc_range["metadata"].append(
+                {
+                    "label": {"en": ["Inventory number"]},
+                    "value": {"none": [inventory.inventory_number]},
+                }
+            )
+
+            # External IDs (TANAP-id, etc.)
+            if doc.external_ids:
+                for ext_id_link in doc.external_ids:
+                    ext = ext_id_link.external
+                    if ext.context and ext.identifier:
+                        # Add with context label (e.g., "TANAP-id")
+                        label_text = (
+                            "TANAP-id"
+                            if ext.context.upper() == "TANAP"
+                            else f"{ext.context} ID"
+                        )
+                        doc_range["metadata"].append(
+                            {
+                                "label": {"en": [label_text]},
+                                "value": {"none": [ext.identifier]},
+                            }
+                        )
+
+            # Document UUID identifier
+            doc_range["metadata"].append(
+                {
+                    "label": {"en": ["Identifier"]},
+                    "value": {"none": [doc.id]},
+                }
+            )
+
+            # Check if this document has subdocuments
+            has_subdocuments = bool(
+                getattr(doc, "sub_documents", None) and len(doc.sub_documents) > 0
+            )
+
+            if has_subdocuments:
+                # If it has subdocuments, add them as nested ranges
+                sorted_subdocs = sorted(doc.sub_documents, key=get_first_page_index)
+                for subdoc_idx, subdoc in enumerate(sorted_subdocs):
+                    subdoc_range = create_document_range(
+                        subdoc, doc_index=f"{range_id_suffix}-sub{subdoc_idx}"
+                    )
+                    doc_range["items"].append(subdoc_range)
+            else:
+                # No subdocuments, add canvas references for this document's pages
+                if doc.pages:
+                    # Sort pages by index
+                    sorted_page_links = sorted(doc.pages, key=lambda p: p.index)
+                    # Track seen canvas IDs to avoid duplicates (2 pages can share 1 scan)
+                    seen_canvas_ids = set()
+                    for link in sorted_page_links:
+                        page = link.page
+                        if page.scan:
+                            # Reference the canvas by scan identifier
+                            canvas_id = f"https://data.globalise.huygens.nl/hdl:20.500.14722/canvas:{page.scan.filename}"
+                            # Only add if not already in the list
+                            if canvas_id not in seen_canvas_ids:
+                                seen_canvas_ids.add(canvas_id)
+                                doc_range["items"].append(
+                                    {"id": canvas_id, "type": "Canvas"}
+                                )
+
+            return doc_range
+
+        # Create ranges for all top-level documents
+        for idx, doc in enumerate(sorted_docs):
+            doc_range = create_document_range(doc, doc_index=idx)
+            top_range["items"].append(doc_range)
+
+        # Add structures to manifest
+        if top_range["items"]:
+            manifest["structures"] = [top_range]
 
     return manifest
