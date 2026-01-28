@@ -22,8 +22,5 @@ COPY . .
 
 EXPOSE 8000
 
-# Set Python path to include the app directory
-ENV PYTHONPATH=/app:${PYTHONPATH}
-
-# Gunicorn entrypoint
-CMD ["gunicorn", "-b", "0.0.0.0:8000", "app:app"]
+# Gunicorn entrypoint with explicit working directory
+CMD ["gunicorn", "--chdir", "/app", "-b", "0.0.0.0:8000", "app:app"]
