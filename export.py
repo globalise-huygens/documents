@@ -115,11 +115,7 @@ def page_to_jsonld(page) -> Dict[str, Any]:
     # Shallow reference to the associated Scan (if present)
     scan_ref = None
     if page.scan is not None:
-        scan_ref = {
-            "id": f"urn:uuid:{page.scan.id}",
-            "type": "DigitalObject",
-            "_label": f"Scan {page.scan.filename}",
-        }
+        scan_ref = scan_to_jsonld(page.scan)
 
     return {
         "@context": "https://linked.art/ns/v1/linked-art.json",
@@ -230,13 +226,61 @@ def document_physical_to_jsonld(document) -> Dict[str, Any]:
                 label = f"Page {pg.page_or_folio_number}"
             else:
                 label = f"Physical Page {pg.id[:8]}"
-            parts.append(
-                {
-                    "id": f"https://data.globalise.huygens.nl/hdl:20.500.14722/document/{document.id}-physical/page/{pg.id}",
-                    "type": "PhysicalHumanMadeThing",
-                    "_label": label,
-                }
-            )
+
+            # Determine recto/verso classification
+            if pg.recto_verso == RectoVerso.RECTO:
+                classification_id = "http://vocab.getty.edu/aat/300078817"  # Recto
+                recto_verso_label = "Recto"
+            elif pg.recto_verso == RectoVerso.VERSO:
+                classification_id = "http://vocab.getty.edu/aat/300010292"  # Verso
+                recto_verso_label = "Verso"
+            else:
+                classification_id = (
+                    "http://vocab.getty.edu/aat/300241583"  # Generic part
+                )
+                recto_verso_label = "Page"
+
+            # Build scan reference if available
+            scan_ref = None
+            if pg.scan:
+                scan_ref = scan_to_jsonld(pg.scan)
+
+            # Create detailed part with carries and shows
+            part: Dict[str, Any] = {
+                "id": f"https://data.globalise.huygens.nl/hdl:20.500.14722/document/{document.id}-physical/page/{pg.id}",
+                "type": "PhysicalHumanMadeThing",
+                "_label": label,
+                "classified_as": {
+                    "id": classification_id,
+                    "type": "Type",
+                    "_label": recto_verso_label,
+                    "classified_as": [
+                        {
+                            "id": "http://vocab.getty.edu/aat/300241583",
+                            "type": "Type",
+                            "_label": "Part Type",
+                        }
+                    ],
+                },
+                "carries": {
+                    "id": None,  # TODO: reference PageXML/text resource when available
+                    "type": "LinguisticObject",
+                    "_label": "Textual content of the page",
+                    "digitally_carried_by": {
+                        "id": None,  # TODO: reference PageXML service
+                        "type": "DigitalObject",
+                        "_label": "PageXML + Plain Text",
+                    },
+                },
+                "shows": {
+                    "id": None,  # TODO: reference visual item when available
+                    "type": "VisualItem",
+                    "_label": "Visual depiction of the page.",
+                    "digitally_shown_by": scan_ref,
+                },
+            }
+
+            parts.append(part)
 
     subject_of = {
         "id": f"https://globalise.huygens.knaw.nl/document/{document.id}",
@@ -391,17 +435,13 @@ def inventory_to_jsonld(inventory) -> Dict[str, Any]:
         },
     }
 
-    # Parts: physical documents within inventory (conceptual documents -> physical id pattern)
+    # Parts: physical documents within inventory with full structure (pages as parts)
     parts: List[Dict[str, Any]] = []
     if getattr(inventory, "documents", None):
         for doc in inventory.documents[:100]:  # limit to avoid huge payloads
-            parts.append(
-                {
-                    "id": f"https://data.globalise.huygens.nl/hdl:20.500.14722/document/{doc.id}-physical",
-                    "type": "PhysicalHumanMadeThing",
-                    "_label": f"Physical Document {doc.id[:8]}",
-                }
-            )
+            # Get the full document structure with pages as parts
+            doc_jsonld = document_physical_to_jsonld(doc)
+            parts.append(doc_jsonld)
 
     equivalent = inventory.handle if getattr(inventory, "handle", None) else None
 
