@@ -43,7 +43,7 @@ class Series(Base):
     )
     title: Mapped[str] = mapped_column(Text)
     part_of_id: Mapped[Optional[str]] = mapped_column(
-        String(36), ForeignKey("series.id")
+        String(36), ForeignKey("series.id"), index=True
     )
 
     # Relationships
@@ -73,7 +73,7 @@ class Inventory(Base):
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
-    inventory_number: Mapped[str] = mapped_column(String(10))
+    inventory_number: Mapped[str] = mapped_column(String(10), index=True, unique=True)
     na_identifier: Mapped[Optional[str]] = mapped_column(String(36))
     handle: Mapped[Optional[str]] = mapped_column(String(255))
     date_start: Mapped[Optional[Date]] = mapped_column(DateType)
@@ -106,7 +106,9 @@ class InventoryTitle(Base):
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
     title: Mapped[str] = mapped_column(Text)
-    inventory_id: Mapped[str] = mapped_column(String(36), ForeignKey("inventory.id"))
+    inventory_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("inventory.id"), index=True
+    )
 
     # Relationships
     inventory: Mapped["Inventory"] = relationship("Inventory", back_populates="titles")
@@ -147,21 +149,23 @@ class Document(Base):
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
-    inventory_id: Mapped[str] = mapped_column(String(36), ForeignKey("inventory.id"))
+    inventory_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("inventory.id"), index=True
+    )
     title: Mapped[Optional[str]] = mapped_column(Text)
-    date_earliest_begin: Mapped[Optional[Date]] = mapped_column(DateType)
+    date_earliest_begin: Mapped[Optional[Date]] = mapped_column(DateType, index=True)
     date_latest_begin: Mapped[Optional[Date]] = mapped_column(DateType)
     date_earliest_end: Mapped[Optional[Date]] = mapped_column(DateType)
     date_latest_end: Mapped[Optional[Date]] = mapped_column(DateType)
     date_text: Mapped[Optional[str]] = mapped_column(Text)
     part_of_id: Mapped[Optional[str]] = mapped_column(
-        String(36), ForeignKey("document.id")
+        String(36), ForeignKey("document.id"), index=True
     )
     location_id: Mapped[Optional[str]] = mapped_column(
         String(36)
     )  # Simplified - no Location table
     method_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("document_identification_method.id")
+        String(36), ForeignKey("document_identification_method.id"), index=True
     )
 
     # Relationships
@@ -212,7 +216,9 @@ class Document2Type(Base):
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
-    document_id: Mapped[str] = mapped_column(String(36), ForeignKey("document.id"))
+    document_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("document.id"), index=True
+    )
     document_type: Mapped[str] = mapped_column(String(255))
 
     # Relationships
@@ -255,8 +261,12 @@ class Document2ExternalID(Base):
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
-    document_id: Mapped[str] = mapped_column(String(36), ForeignKey("document.id"))
-    external_id: Mapped[str] = mapped_column(String(36), ForeignKey("external_id.id"))
+    document_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("document.id"), index=True
+    )
+    external_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("external_id.id"), index=True
+    )
 
     # Relationships
     document: Mapped["Document"] = relationship(
