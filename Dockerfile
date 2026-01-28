@@ -20,7 +20,14 @@ RUN pip install --no-cache-dir --upgrade pip \
 # Copy application code
 COPY . .
 
+# Create non-root user
+RUN groupadd -r appuser && useradd -r -g appuser appuser \
+ && chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
+
 EXPOSE 8000
 
-# Gunicorn entrypoint with explicit working directory
-CMD ["gunicorn", "--chdir", "/app", "-b", "0.0.0.0:8000", "app:app"]
+# Gunicorn entrypoint
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "app:app"]
