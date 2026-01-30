@@ -76,6 +76,27 @@ GLOBALISE Documents{% endblock %}
     font-style: italic;
     font-size: 0.9em;
   }
+  
+  .hierarchy-icon {
+    display: inline-block;
+    margin-right: 0.4rem;
+    font-size: 1.1em;
+    vertical-align: middle;
+  }
+  
+  .series-hierarchy ul {
+    list-style: none;
+    padding-left: 1.5rem;
+  }
+  
+  .series-hierarchy > ul {
+    padding-left: 0;
+  }
+  
+  .series-hierarchy li {
+    margin: 0.5rem 0;
+    line-height: 1.8;
+  }
 </style>
 {% endblock %}
 
@@ -128,18 +149,32 @@ GLOBALISE Documents{% endblock %}
 
 {% if series_paths %}
 <div class="card">
-  <h2>Series Membership</h2>
+  <h2>Archival Hierarchy</h2>
   <div class="series-hierarchy">
     {% for path in series_paths %}
       {% if path %}
         <ul>
           {% for node in path %}
             <li>
+              {% if loop.first %}
+                <span class="hierarchy-icon">🗃️</span>
+              {% else %}
+                <span class="hierarchy-icon">📁</span>
+              {% endif %}
               {{ node.title }}
               {% if not loop.last %}
                 <ul>
               {% endif %}
           {% endfor %}
+          {# Add the inventory as the last child of the deepest series #}
+                  <ul>
+                    <li>
+                      <span class="hierarchy-icon">📚</span> <strong>{{ inventory.inventory_number }}</strong>
+                      {% if inventory.titles %}
+                        - {{ inventory.titles[0].title }}
+                      {% endif %}
+                    </li>
+                  </ul>
           {% for node in path %}
             {% if not loop.first %}
                 </ul>
