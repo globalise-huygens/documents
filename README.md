@@ -69,6 +69,7 @@ data/
 ├── inventory2titles.json
 ├── inventory2uuid.json
 ├── inventories.json
+├── overview_general_missives.csv
 └── archival_hierarchy.json
 ```
 
@@ -145,6 +146,15 @@ python 5_import_document_types.py --ttl /path/to/thesaurus.ttl --database sqlite
 
 This script looks for document types in a `pp_project_globalisethesaurus.ttl` file and adds their UUID, the English and Dutch preflabels and whether it is a GLOBALISE or TANAP document type.
 
+
+### Step 8: Add General Missives documents
+
+```bash
+uv run python 8_import_GM.py [--dry-run]
+```
+
+Uses the Ground Truth for General Missives to add documents. Requires the file `overview_general_missives.csv` to be in data folder.
+
 ### Verify Database
 
 After running the import scripts, you should have a populated `globalise_documents.db` file.
@@ -211,6 +221,9 @@ documents/
 ├── 2_import_pages.py # Import script (step 2)
 ├── 3_import_hierarchy.py # Import script (step 3)
 ├── 4_identify_documents_baseline.py # Document identification (baseline method)
+├── 5_import_document_types.py
+├── 6_import_obp_index.py
+├── 8_import_GM.py
 ├── requirements.txt # Python dependencies (for pip)
 ├── pyproject.toml # UV/project configuration
 ├── data/ # Data files (not in repo)
