@@ -24,7 +24,7 @@ endblock %} {% block content %}
       <th>Title</th>
       <th>Inventory</th>
       <th>Date</th>
-      <th>Type</th>
+      <th>Folios</th>
       <th>Pages</th>
       <th>Method</th>
     </tr>
@@ -44,16 +44,11 @@ endblock %} {% block content %}
       </td>
       <td>{{ doc|date_range }}</td>
       <td>
-        {% for dt in doc.document_types %}
-        <a
-          href="/document-type/{{ dt.document_type.id }}"
-          class="badge badge-primary"
-          style="text-decoration: none; font-size: 0.8em"
-        >
-          {{ dt.document_type.pref_label_en or dt.document_type.pref_label_nl or
-          dt.document_type.id }}
-        </a>
-        {% endfor %}
+        {% if doc.folio_start is not none %}
+          <span class="folio-range">
+            {{ doc.folio_start }}{% if doc.folio_end is not none and doc.folio_end != doc.folio_start %} – {{ doc.folio_end }}{% endif %}
+          </span>
+        {% else %}—{% endif %}
       </td>
       <td>{{ doc.number_of_pages }}</td>
       <td>{{ doc.method.name if doc.method else 'N/A' }}</td>

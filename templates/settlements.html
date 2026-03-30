@@ -1,0 +1,74 @@
+{% extends "base.html" %} {% block title %}Settlements - GLOBALISE Documents{% endblock %} {% block content %}
+<h1>Settlements</h1>
+<p>Canonical settlement entities imported from <code>location_index.csv</code> (step 6). Each entry may have multiple label variants; the primary label is shown first.</p>
+
+<div class="search-box">
+  <form method="get" action="/settlements">
+    <input
+      type="text"
+      name="search"
+      placeholder="Search by settlement name or GLOB ID…"
+      value="{{ search }}"
+      autofocus
+    />
+  </form>
+</div>
+
+{% if search %}
+<p>Showing results for: <strong>{{ search }}</strong></p>
+{% endif %}
+
+<table>
+  <thead>
+    <tr>
+      <th>Primary Name</th>
+      <th>Alternate Names</th>
+      <th>GLOB ID</th>
+      <th>Documents</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for s in settlements %}
+    <tr>
+      <td>
+        <a href="/settlement/{{ s.glob_id }}">
+          {{ s.labels[0].label if s.labels else s.glob_id }}
+        </a>
+      </td>
+      <td class="text-muted">
+        {% set alts = s.labels[1:] %}
+        {% if alts %}{{ alts | map(attribute='label') | join(', ') }}{% else %}—{% endif %}
+      </td>
+      <td><code>{{ s.glob_id }}</code></td>
+      <td>{{ s.documents | length }}</td>
+    </tr>
+    {% else %}
+    <tr>
+      <td colspan="4">No settlements found. Run script 6 to import settlement data.</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if total_pages > 1 %}
+<div class="pagination">
+  {% if page > 1 %}
+  <a href="?page=1{% if search %}&search={{ search }}{% endif %}">First</a>
+  <a href="?page={{ page - 1 }}{% if search %}&search={{ search }}{% endif %}">Previous</a>
+  {% endif %}
+  {% for p in range(1, total_pages + 1) %}
+    {% if p == page %}
+    <span class="current">{{ p }}</span>
+    {% elif p <= 3 or p > total_pages - 3 or (p >= page - 2 and p <= page + 2) %}
+    <a href="?page={{ p }}{% if search %}&search={{ search }}{% endif %}">{{ p }}</a>
+    {% elif p == 4 or p == total_pages - 3 %}
+    <span>…</span>
+    {% endif %}
+  {% endfor %}
+  {% if page < total_pages %}
+  <a href="?page={{ page + 1 }}{% if search %}&search={{ search }}{% endif %}">Next</a>
+  <a href="?page={{ total_pages }}{% if search %}&search={{ search }}{% endif %}">Last</a>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

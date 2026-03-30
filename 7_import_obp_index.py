@@ -3,8 +3,8 @@
 Import GLOBALISE Digitized Indexes of the Dutch East India Company OBP (1602–1799)
 from the CSV spreadsheet into the SQLAlchemy database.
 
-This is import script #6 in the sequence. Scripts 1–5 must have been run first so
-that Inventory and DocumentType records already exist in the database.
+This is import script #7 in the sequence. Scripts 1–6 must have been run first so
+that Inventory, DocumentType, and Settlement records already exist in the database.
 
 Column mapping
 ──────────────
@@ -20,16 +20,26 @@ Mapped:
   ID                                   → ExternalID(context="OBP_INDEX")
   ID (TANAP)                           → ExternalID(context="TANAP")           [nullable]
   ID (DIGITIZED TYPOSCRIPTS)           → ExternalID(context="DIGITIZED TYPOSCRIPTS") [nullable]
+  SETTLEMENT                           → Document.location_id via SettlementLabel
+                                          lookup (script 6 must have run first);
+                                          left NULL when label is not in the table.
+  FOLIONUMBER (START OF DOCUMENT)      → Document.folio_start
+  FOLIONUMBER (END OF DOCUMENT)        → Document.folio_end
 
 Not mapped (no corresponding schema field):
   SECTION
   DOCUMENT TYPE (TANAP)                (legacy label column — superseded by URI columns)
-  FOLIONUMBER (START / END OF DOCUMENT)
   FOLIONUMBERS (AS THEY APPEAR IN TYPOSCRIPT)
   YEARS (ALL)
-  SETTLEMENT
   LOCATION (TANAP)
   GEOGRAPHICAL COVERAGE OF INV. NUMBER
+
+Settlement matching
+───────────────────
+The SETTLEMENT column value is matched case-insensitively against the label column
+of the settlement_label table.  If a match is found the corresponding settlement.id
+is stored in document.settlement_id.  Unmatched values are logged as warnings and
+the field is left NULL — no document row is skipped because of a missing settlement.
 """
 
 import os
@@ -62,7 +72,6 @@ engine = create_engine(DATABASE_URL, echo=False)
 Base.metadata.create_all(engine)
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-SHEET_NAME = "Digitized Indexes "
 METHOD_NAME = "TANAP Digitized Index"
 BATCH_SIZE = 5_000
 
@@ -71,6 +80,7 @@ CSV_PATH = os.path.join(
     "data",
     "globalise_digitized_indexes.csv",
 )
+
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -108,6 +118,16 @@ def int_or_none(value) -> Optional[str]:
         return None
 
 
+def int_field(value) -> Optional[int]:
+    """Return a Python int or None; safe against NaN and non-numeric values."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return None
+
+
 PLACEHOLDER_VALUES = {"#name", "-"}
 
 
@@ -129,11 +149,6 @@ def parse_type_uris(raw) -> list[str]:
 
     Leading/trailing whitespace is stripped from every entry.
     Segments that are not valid UUIDs are logged and skipped.
-
-    Example input:
-      "https://digitaalerfgoed.poolparty.biz/globalise/abc123; https://.../def456"
-    Returns:
-      ["<normalised-uuid-abc123>", "<normalised-uuid-def456>"]
     """
     if raw is None or (isinstance(raw, float) and pd.isna(raw)):
         return []
@@ -217,6 +232,32 @@ def preload_document_type_ids(session: Session) -> set[str]:
     return {row[0] for row in rows}
 
 
+def preload_settlement_labels(session: Session) -> dict[str, str]:
+    """
+    Return a case-insensitive label → settlement_id mapping.
+
+    Built from the settlement_label table populated by script 6.
+    When a label appears multiple times (shouldn't happen in practice)
+    the last encountered settlement_id wins — the import log will show a warning.
+    """
+    rows = session.execute(
+        text("SELECT sl.label, sl.settlement_id FROM settlement_label sl")
+    ).all()
+
+    mapping: dict[str, str] = {}
+    for label, settlement_id in rows:
+        key = label.strip().lower()
+        if key in mapping and mapping[key] != settlement_id:
+            logger.warning(
+                f"Duplicate settlement label '{label}' maps to multiple settlements; "
+                f"using settlement_id={settlement_id}."
+            )
+        mapping[key] = settlement_id
+
+    logger.info(f"Preloaded {len(mapping)} settlement labels.")
+    return mapping
+
+
 # ── core import ───────────────────────────────────────────────────────────────
 
 def load_csv() -> pd.DataFrame:
@@ -267,8 +308,19 @@ def main():
         known_type_ids = preload_document_type_ids(session)
         logger.info(f"Preloaded {len(known_type_ids):,} document types.")
 
+        # Preload settlement labels (script 6 must have run first)
+        settlement_labels = preload_settlement_labels(session)
+        if not settlement_labels:
+            logger.warning(
+                "No settlement labels found in the database. "
+                "Run script 6 (6_import_settlements.py) first to populate them. "
+                "Continuing import — all document.settlement_id fields will be NULL."
+            )
+
         missing_inventories: set[str] = set()
         unknown_type_ids: set[str] = set()
+        unmatched_settlements: set[str] = set()
+        matched_settlement_count = 0
 
         doc_rows: list[dict] = []
         doc_type_rows: list[dict] = []
@@ -289,6 +341,19 @@ def main():
                 missing_inventories.add(inv_number)
                 continue
 
+            # ── Settlement lookup ──────────────────────────────────────────────
+            settlement_id: Optional[str] = None
+            raw_settlement = row.get("SETTLEMENT")
+            if raw_settlement is not None and not (
+                isinstance(raw_settlement, float) and pd.isna(raw_settlement)
+            ):
+                settlement_label = str(raw_settlement).strip()
+                settlement_id = settlement_labels.get(settlement_label.lower())
+                if settlement_id:
+                    matched_settlement_count += 1
+                else:
+                    unmatched_settlements.add(settlement_label)
+
             doc_id = str(uuid.uuid4())
 
             doc_rows.append(
@@ -302,7 +367,9 @@ def main():
                     "date_latest_end": year_to_end(row.get("YEAR (LATEST)")),
                     "date_text": None,
                     "part_of_id": None,
-                    "location_id": None,
+                    "location_id": settlement_id,     # NULL when not found in settlement_label
+                    "folio_start": int_field(row.get("FOLIONUMBER (START OF DOCUMENT)")),
+                    "folio_end": int_field(row.get("FOLIONUMBER (END OF DOCUMENT)")),
                     "method_id": method_id,
                 }
             )
@@ -351,6 +418,7 @@ def main():
                     }
                 )
 
+        # ── Warnings ──────────────────────────────────────────────────────────
         if missing_inventories:
             logger.warning(
                 f"Skipped {len(missing_inventories)} row(s) — "
@@ -361,9 +429,18 @@ def main():
                 f"Skipped {len(unknown_type_ids)} document-type UUID(s) not found in "
                 f"document_type table (run script 5 first?): {sorted(unknown_type_ids)}"
             )
+        if unmatched_settlements:
+            logger.warning(
+                f"{len(unmatched_settlements)} SETTLEMENT value(s) from the CSV had no "
+                f"matching label in the settlement_label table — document.settlement_id "
+                f"left NULL for those rows. Unmatched values: "
+                f"{sorted(unmatched_settlements)}"
+            )
 
         logger.info(
-            f"Prepared {len(doc_rows):,} documents, "
+            f"Prepared {len(doc_rows):,} documents "
+            f"({matched_settlement_count:,} with settlement, "
+            f"{len(unmatched_settlements):,} unmatched), "
             f"{len(doc_type_rows):,} document-type links, "
             f"{len(ext_id_rows):,} external IDs"
         )
@@ -393,13 +470,13 @@ def main():
 if __name__ == "__main__":
 
     print("=" * 60)
-    print("GLOBALISE OBP Index Import  (script 6 of 6)")
+    print("GLOBALISE OBP Index Import  (script 7 of 7)")
     print("=" * 60)
     print(f"Source : {os.path.basename(CSV_PATH)}")
     print(f"DB     : {DATABASE_URL}")
     print(
-        "\nThis script requires scripts 1–5 to have been run first "
-        "(inventories, pages, hierarchy, baseline documents, document types)."
+        "\nThis script requires scripts 1–6 to have been run first "
+        "(inventories, pages, hierarchy, baseline documents, document types, settlements)."
     )
     print("=" * 60)
 

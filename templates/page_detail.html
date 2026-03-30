@@ -146,6 +146,8 @@ endblock %} {% block content %}
         <th>Title</th>
         <th>Inventory</th>
         <th>Page Index</th>
+        <th>Source</th>
+        <th>Confidence</th>
       </tr>
     </thead>
     <tbody>
@@ -165,6 +167,27 @@ endblock %} {% block content %}
           </a>
         </td>
         <td>{{ page_doc.index }}</td>
+        <td>
+          {% if page_doc.source == 'FOLIO_RANGE' %}
+            <span class="badge badge-primary">Folio range</span>
+          {% elif page_doc.source == 'BASELINE' %}
+            <span class="badge badge-secondary">Baseline</span>
+          {% else %}
+            <span class="badge">{{ page_doc.source }}</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if page_doc.confidence is not none %}
+            {% set pct = (page_doc.confidence * 100)|round|int %}
+            {% if page_doc.confidence >= 0.9 %}
+              <span class="badge badge-confidence high">{{ pct }}%</span>
+            {% elif page_doc.confidence >= 0.6 %}
+              <span class="badge badge-confidence medium">{{ pct }}%</span>
+            {% else %}
+              <span class="badge badge-confidence low">{{ pct }}%</span>
+            {% endif %}
+          {% else %}—{% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>

@@ -88,6 +88,7 @@ Identification Method{% endblock %} {% block content %}
         <th>Title</th>
         <th>Inventory</th>
         <th>Date</th>
+        <th>Folios</th>
         <th>Pages</th>
       </tr>
     </thead>
@@ -105,6 +106,13 @@ Identification Method{% endblock %} {% block content %}
           >
         </td>
         <td>{{ doc|date_range }}</td>
+        <td>
+          {% if doc.folio_start is not none %}
+            <span class="folio-range">
+              {{ doc.folio_start }}{% if doc.folio_end is not none and doc.folio_end != doc.folio_start %} – {{ doc.folio_end }}{% endif %}
+            </span>
+          {% else %}—{% endif %}
+        </td>
         <td>{{ doc.number_of_pages }}</td>
       </tr>
       {% endfor %}

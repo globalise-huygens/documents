@@ -50,6 +50,28 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}
       {% endif %}
     </span>
   </div>
+  {% if document.folio_start is not none %}
+  <div class="info-row">
+    <strong>Folio Range:</strong>
+    <span>
+      <span class="folio-range">
+        {{ document.folio_start }}{% if document.folio_end is not none and document.folio_end != document.folio_start %} – {{ document.folio_end }}{% endif %}
+      </span>
+    </span>
+  </div>
+  {% endif %}
+  {% if document.external_ids %}
+  <div class="info-row">
+    <strong>External IDs:</strong>
+    <span>
+      {% for link in document.external_ids %}
+        <span class="badge badge-secondary" title="{{ link.external.context }}">
+          {{ link.external.context }}: {{ link.external.identifier or link.external.URL }}
+        </span>
+      {% endfor %}
+    </span>
+  </div>
+  {% endif %}
   {% if document.part_of %}
   <div class="info-row">
     <strong>Part of:</strong>
@@ -60,10 +82,20 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}
       ></span
     >
   </div>
-  {% endif %} {% if document.location_id %}
+  {% endif %}
+  {% if document.location %}
   <div class="info-row">
-    <strong>Location:</strong>
-    <span>{{ document.location_id }}</span>
+    <strong>Settlement:</strong>
+    <span>
+      {% set labels = document.location.labels | map(attribute='label') | list %}
+      {{ labels[0] }}
+      {% if labels | length > 1 %}
+      <small style="color: var(--text-muted);">
+        (also: {{ labels[1:] | join(', ') }})
+      </small>
+      {% endif %}
+      <small style="color: var(--text-muted);">[{{ document.location.glob_id }}]</small>
+    </span>
   </div>
   {% endif %}
 </div>
@@ -113,26 +145,61 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}
 {% endif %} {% if page_docs %}
 <div class="card">
   <h2>Pages ({{ page_docs|length }})</h2>
-  <div class="image-grid">
-    {% for page_doc in page_docs %} {% if page_doc.page and page_doc.page.scan
-    %}
-    <div class="image-item">
-      <a href="/page/{{ page_doc.page.id }}">
-        <img
-          src="{{ page_doc.page.scan.get_thumbnail_url() }}"
-          alt="Page {{ page_doc.index }}"
-          loading="lazy"
-        />
-      </a>
-      <p>
-        <strong>Page {{ page_doc.index }}</strong><br />
-        {% if page_doc.page.page_or_folio_number %} Folio: {{
-        page_doc.page.page_or_folio_number }} {% endif %} {% if
-        page_doc.page.recto_verso %} ({{ page_doc.page.recto_verso.value }}) {%
-        endif %}
-      </p>
-    </div>
-    {% endif %} {% endfor %}
-  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Preview</th>
+        <th>Index</th>
+        <th>Folio</th>
+        <th>Recto/Verso</th>
+        <th>Source</th>
+        <th>Confidence</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for page_doc in page_docs %}{% if page_doc.page %}
+      <tr>
+        <td>
+          {% if page_doc.page.scan %}
+          <a href="/page/{{ page_doc.page.id }}">
+            <img src="{{ page_doc.page.scan.get_thumbnail_url() }}"
+                 alt="Page {{ page_doc.index }}"
+                 style="max-width:80px;height:auto;border-radius:4px"
+                 loading="lazy" />
+          </a>
+          {% else %}—{% endif %}
+        </td>
+        <td>{{ page_doc.index }}</td>
+        <td>
+          <a href="/page/{{ page_doc.page.id }}">
+            {{ page_doc.page.page_or_folio_number if page_doc.page.page_or_folio_number else '—' }}
+          </a>
+        </td>
+        <td>{{ page_doc.page.recto_verso.value if page_doc.page.recto_verso else '—' }}</td>
+        <td>
+          {% if page_doc.source == 'FOLIO_RANGE' %}
+            <span class="badge badge-primary">Folio range</span>
+          {% elif page_doc.source == 'BASELINE' %}
+            <span class="badge badge-secondary">Baseline</span>
+          {% else %}
+            <span class="badge">{{ page_doc.source }}</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if page_doc.confidence is not none %}
+            {% set pct = (page_doc.confidence * 100)|round|int %}
+            {% if page_doc.confidence >= 0.9 %}
+              <span class="badge badge-confidence high">{{ pct }}%</span>
+            {% elif page_doc.confidence >= 0.6 %}
+              <span class="badge badge-confidence medium">{{ pct }}%</span>
+            {% else %}
+              <span class="badge badge-confidence low">{{ pct }}%</span>
+            {% endif %}
+          {% else %}—{% endif %}
+        </td>
+      </tr>
+      {% endif %}{% endfor %}
+    </tbody>
+  </table>
 </div>
 {% endif %} {% endblock %}

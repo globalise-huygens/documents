@@ -1,7 +1,7 @@
 """
 SQLAlchemy models for the GLOBALISE document archive.
 
-Entities: Series, Inventory, Document, Scan, Page, DocumentType
+Entities: Series, Inventory, Document, Scan, Page, DocumentType, Settlement
 and the junction / helper tables that connect them.
 """
 
@@ -145,6 +145,78 @@ class DocumentIdentificationMethod(Base):
         return f"{self.name} ({self.date})" if self.date else self.name
 
 
+class Settlement(Base):
+    """
+    A canonical settlement entity drawn from location_index.csv.
+
+    Each Settlement has a unique GLOBALISE identifier (glob_id, e.g. 'GLOB2_894')
+    and one or more textual labels stored in SettlementLabel.  Multiple spelling
+    variants and alternative names all resolve to the same Settlement row.
+    """
+
+    __tablename__ = "settlement"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    glob_id: Mapped[str] = mapped_column(
+        String(64),
+        unique=True,
+        index=True,
+        comment="GLOBALISE identifier, e.g. GLOB2_894",
+    )
+
+    # Relationships
+    labels: Mapped[List["SettlementLabel"]] = relationship(
+        "SettlementLabel", back_populates="settlement", cascade="all, delete-orphan"
+    )
+    documents: Mapped[List["Document"]] = relationship(
+        "Document", back_populates="location"
+    )
+
+    def __repr__(self) -> str:
+        return f"<Settlement(glob_id='{self.glob_id}')>"
+
+    def __str__(self) -> str:
+        # Return the first label if available, otherwise the glob_id
+        if self.labels:
+            return self.labels[0].label
+        return self.glob_id
+
+
+class SettlementLabel(Base):
+    """
+    A textual label (name or spelling variant) for a Settlement.
+
+    One Settlement may have several SettlementLabel rows — for example
+    'Banjarmasin', 'Banjermassin', and 'Banjermassing' all belong to GLOB_523.
+    The label column is indexed to support fast lookup during OBP import.
+    """
+
+    __tablename__ = "settlement_label"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    label: Mapped[str] = mapped_column(
+        String(255), index=True, comment="Settlement name or spelling variant"
+    )
+    settlement_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("settlement.id"), index=True
+    )
+
+    # Relationships
+    settlement: Mapped["Settlement"] = relationship(
+        "Settlement", back_populates="labels"
+    )
+
+    def __repr__(self) -> str:
+        return f"<SettlementLabel(label='{self.label}', settlement_id='{self.settlement_id}')>"
+
+    def __str__(self) -> str:
+        return self.label
+
+
 class Document(Base):
     __tablename__ = "document"
 
@@ -164,8 +236,17 @@ class Document(Base):
         String(36), ForeignKey("document.id"), index=True
     )
     location_id: Mapped[Optional[str]] = mapped_column(
-        String(36)
-    )  # Simplified - no Location table
+        String(36), ForeignKey("settlement.id"), index=True,
+        comment="FK to Settlement; populated from location_index.csv via OBP import"
+    )
+    folio_start: Mapped[Optional[int]] = mapped_column(
+        Integer, index=True,
+        comment="First folio number of the document as recorded in the OBP index"
+    )
+    folio_end: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        comment="Last folio number of the document as recorded in the OBP index"
+    )
     method_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("document_identification_method.id"), index=True
     )
@@ -186,10 +267,15 @@ class Document(Base):
     sub_documents: Mapped[List["Document"]] = relationship(
         "Document", foreign_keys="Document.part_of_id", back_populates="part_of"
     )
-
-    document_types: Mapped[List["Document2DocumentType"]] = relationship(
-        "Document2DocumentType", back_populates="document", cascade="all, delete-orphan"
+    location: Mapped[Optional["Settlement"]] = relationship(
+        "Settlement", back_populates="documents"
     )
+    document_types: Mapped[List["Document2Type"]] = relationship(
+        "Document2Type", back_populates="document", cascade="all, delete-orphan"
+    )
+    document_types_linked: Mapped[List["Document2DocumentType"]] = relationship(
+        "Document2DocumentType", back_populates="document", cascade="all, delete-orphan"
+    )  # Links to DocumentType via Document2DocumentType
     external_ids: Mapped[List["Document2ExternalID"]] = relationship(
         "Document2ExternalID", back_populates="document", cascade="all, delete-orphan"
     )
@@ -211,6 +297,26 @@ class Document(Base):
             if self.title
             else f"Document {self.id}"
         )
+
+
+class Document2Type(Base):
+    __tablename__ = "document2type"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    document_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("document.id"), index=True
+    )
+    document_type: Mapped[str] = mapped_column(String(255))
+
+    # Relationships
+    document: Mapped["Document"] = relationship(
+        "Document", back_populates="document_types"
+    )
+
+    def __repr__(self):
+        return f"<Document2Type(type='{self.document_type}')>"
 
 
 class ExternalID(Base):
@@ -299,7 +405,8 @@ class Document2DocumentType(Base):
     """
     Junction table linking a Document to a DocumentType concept from the thesaurus.
 
-    Links a Document to a DocumentType concept from the SKOS thesaurus.
+    Replaces the legacy free-text Document2Type for cases where a structured
+    URI-based type is available (TANAP or GLOBALISE concept schemes).
     """
 
     __tablename__ = "document2documenttype"
@@ -316,7 +423,7 @@ class Document2DocumentType(Base):
 
     # Relationships
     document: Mapped["Document"] = relationship(
-        "Document", back_populates="document_types"
+        "Document", back_populates="document_types_linked"
     )
     document_type: Mapped["DocumentType"] = relationship(
         "DocumentType", back_populates="document_links"
@@ -350,7 +457,9 @@ class Scan(Base):
     )
     height: Mapped[int] = mapped_column(Integer)
     width: Mapped[int] = mapped_column(Integer)
-    scan_type: Mapped[Optional[PageType]] = mapped_column(SQLEnum(PageType))
+    scan_type: Mapped[Optional[PageType]] = mapped_column(
+        SQLEnum(PageType, values_callable=lambda obj: [e.value for e in obj])
+    )
 
     # Relationships
     inventory: Mapped["Inventory"] = relationship("Inventory", back_populates="scans")
@@ -389,7 +498,9 @@ class Page(Base):
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
     page_or_folio_number: Mapped[Optional[str]] = mapped_column(String(255))
-    recto_verso: Mapped[Optional[RectoVerso]] = mapped_column(SQLEnum(RectoVerso))
+    recto_verso: Mapped[Optional[RectoVerso]] = mapped_column(
+        SQLEnum(RectoVerso, values_callable=lambda obj: [e.name for e in obj])
+    )
     header: Mapped[Optional[str]] = mapped_column(Text)
     inventory_id: Mapped[Optional[str]] = mapped_column(
         String(36), ForeignKey("inventory.id"), index=True
@@ -437,10 +548,24 @@ class Page2Document(Base):
         String(36), ForeignKey("document.id"), index=True
     )
     index: Mapped[int] = mapped_column(Integer)
+    source: Mapped[str] = mapped_column(
+        String(32),
+        default="BASELINE",
+        server_default="BASELINE",
+        comment="How this page-document link was established: BASELINE or FOLIO_RANGE",
+    )
+    confidence: Mapped[float] = mapped_column(
+        default=1.0,
+        server_default="1.0",
+        comment="Confidence of the link: 1.0 = definitive (BASELINE), 0.0-1.0 = indicative",
+    )
 
     # Relationships
     page: Mapped["Page"] = relationship("Page", back_populates="documents")
     document: Mapped["Document"] = relationship("Document", back_populates="pages")
 
     def __repr__(self):
-        return f"<Page2Document(page_id='{self.page_id}', document_id='{self.document_id}', index={self.index})>"
+        return (
+            f"<Page2Document(page_id='{self.page_id}', document_id='{self.document_id}', "
+            f"index={self.index}, source='{self.source}', confidence={self.confidence})>"
+        )

@@ -19,6 +19,8 @@ from models import (
     Page,
     Page2Document,
     Series,
+    Settlement,
+    SettlementLabel,
 )
 from export import (  # type: ignore[import-not-found]
     inventory_to_manifest_jsonld,
@@ -375,7 +377,7 @@ def documents():
     total = doc_query.count()
     documents_list = (
         doc_query.options(
-            joinedload(Document.document_types).joinedload(
+            joinedload(Document.document_types_linked).joinedload(
                 Document2DocumentType.document_type
             ),
         )
@@ -405,7 +407,7 @@ def document_detail(document_id):
     document = get_or_404(
         db_session.query(Document)
         .options(
-            joinedload(Document.document_types).joinedload(
+            joinedload(Document.document_types_linked).joinedload(
                 Document2DocumentType.document_type
             ),
         )
@@ -583,9 +585,70 @@ def page_detail(page_id):
     )
 
 
+@app.route("/settlements")
+def settlements():
+    """List all canonical settlements imported from location_index.csv (step 6)."""
+    db_session = Session()
+    page = request.args.get("page", 1, type=int)
+    per_page = 50
+    search = request.args.get("search", "").strip()
+
+    q = db_session.query(Settlement)
+
+    if search:
+        # Match against glob_id or any of the settlement's labels
+        q = q.filter(
+            Settlement.glob_id.ilike(f"%{search}%")
+            | Settlement.labels.any(SettlementLabel.label.ilike(f"%{search}%"))
+        )
+
+    q = q.order_by(Settlement.glob_id)
+    total = q.count()
+    settlements_list = q.offset((page - 1) * per_page).limit(per_page).all()
+    total_pages = (total + per_page - 1) // per_page
+
+    return render_template(
+        "settlements.html",
+        settlements=settlements_list,
+        page=page,
+        total_pages=total_pages,
+        search=search,
+    )
+
+
+@app.route("/settlement/<glob_id>")
+def settlement_detail(glob_id):
+    """Show details and linked documents for a single settlement."""
+    db_session = Session()
+    settlement = get_or_404(
+        db_session.query(Settlement).filter_by(glob_id=glob_id)
+    )
+
+    page = request.args.get("page", 1, type=int)
+    per_page = 20
+
+    doc_query = (
+        db_session.query(Document)
+        .filter_by(location_id=settlement.id)
+        .order_by(Document.date_earliest_begin)
+    )
+    total = doc_query.count()
+    documents = doc_query.offset((page - 1) * per_page).limit(per_page).all()
+    total_pages = (total + per_page - 1) // per_page
+
+    return render_template(
+        "settlement_detail.html",
+        settlement=settlement,
+        documents=documents,
+        page=page,
+        total_pages=total_pages,
+        total_docs=total,
+    )
+
+
 @app.route("/search")
 def search():
-    """Global search across documents, inventories, and scans."""
+    """Global search across documents, inventories, scans, and settlements."""
     db_session = Session()
     query = request.args.get("q", "").strip()
 
@@ -613,7 +676,23 @@ def search():
         db_session.query(Scan).filter(Scan.filename.ilike(f"%{query}%")).limit(20).all()
     )
 
-    results = {"documents": docs, "inventories": invs, "scans": scans_list}
+    # Search in settlements (glob_id or any label)
+    settlement_list = (
+        db_session.query(Settlement)
+        .filter(
+            Settlement.glob_id.ilike(f"%{query}%")
+            | Settlement.labels.any(SettlementLabel.label.ilike(f"%{query}%"))
+        )
+        .limit(20)
+        .all()
+    )
+
+    results = {
+        "documents": docs,
+        "inventories": invs,
+        "scans": scans_list,
+        "settlements": settlement_list,
+    }
 
     return render_template("search.html", query=query, results=results)
 
@@ -799,7 +878,7 @@ def document_type_detail(type_id):
     total = doc_query.count()
     documents = (
         doc_query.options(
-            joinedload(Document.document_types).joinedload(
+            joinedload(Document.document_types_linked).joinedload(
                 Document2DocumentType.document_type
             ),
         )

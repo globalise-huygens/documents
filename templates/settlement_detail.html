@@ -1,24 +1,22 @@
-{% extends "base.html" %} {% block title %}{{ doc_type.pref_label_en or doc_type.pref_label_nl }} - GLOBALISE Documents{% endblock %} {% block content %}
+{% extends "base.html" %} {% block title %}{{ settlement.labels[0].label if settlement.labels else settlement.glob_id }} - GLOBALISE Documents{% endblock %} {% block content %}
 
-<h1>{{ doc_type.pref_label_en or doc_type.pref_label_nl or doc_type.id }}</h1>
+<h1>{{ settlement.labels[0].label if settlement.labels else settlement.glob_id }}</h1>
+
+<p><a href="/settlements">← Back to all settlements</a></p>
 
 <div class="card">
-  <h2>Type Information</h2>
+  <h2>Settlement Information</h2>
   <div class="info-row">
-    <strong>Scheme:</strong>
-    <span><span class="badge badge-primary">{{ doc_type.scheme }}</span></span>
+    <strong>GLOB ID:</strong>
+    <span><code>{{ settlement.glob_id }}</code></span>
   </div>
   <div class="info-row">
-    <strong>English Label:</strong>
-    <span>{{ doc_type.pref_label_en if doc_type.pref_label_en else '—' }}</span>
-  </div>
-  <div class="info-row">
-    <strong>Dutch Label:</strong>
-    <span>{{ doc_type.pref_label_nl if doc_type.pref_label_nl else '—' }}</span>
-  </div>
-  <div class="info-row">
-    <strong>UUID:</strong>
-    <span style="font-family: monospace; font-size: 0.9em">{{ doc_type.id }}</span>
+    <strong>All Names:</strong>
+    <span>
+      {% for lbl in settlement.labels %}
+        <span class="badge badge-secondary" style="margin-right:0.25rem">{{ lbl.label }}</span>
+      {% endfor %}
+    </span>
   </div>
   <div class="info-row">
     <strong>Total Documents:</strong>
@@ -26,11 +24,9 @@
   </div>
 </div>
 
-<p><a href="/document-types">← Back to all document types</a></p>
-
 {% if documents %}
 <div class="card">
-  <h2>Documents ({{ total_docs }})</h2>
+  <h2>Documents mentioning this settlement ({{ total_docs }})</h2>
   <table>
     <thead>
       <tr>
@@ -80,7 +76,7 @@
       {% elif p <= 3 or p > total_pages - 3 or (p >= page - 2 and p <= page + 2) %}
       <a href="?page={{ p }}">{{ p }}</a>
       {% elif p == 4 or p == total_pages - 3 %}
-      <span>...</span>
+      <span>…</span>
       {% endif %}
     {% endfor %}
     {% if page < total_pages %}

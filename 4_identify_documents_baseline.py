@@ -248,6 +248,21 @@ def identify_documents_baseline(
         total_pages = 0
 
         for inventory in inventories:
+            # Guard against double-runs: skip if this method has already produced
+            # documents for this inventory (re-running would create duplicates).
+            already = (
+                session.query(Document)
+                .filter_by(inventory_id=inventory.id, method_id=method_id)
+                .count()
+            )
+            if already:
+                if verbose:
+                    print(
+                        f"\nSkipping {inventory.inventory_number}: "
+                        f"{already} document(s) already exist for this method."
+                    )
+                continue
+
             if verbose:
                 print(f"\nProcessing: {inventory.inventory_number}")
 
