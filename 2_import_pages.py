@@ -5,6 +5,7 @@ Reads data/page_metadata.csv and updates Scan.scan_type and Page records.
 """
 import os
 import sys
+import ast
 import logging
 import uuid
 import pandas as pd
@@ -38,9 +39,42 @@ def map_scan_type(value: str):
 
 
 def map_scan_type_str(value):
-    """Return the DB enum NAME string (SINGLE/DOUBLE/OTHER) or None to match SQLAlchemy Enum storage."""
+    """Return the DB enum VALUE string ("Single"/"Double"/"Other") or None.
+
+    SQLAlchemy stores the *value* of a str-enum (e.g. "Double"), not the
+    attribute name ("DOUBLE").  Using .name was the original bug that caused
+    scan_type updates to write unrecognised strings and the recto/verso branch
+    to never trigger, leaving all inventories with zero pages.
+    """
     st = map_scan_type(value)
-    return st.name if st else None
+    return st.value if st else None
+
+
+def parse_folio_numbers(raw) -> str | None:
+    """
+    Normalise the page_numbers column from page_metadata.csv.
+
+    The raw value is typically a Python list repr written by an earlier tool:
+      "['695 ']"         → "695"
+      "['695 ', '696']"  → "695,696"
+
+    Also handles plain strings ("695") and NaN gracefully.
+    Returns a clean comma-separated string of stripped values, or None.
+    """
+    if raw is None or (isinstance(raw, float) and pd.isna(raw)):
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    try:
+        parsed = ast.literal_eval(s)
+        if isinstance(parsed, list):
+            parts = [str(v).strip() for v in parsed if str(v).strip()]
+            return ",".join(parts) if parts else None
+        return str(parsed).strip() or None
+    except (ValueError, SyntaxError):
+        # Already a plain string value — return as-is
+        return s
 
 
 def read_pages_csv():
@@ -149,18 +183,18 @@ def main():
             inv_id = inventories.get(inv_number) if inv_number else None
             headers = r.get("headers")
             signature_marks = r.get("signature_marks")
-            page_numbers = r.get("page_numbers")
+            page_numbers = parse_folio_numbers(r.get("page_numbers"))
             has_marginalia = r.get("has_marginalia")
             is_blank = r.get("is_blank")
             new_type = map_scan_type_str(r.get("scan_type"))
 
-            if new_type == PageType.DOUBLE.name:
+            if new_type == PageType.DOUBLE.value:
                 # Verso
                 page_rows.append(
                     {
                         "id": str(uuid.uuid4()),
                         "page_or_folio_number": page_numbers,
-                        "recto_verso": RectoVerso.VERSO.name,
+                        "recto_verso": RectoVerso.VERSO.value,
                         "header": headers,
                         "inventory_id": inv_id,
                         "scan_id": scan_id,
@@ -179,7 +213,7 @@ def main():
                     {
                         "id": str(uuid.uuid4()),
                         "page_or_folio_number": page_numbers,
-                        "recto_verso": RectoVerso.RECTO.name,
+                        "recto_verso": RectoVerso.RECTO.value,
                         "header": headers,
                         "inventory_id": inv_id,
                         "scan_id": scan_id,
