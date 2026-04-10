@@ -1,0 +1,97 @@
+{% extends "base.html" %} {% block title %}{{ settlement.labels[0].label if
+settlement.labels else settlement.glob_id }} - GLOBALISE Documents{% endblock %}
+{% block content %}
+
+<h1>
+  {{ settlement.labels[0].label if settlement.labels else settlement.glob_id }}
+</h1>
+
+<div class="card">
+  <h2>Settlement Information</h2>
+  <div class="info-row">
+    <strong>GLOB ID:</strong>
+    <span><code>{{ settlement.glob_id }}</code></span>
+  </div>
+  <div class="info-row">
+    <strong>URI:</strong>
+    <span><a href="https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/place:{{ settlement.glob_id }}">https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/place:{{ settlement.glob_id }}</a></span>
+  </div>
+  <div class="info-row">
+    <strong>All Names:</strong>
+    <span>
+      {% for lbl in settlement.labels %}
+      <span class="badge badge-secondary" style="margin-right: 0.25rem"
+        >{{ lbl.label }}</span
+      >
+      {% endfor %}
+    </span>
+  </div>
+  <div class="info-row">
+    <strong>Total Documents:</strong>
+    <span>{{ total_docs }}</span>
+  </div>
+</div>
+
+<p><a href="/settlements">← Back to all settlements</a></p>
+
+{% if documents %}
+<div class="card">
+  <h2>Documents mentioning this settlement ({{ total_docs }})</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Title</th>
+        <th>Inventory</th>
+        <th>Date</th>
+        <th>Folios</th>
+        <th>Pages</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for doc in documents %}
+      <tr>
+        <td>
+          <a href="/document/{{ doc.id }}">
+            {{ doc.title if doc.title else 'Untitled Document' }}
+          </a>
+        </td>
+        <td>
+          <a href="/inventory/{{ doc.inventory.inventory_number }}">
+            {{ doc.inventory.inventory_number }}
+          </a>
+        </td>
+        <td>{{ doc|date_range }}</td>
+        <td>
+          {% if doc.folio_start is not none %}
+          <span class="folio-range">
+            {{ doc.folio_start }}{% if doc.folio_end is not none and
+            doc.folio_end != doc.folio_start %} – {{ doc.folio_end }}{% endif %}
+          </span>
+          {% else %}—{% endif %}
+        </td>
+        <td>{{ doc.number_of_pages }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if total_pages > 1 %}
+  <div class="pagination">
+    {% if page > 1 %}
+    <a href="?page=1">First</a>
+    <a href="?page={{ page - 1 }}">Previous</a>
+    {% endif %} {% for p in range(1, total_pages + 1) %} {% if p == page %}
+    <span class="current">{{ p }}</span>
+    {% elif p <= 3 or p > total_pages - 3 or (p >= page - 2 and p <= page + 2)
+    %}
+    <a href="?page={{ p }}">{{ p }}</a>
+    {% elif p == 4 or p == total_pages - 3 %}
+    <span>...</span>
+    {% endif %} {% endfor %} {% if page < total_pages %}
+    <a href="?page={{ page + 1 }}">Next</a>
+    <a href="?page={{ total_pages }}">Last</a>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endif %} {% endblock %}

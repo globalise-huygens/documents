@@ -1,13 +1,18 @@
-{% extends "base.html" %} {% block title %}Documents - GLOBALISE Documents{%
+{% extends "base.html" %} {% block title %}Settlements - GLOBALISE Documents{%
 endblock %} {% block content %}
-<h1>Documents</h1>
+<h1>Settlements</h1>
+<p>
+  Canonical settlement entities imported from
+  <code>location_index.csv</code> (step 6). Each entry may have multiple label
+  variants; the primary label is shown first.
+</p>
 
 <div class="search-box">
-  <form method="get" action="/documents">
+  <form method="get" action="/settlements">
     <input
       type="text"
       name="search"
-      placeholder="Search documents by title or inventory number..."
+      placeholder="Search by settlement name or GLOB ID…"
       value="{{ search }}"
       autofocus
     />
@@ -15,43 +20,38 @@ endblock %} {% block content %}
 </div>
 
 {% if search %}
-<p>Search results for: <strong>{{ search }}</strong></p>
+<p>Showing results for: <strong>{{ search }}</strong></p>
 {% endif %}
 
 <table>
   <thead>
     <tr>
-      <th>Title</th>
-      <th>Inventory</th>
-      <th>Date</th>
-      <th>Folios</th>
-      <th>Pages</th>
-      <th>Method</th>
+      <th>Primary Name</th>
+      <th>Alternate Names</th>
+      <th>GLOB ID</th>
+      <th>Documents</th>
     </tr>
   </thead>
   <tbody>
-    {% for doc in documents %}
+    {% for s in settlements %}
     <tr>
       <td>
-        <a href="/document/{{ doc.id }}"
-          >{{ doc.title if doc.title else 'Untitled Document' }}</a
-        >
+        <a href="/settlement/{{ s.glob_id }}">
+          {{ s.labels[0].label if s.labels else s.glob_id }}
+        </a>
       </td>
-      <td>
-        <a href="/inventory/{{ doc.inventory.inventory_number }}"
-          >{{ doc.inventory.inventory_number }}</a
-        >
+      <td class="text-muted">
+        {% set alts = s.labels[1:] %} {% if alts %}{{ alts |
+        map(attribute='label') | join(', ') }}{% else %}—{% endif %}
       </td>
-      <td>{{ doc|date_range }}</td>
-      <td>
-        {% if doc.folio_start is not none %}
-          <span class="folio-range">
-            {{ doc.folio_start }}{% if doc.folio_end is not none and doc.folio_end != doc.folio_start %} – {{ doc.folio_end }}{% endif %}
-          </span>
-        {% else %}—{% endif %}
+      <td><code>{{ s.glob_id }}</code></td>
+      <td>{{ s.documents | length }}</td>
+    </tr>
+    {% else %}
+    <tr>
+      <td colspan="4">
+        No settlements found. Run script 6 to import settlement data.
       </td>
-      <td>{{ doc.number_of_pages }}</td>
-      <td>{{ doc.method.name if doc.method else 'N/A' }}</td>
     </tr>
     {% endfor %}
   </tbody>

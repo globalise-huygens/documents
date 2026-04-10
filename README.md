@@ -54,6 +54,9 @@ Place the following files in the `data/` directory:
 9. **inventory2uuid.json** - UUID mappings for inventories
 10. **inventories.json** - Complete inventory information
 11. **archival_hierarchy.json** - Archival series and hierarchy structure
+12. **pp_project_globalisethesaurus.ttl** - SKOS thesaurus with GLOBALISE and TANAP document types
+13. **location_index.csv** - Settlement/location index with GLOB IDs and spelling variants
+14. **globalise_digitized_indexes.csv** - TANAP-digitized catalog records (OBP index)
 
 Your `data/` directory should look like:
 
@@ -69,7 +72,10 @@ data/
 ├── inventory2titles.json
 ├── inventory2uuid.json
 ├── inventories.json
-└── archival_hierarchy.json
+├── archival_hierarchy.json
+├── pp_project_globalisethesaurus.ttl
+├── location_index.csv
+└── globalise_digitized_indexes.csv
 ```
 
 ## Database Setup
@@ -145,6 +151,39 @@ uv run python 5_import_document_types.py --ttl /path/to/thesaurus.ttl --database
 
 This script looks for document types in a `pp_project_globalisethesaurus.ttl` file and adds their UUID, the English and Dutch preflabels and whether it is a GLOBALISE or TANAP document type.
 
+### Step 6: Import Settlements
+
+```bash
+uv run python 6_import_settlements.py
+# or with explicit paths:
+uv run python 6_import_settlements.py --csv /path/to/location_index.csv --database sqlite:///globalise_documents.db
+```
+
+This script:
+
+- Imports settlement (location) data from `location_index.csv`
+- Creates one Settlement per unique GLOB ID
+- Creates multiple SettlementLabel records per settlement for spelling variants and alternative names
+- Skips already existing settlements and labels on re-runs
+
+### Step 7: Import OBP Index
+
+```bash
+uv run python 7_import_obp_index.py
+# or with explicit paths:
+uv run python 7_import_obp_index.py --csv /path/to/globalise_digitized_indexes.csv --database sqlite:///globalise_documents.db
+```
+
+This script:
+
+- Imports TANAP-digitized catalog records (OBP index) from CSV
+- Creates Document records with titles, dates, folio ranges, and locations
+- Links documents to document types extracted from PoolParty URIs
+- Resolves settlement labels to settlement records
+- Creates external ID records for OBP_INDEX, TANAP, and DIGITIZED TYPOSCRIPTS contexts
+- Creates a "TANAP Digitized Index" document identification method
+- Depends on steps 1–6 (requires inventories, document types, and settlements in the database)
+
 ### Verify Database
 
 After running the import scripts, you should have a populated `globalise_documents.db` file.
@@ -182,7 +221,29 @@ Then open your browser to: **http://localhost:8000**
 - **Documents** - Search and filter documents
 - **Scans** - View document scans with IIIF images
 - **Pages** - Explore individual pages with metadata
+- **Series** - Browse archival series hierarchy
+- **Settlements** - Browse settlement locations
+- **Document Types** - Browse document type classifications (GLOBALISE and TANAP)
+- **Methods** - View document identification methods with timeline visualization
 - **Search** - Full-text search across all content
+
+## Exporting Data
+
+### IIIF Collection
+
+```bash
+uv run python export_collection.py
+```
+
+Exports a top-level IIIF 3.0 Collection JSON file (`objects/inventory/collection.json`) that references all inventory manifests. Output is gzipped and ready for S3 upload.
+
+### IIIF Manifests
+
+```bash
+uv run python export_manifests.py
+```
+
+Exports individual IIIF 3.0 Manifest JSON files for every inventory (`objects/inventory/<number>.manifest.json`). Output is gzipped and ready for S3 upload.
 
 ## Database Schema
 
@@ -196,6 +257,12 @@ The application uses SQLite with the following main tables:
 - **Document** - Document records with date ranges
 - **DocumentIdentificationMethod** - Methods used to identify documents
 - **Page2Document** - Many-to-many relationships between pages and documents
+- **DocumentType** - GLOBALISE and TANAP document type classifications
+- **Document2DocumentType** - Many-to-many relationships between documents and types
+- **Settlement** - Settlement/location entities with GLOB IDs
+- **SettlementLabel** - Spelling variants and alternative names for settlements
+- **ExternalID** - External identifiers (OBP, TANAP, etc.)
+- **Document2ExternalID** - Many-to-many relationships between documents and external IDs
 
 ## Development
 
@@ -211,21 +278,33 @@ documents/
 ├── 2_import_pages.py # Import script (step 2)
 ├── 3_import_hierarchy.py # Import script (step 3)
 ├── 4_identify_documents_baseline.py # Document identification (baseline method)
-├── requirements.txt # Python dependencies (for pip)
-├── pyproject.toml # UV/project configuration
-├── data/ # Data files (not in repo)
-└── templates/ # HTML templates
-├── base.html
-├── index.html
-├── inventories.html
-├── inventory_detail.html
-├── documents.html
-├── document_detail.html
-├── scans.html
-├── scan_detail.html
-├── pages.html
-├── page_detail.html
-└── search.html
+├── 5_import_document_types.py       # Import document types from thesaurus (step 5)
+├── 6_import_settlements.py          # Import settlements (step 6)
+├── 7_import_obp_index.py            # Import OBP index records (step 7)
+├── export.py                        # Linked Art JSON-LD serialization helpers
+├── export_collection.py             # Export IIIF Collection
+├── export_manifests.py              # Export IIIF Manifests
+├── Dockerfile                       # Container configuration
+├── requirements.txt                 # Python dependencies (for pip)
+├── pyproject.toml                   # UV/project configuration
+├── data/                            # Data files (not in repo)
+└── templates/                       # HTML templates
+    ├── base.html
+    ├── index.html
+    ├── inventories.html
+    ├── inventory_detail.html
+    ├── documents.html
+    ├── document_detail.html
+    ├── document_types.html
+    ├── document_type_detail.html
+    ├── scans.html
+    ├── scan_detail.html
+    ├── pages.html
+    ├── page_detail.html
+    ├── settlements.html
+    ├── settlement_detail.html
+    ├── methods.html
+    ├── method_detail.html
 
 ```
 

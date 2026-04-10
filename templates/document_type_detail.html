@@ -1,6 +1,4 @@
-{% extends "base.html" %} {% block title %}{{ doc_type.pref_label_en or
-doc_type.pref_label_nl }} - GLOBALISE Documents{% endblock %} {% block content
-%}
+{% extends "base.html" %} {% block title %}{{ doc_type.pref_label_en or doc_type.pref_label_nl }} - GLOBALISE Documents{% endblock %} {% block content %}
 
 <h1>{{ doc_type.pref_label_en or doc_type.pref_label_nl or doc_type.id }}</h1>
 
@@ -20,22 +18,7 @@ doc_type.pref_label_nl }} - GLOBALISE Documents{% endblock %} {% block content
   </div>
   <div class="info-row">
     <strong>UUID:</strong>
-    <span style="font-family: monospace; font-size: 0.9em"
-      >{{ doc_type.id }}</span
-    >
-  </div>
-  <div class="info-row">
-    <strong>Concept URI:</strong>
-    <span>
-      <a
-        href="https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/thesaurus:{{ doc_type.id }}"
-        target="_blank"
-        rel="noopener"
-      >
-        https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/thesaurus:{{
-        doc_type.id }}
-      </a>
-    </span>
+    <span style="font-family: monospace; font-size: 0.9em">{{ doc_type.id }}</span>
   </div>
   <div class="info-row">
     <strong>Total Documents:</strong>
@@ -54,7 +37,7 @@ doc_type.pref_label_nl }} - GLOBALISE Documents{% endblock %} {% block content
         <th>Title</th>
         <th>Inventory</th>
         <th>Date</th>
-        <th>Type(s)</th>
+        <th>Folios</th>
         <th>Pages</th>
       </tr>
     </thead>
@@ -73,16 +56,11 @@ doc_type.pref_label_nl }} - GLOBALISE Documents{% endblock %} {% block content
         </td>
         <td>{{ doc|date_range }}</td>
         <td>
-          {% for dt in doc.document_types %}
-          <a
-            href="/document-type/{{ dt.document_type.id }}"
-            class="badge badge-primary"
-            style="text-decoration: none; font-size: 0.8em"
-          >
-            {{ dt.document_type.pref_label_en or dt.document_type.pref_label_nl
-            or dt.document_type.id }}
-          </a>
-          {% endfor %}
+          {% if doc.folio_start is not none %}
+            <span class="folio-range">
+              {{ doc.folio_start }}{% if doc.folio_end is not none and doc.folio_end != doc.folio_start %} – {{ doc.folio_end }}{% endif %}
+            </span>
+          {% else %}—{% endif %}
         </td>
         <td>{{ doc.number_of_pages }}</td>
       </tr>
@@ -95,18 +73,23 @@ doc_type.pref_label_nl }} - GLOBALISE Documents{% endblock %} {% block content
     {% if page > 1 %}
     <a href="?page=1">First</a>
     <a href="?page={{ page - 1 }}">Previous</a>
-    {% endif %} {% for p in range(1, total_pages + 1) %} {% if p == page %}
-    <span class="current">{{ p }}</span>
-    {% elif p <= 3 or p > total_pages - 3 or (p >= page - 2 and p <= page + 2)
-    %}
-    <a href="?page={{ p }}">{{ p }}</a>
-    {% elif p == 4 or p == total_pages - 3 %}
-    <span>...</span>
-    {% endif %} {% endfor %} {% if page < total_pages %}
+    {% endif %}
+    {% for p in range(1, total_pages + 1) %}
+      {% if p == page %}
+      <span class="current">{{ p }}</span>
+      {% elif p <= 3 or p > total_pages - 3 or (p >= page - 2 and p <= page + 2) %}
+      <a href="?page={{ p }}">{{ p }}</a>
+      {% elif p == 4 or p == total_pages - 3 %}
+      <span>...</span>
+      {% endif %}
+    {% endfor %}
+    {% if page < total_pages %}
     <a href="?page={{ page + 1 }}">Next</a>
     <a href="?page={{ total_pages }}">Last</a>
     {% endif %}
   </div>
   {% endif %}
 </div>
-{% endif %} {% endblock %}
+{% endif %}
+
+{% endblock %}

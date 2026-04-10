@@ -371,6 +371,33 @@
         color: var(--ink);
       }
 
+      .badge-secondary {
+        background-color: var(--lilac);
+        color: var(--ink);
+      }
+
+      /* Confidence pill: green at 1.0, amber at 0.5, coral below */
+      .badge-confidence {
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.02em;
+      }
+      .badge-confidence.high   { background-color: var(--mint);  color: var(--ink); }
+      .badge-confidence.medium { background-color: #fff3cd;       color: #7a5c00; }
+      .badge-confidence.low    { background-color: var(--coral);  color: var(--ink); }
+
+      .text-muted {
+        color: #666;
+        font-size: 0.875em;
+      }
+
+      .folio-range {
+        font-variant-numeric: tabular-nums;
+        background: #f3f4f6;
+        border-radius: 6px;
+        padding: 0.1rem 0.5rem;
+        font-size: 0.875em;
+      }
+
       .info-row {
         display: flex;
         margin-bottom: 0.5rem;
@@ -685,6 +712,13 @@
               href="/methods"
               class="{% if request.path.startswith('/method') %}active{% endif %}"
               >Methods</a
+            >
+          </li>
+          <li>
+            <a
+              href="/settlements"
+              class="{% if request.path.startswith('/settlement') %}active{% endif %}"
+              >Settlements</a
             >
           </li>
           <li>

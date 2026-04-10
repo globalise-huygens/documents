@@ -26,6 +26,7 @@ endblock %} {% block content %}
         <th>Title</th>
         <th>Inventory</th>
         <th>Date</th>
+        <th>Folios</th>
       </tr>
     </thead>
     <tbody>
@@ -42,6 +43,43 @@ endblock %} {% block content %}
           >
         </td>
         <td>{{ doc|date_range }}</td>
+        <td>
+          {% if doc.folio_start is not none %}
+            <span class="folio-range">
+              {{ doc.folio_start }}{% if doc.folio_end is not none and doc.folio_end != doc.folio_start %} – {{ doc.folio_end }}{% endif %}
+            </span>
+          {% else %}—{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {% if results.settlements %}
+  <h3>Settlements ({{ results.settlements|length }})</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Primary Name</th>
+        <th>Alternate Names</th>
+        <th>GLOB ID</th>
+        <th>Documents</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in results.settlements %}
+      <tr>
+        <td>
+          <a href="/settlement/{{ s.glob_id }}">
+            {{ s.labels[0].label if s.labels else s.glob_id }}
+          </a>
+        </td>
+        <td class="text-muted">
+          {% set alts = s.labels[1:] %}
+          {% if alts %}{{ alts | map(attribute='label') | join(', ') }}{% else %}—{% endif %}
+        </td>
+        <td><code>{{ s.glob_id }}</code></td>
+        <td>{{ s.documents | length }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -87,7 +125,7 @@ endblock %} {% block content %}
     {% endfor %}
   </div>
   {% endif %} {% if not results.documents and not results.inventories and not
-  results.scans %}
+  results.scans and not results.settlements %}
   <p class="alert alert-info">No results found for "{{ query }}"</p>
   {% endif %}
 </div>
