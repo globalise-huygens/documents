@@ -18,7 +18,6 @@ Each CSV row maps to one Document, with:
 
 import argparse
 import logging
-import sys
 import uuid
 import os
 from datetime import date, datetime
@@ -62,6 +61,7 @@ CSV_PATH = os.path.join(
 # Date helpers
 # ---------------------------------------------------------------------------
 
+
 def parse_date(value: str) -> Optional[date]:
     """Parse an ISO date string (YYYY-MM-DD) into a date object."""
     try:
@@ -94,7 +94,8 @@ def split_date_range(
 # Database helpers
 # ---------------------------------------------------------------------------
 
-def get_or_create_method(session: Session) -> str:
+
+def get_or_create_method(session: Session) -> DocumentIdentificationMethod:
     """Return the ID of the TANAP identification method, creating it if needed."""
     existing = (
         session.query(DocumentIdentificationMethod)
@@ -118,6 +119,7 @@ def get_or_create_method(session: Session) -> str:
     session.commit()
     logger.info(f"Created identification method: {method.id}")
     return method
+
 
 def lookup_inventory(session: Session, inv_number: str) -> Optional[Inventory]:
     stmt = select(Inventory).where(Inventory.inventory_number == str(inv_number))
@@ -176,6 +178,7 @@ def create_or_get_external_id(
 # ---------------------------------------------------------------------------
 # Row importer
 # ---------------------------------------------------------------------------
+
 
 def import_row(
     session: Session,
@@ -239,16 +242,18 @@ def import_row(
     first_scan_name = row.get("Bestandsnaam van eerste scan")
     begin_scan_raw = row.get("Beginscan")
     end_scan_raw = row.get("Eindscan")
- 
+
     if pd.isna(first_scan_name) or pd.isna(begin_scan_raw) or pd.isna(end_scan_raw):
-        logger.warning("Row %d: Missing scan range columns — skipping scan links.", row_id)
+        logger.warning(
+            "Row %d: Missing scan range columns — skipping scan links.", row_id
+        )
         stats["imported"] += 1
         return
- 
+
     first_scan_name = str(first_scan_name).strip()
     begin_scan = int(begin_scan_raw)
     end_scan = int(end_scan_raw)
- 
+
     # Derive the filename prefix from the first scan name.
     # Pattern: "<prefix>_<zero-padded-number>"
     # e.g. "NL-HaNA_1.04.02_1068_0611" -> prefix "NL-HaNA_1.04.02_1068", start 611
@@ -261,10 +266,10 @@ def import_row(
         )
         stats["imported"] += 1
         return
- 
+
     scan_prefix = name_parts[0]
     next_index = 0
- 
+
     for scan_number in range(begin_scan, end_scan + 1):
         filename = f"{scan_prefix}_{scan_number:04d}"
         scan = lookup_scan_by_filename(session, filename)
@@ -276,7 +281,7 @@ def import_row(
             )
             stats["missing_scans"] += 1
             continue
- 
+
         pages = get_pages_for_scan(session, scan)
         if not pages:
             logger.warning(
@@ -286,7 +291,7 @@ def import_row(
             )
             stats["scans_without_pages"] += 1
             continue
- 
+
         for page in pages:
             p2d = Page2Document(
                 id=str(uuid.uuid4()),
@@ -296,7 +301,7 @@ def import_row(
             )
             session.add(p2d)
             next_index += 1
- 
+
     stats["imported"] += 1
     logger.debug("Row %d: Document %s imported.", row_id, document.id)
 
@@ -357,15 +362,26 @@ def import_row(
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Import general missives CSV into GLOBALISE database.")
+    parser = argparse.ArgumentParser(
+        description="Import general missives CSV into GLOBALISE database."
+    )
     # parser.add_argument("--csv", required=True, help="Path to overview_general_missives.csv")
     # parser.add_argument("--db", required=True, help="SQLAlchemy database URL, e.g. sqlite:///globalise.db")
     # parser.add_argument("--method-id", default=None, help="UUID of an existing DocumentIdentificationMethod")
-    parser.add_argument("--dry-run", action="store_true", help="Parse and validate without writing to the database")
-    parser.add_argument("--batch-size", type=int, default=100, help="Flush session every N rows (default 100)")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Parse and validate without writing to the database",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=100,
+        help="Flush session every N rows (default 100)",
+    )
     args = parser.parse_args()
-
 
     # ---- Load CSV --------------------------------------------------------
     logger.info("Loading CSV: %s", CSV_PATH)
