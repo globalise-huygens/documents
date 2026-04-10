@@ -587,7 +587,7 @@ def inventory_to_manifest_jsonld(inventory, manifest_uri: str) -> Dict[str, Any]
                 ],
                 "logo": [
                     {
-                        "id": "https://globalise-huygens.github.io/document-view-sandbox/globalise.png",
+                        "id": "https://objectstore.surf.nl/87435b768620494e8e911c83d1997f24:globalise-data/static/img/globalise.png",
                         "type": "Image",
                         "height": 182,
                         "width": 1200,
@@ -711,9 +711,7 @@ def inventory_to_manifest_jsonld(inventory, manifest_uri: str) -> Dict[str, Any]
                     {
                         "id": f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/annotations:events:{scan.filename}",
                         "type": "AnnotationPage",
-                        "label": {
-                            "en": [f"Events identified on scan {scan.filename}"]
-                        },
+                        "label": {"en": [f"Events identified on scan {scan.filename}"]},
                     }
                 )
             if annotations:

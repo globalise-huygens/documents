@@ -215,13 +215,5 @@ data/*.json
 !data/inventories.json
 
 # ignore database
-globalise_documents.db
-<<<<<<< Updated upstream
-globalise_documents - Copy.db
-=======
->>>>>>> Stashed changes
-globalise_documents_step_8_backup.db
-globalise_documents_step_8_backup.db
-globalise_documents_step_8_backup.db
-globalise_documents_step_8_backup.db
-globalise_documents_step_8_backup.db
+*.db
+objects/inventory/

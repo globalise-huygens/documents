@@ -51,10 +51,10 @@ def export_all_manifests():
 
     elapsed = time.time() - t0
     print(f"\nDone. {total} manifests written to {OUTPUT_DIR}/ in {elapsed:.1f}s")
-    print(f"\nUpload with:")
+    print("\nUpload with:")
     print(
-        f"  aws s3 sync objects/inventory/ s3://globalise-data/objects/inventory "
-        f"--acl=public-read --content-encoding gzip"
+        "  aws s3 sync objects/inventory/ s3://globalise-data/objects/inventory "
+        "--acl=public-read --content-encoding gzip"
     )
 
     session.close()

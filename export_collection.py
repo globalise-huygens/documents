@@ -13,7 +13,7 @@ import time
 from sqlalchemy import create_engine, func
 from sqlalchemy.orm import Session, selectinload
 
-from models import Inventory, InventoryTitle
+from models import Inventory, InventoryTitle, Scan
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///globalise_documents.db")
 OUTPUT_DIR = os.environ.get("MANIFEST_OUTPUT_DIR", "objects")
@@ -37,7 +37,14 @@ def export_collection():
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    inventories = session.query(Inventory).options(selectinload(Inventory.titles)).all()
+    inventories = (
+        session.query(Inventory)
+        .options(
+            selectinload(Inventory.titles),
+            selectinload(Inventory.scans),
+        )
+        .all()
+    )
     inventories.sort(key=natural_inv_sort_key)
 
     print(f"Building IIIF Collection for {len(inventories)} inventories...")
@@ -64,6 +71,32 @@ def export_collection():
             manifest_ref["navDate"] = f"{inventory.date_start}T00:00:00+00:00"
         elif inventory.date_end:
             manifest_ref["navDate"] = f"{inventory.date_end}T00:00:00+00:00"
+
+        # Add thumbnail from first scan
+        if inventory.scans:
+            first_scan = sorted(inventory.scans, key=lambda s: s.filename or "")[0]
+            thumb_url = first_scan.get_image_url(size="982,")
+            service_id = None
+            if getattr(first_scan, "iiif_image_info", False):
+                service_id = first_scan.iiif_image_info.replace("/info.json", "")
+            if thumb_url and service_id:
+                manifest_ref["thumbnail"] = [
+                    {
+                        "id": thumb_url,
+                        "type": "Image",
+                        "height": first_scan.height,
+                        "width": first_scan.width,
+                        "service": [
+                            {
+                                "@id": service_id,
+                                "@type": "ImageService3",
+                                "profile": "level2",
+                                "format": "image/jpeg",
+                            }
+                        ],
+                        "format": "image/jpeg",
+                    }
+                ]
 
         items.append(manifest_ref)
 
@@ -117,7 +150,7 @@ def export_collection():
                 ],
                 "logo": [
                     {
-                        "id": "https://globalise-huygens.github.io/document-view-sandbox/globalise.png",
+                        "id": "https://objectstore.surf.nl/87435b768620494e8e911c83d1997f24:globalise-data/static/img/globalise.png",
                         "type": "Image",
                         "height": 182,
                         "width": 1200,
@@ -136,10 +169,10 @@ def export_collection():
         f.write(json_bytes)
 
     print(f"Done. Collection with {len(items)} manifests written to {out_path}")
-    print(f"\nUpload with:")
+    print("\nUpload with:")
     print(
-        f"  aws s3 sync objects/inventory/ s3://globalise-data/objects/inventory "
-        f"--acl=public-read --content-encoding gzip"
+        "  aws s3 sync objects/inventory/ s3://globalise-data/objects/inventory "
+        "--acl=public-read --content-encoding gzip"
     )
 
     session.close()

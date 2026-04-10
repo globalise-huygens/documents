@@ -248,13 +248,11 @@ Then open your browser to: **http://localhost:8000**
 
 ## Exporting Data
 
-### IIIF Collection
+Sync with:
 
 ```bash
-uv run python export_collection.py
+aws s3 sync objects/inventory/ s3://globalise-data/objects/inventory --acl=public-read --content-encoding gzip
 ```
-
-Exports a top-level IIIF 3.0 Collection JSON file (`objects/inventory/collection.json`) that references all inventory manifests. Output is gzipped and ready for S3 upload.
 
 ### IIIF Manifests
 
@@ -263,6 +261,14 @@ uv run python export_manifests.py
 ```
 
 Exports individual IIIF 3.0 Manifest JSON files for every inventory (`objects/inventory/<number>.manifest.json`). Output is gzipped and ready for S3 upload.
+
+### IIIF Collection
+
+```bash
+uv run python export_collection.py
+```
+
+Exports a top-level IIIF 3.0 Collection JSON file (`objects/inventory/collection.json`) that references all inventory manifests. Output is gzipped and ready for S3 upload.
 
 ## Database Schema
 
