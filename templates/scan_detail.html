@@ -41,6 +41,15 @@ Documents{% endblock %} {% block content %}
       ></span
     >
   </div>
+  <div class="info-row">
+    <strong>Annotation Pages:</strong>
+    <span>
+      {% if scan.has_transcriptions %}<a href="https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/annotations:transcriptions:{{ scan.filename }}" target="_blank"><span class="badge badge-success">Transcriptions</span></a>{% endif %}
+      {% if scan.has_entities %}<a href="https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/annotations:entities:{{ scan.filename }}" target="_blank"><span class="badge badge-success">Entities</span></a>{% endif %}
+      {% if scan.has_events %}<a href="https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/annotations:events:{{ scan.filename }}" target="_blank"><span class="badge badge-success">Events</span></a>{% endif %}
+      {% if not scan.has_transcriptions and not scan.has_entities and not scan.has_events %}None{% endif %}
+    </span>
+  </div>
 </div>
 
 <div class="card">

@@ -57,6 +57,7 @@ Place the following files in the `data/` directory:
 12. **pp_project_globalisethesaurus.ttl** - SKOS thesaurus with GLOBALISE and TANAP document types
 13. **location_index.csv** - Settlement/location index with GLOB IDs and spelling variants
 14. **globalise_digitized_indexes.csv** - TANAP-digitized catalog records (OBP index)
+15. **annotationpages.csv** - Per-scan flags indicating availability of transcription, entity, and event annotation pages
 
 Your `data/` directory should look like:
 
@@ -76,6 +77,7 @@ data/
 ├── archival_hierarchy.json
 ├── pp_project_globalisethesaurus.ttl
 ├── location_index.csv
+├── annotationpages.csv
 └── globalise_digitized_indexes.csv
 ```
 
@@ -193,6 +195,14 @@ uv run python 8_import_GM.py [--dry-run]
 
 Uses the Ground Truth for General Missives to add documents. Requires the file `overview_general_missives.csv` to be in data folder.
 
+### Step 9: Import Annotation Page Availability
+
+```bash
+uv run python 9_import_annotation_pages_exist.py [--dry-run]
+```
+
+Sets `has_transcriptions`, `has_entities`, and `has_events` flags on Scan records based on `annotationpages.csv`. These flags control whether annotation page links are included in IIIF manifest exports.
+
 ### Verify Database
 
 After running the import scripts, you should have a populated `globalise_documents.db` file.
@@ -291,6 +301,7 @@ documents/
 ├── 6_import_settlements.py          # Import settlements (step 6)
 ├── 7_import_obp_index.py            # Import OBP index records (step 7)
 ├── 8_import_GM.py                   # Import GM data (step 8)
+├── 9_import_annotation_pages_exist.py # Import annotation page flags (step 9)
 ├── export.py                        # Linked Art JSON-LD serialization helpers
 ├── export_collection.py             # Export IIIF Collection
 ├── export_manifests.py              # Export IIIF Manifests

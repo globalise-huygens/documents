@@ -460,6 +460,9 @@ class Scan(Base):
     scan_type: Mapped[Optional[PageType]] = mapped_column(
         SQLEnum(PageType, values_callable=lambda obj: [e.value for e in obj])
     )
+    has_transcriptions: Mapped[bool] = mapped_column(Boolean, default=False)
+    has_entities: Mapped[bool] = mapped_column(Boolean, default=False)
+    has_events: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Relationships
     inventory: Mapped["Inventory"] = relationship("Inventory", back_populates="scans")

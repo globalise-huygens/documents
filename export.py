@@ -686,25 +686,38 @@ def inventory_to_manifest_jsonld(inventory, manifest_uri: str) -> Dict[str, Any]
                 "annotations": [],
             }
 
-            # Add annotation pages for transcriptions and entities (only if scan is not blank)
-            scan_is_blank = False
-            if getattr(scan, "pages", None):
-                scan_is_blank = all(getattr(p, "is_blank", False) for p in scan.pages)
-            if not scan_is_blank:
-                canvas_obj["annotations"] = [
+            # Add annotation pages for transcriptions, entities, and events (only if available)
+            annotations = []
+            if getattr(scan, "has_transcriptions", False):
+                annotations.append(
                     {
                         "id": f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/annotations:transcriptions:{scan.filename}",
                         "type": "AnnotationPage",
                         "label": {"en": [f"Transcriptions of scan {scan.filename}"]},
-                    },
+                    }
+                )
+            if getattr(scan, "has_entities", False):
+                annotations.append(
                     {
                         "id": f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/annotations:entities:{scan.filename}",
                         "type": "AnnotationPage",
                         "label": {
                             "en": [f"Entities identified on scan {scan.filename}"]
                         },
-                    },
-                ]
+                    }
+                )
+            if getattr(scan, "has_events", False):
+                annotations.append(
+                    {
+                        "id": f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/annotations:events:{scan.filename}",
+                        "type": "AnnotationPage",
+                        "label": {
+                            "en": [f"Events identified on scan {scan.filename}"]
+                        },
+                    }
+                )
+            if annotations:
+                canvas_obj["annotations"] = annotations
 
             # Optional metadata: Web link and Recto/Verso info
             if web_url:
