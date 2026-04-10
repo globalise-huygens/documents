@@ -72,6 +72,7 @@ data/
 ├── inventory2titles.json
 ├── inventory2uuid.json
 ├── inventories.json
+├── overview_general_missives.csv
 ├── archival_hierarchy.json
 ├── pp_project_globalisethesaurus.ttl
 ├── location_index.csv
@@ -184,6 +185,14 @@ This script:
 - Creates a "TANAP Digitized Index" document identification method
 - Depends on steps 1–6 (requires inventories, document types, and settlements in the database)
 
+### Step 8: Add General Missives documents
+
+```bash
+uv run python 8_import_GM.py [--dry-run]
+```
+
+Uses the Ground Truth for General Missives to add documents. Requires the file `overview_general_missives.csv` to be in data folder.
+
 ### Verify Database
 
 After running the import scripts, you should have a populated `globalise_documents.db` file.
@@ -281,6 +290,7 @@ documents/
 ├── 5_import_document_types.py       # Import document types from thesaurus (step 5)
 ├── 6_import_settlements.py          # Import settlements (step 6)
 ├── 7_import_obp_index.py            # Import OBP index records (step 7)
+├── 8_import_GM.py                   # Import GM data (step 8)
 ├── export.py                        # Linked Art JSON-LD serialization helpers
 ├── export_collection.py             # Export IIIF Collection
 ├── export_manifests.py              # Export IIIF Manifests
