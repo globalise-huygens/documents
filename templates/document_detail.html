@@ -55,24 +55,25 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}
     <strong>Folio Range:</strong>
     <span>
       <span class="folio-range">
-        {{ document.folio_start }}{% if document.folio_end is not none and document.folio_end != document.folio_start %} – {{ document.folio_end }}{% endif %}
+        {{ document.folio_start }}{% if document.folio_end is not none and
+        document.folio_end != document.folio_start %} – {{ document.folio_end
+        }}{% endif %}
       </span>
     </span>
   </div>
-  {% endif %}
-  {% if document.external_ids %}
+  {% endif %} {% if document.external_ids %}
   <div class="info-row">
     <strong>External IDs:</strong>
     <span>
       {% for link in document.external_ids %}
-        <span class="badge badge-secondary" title="{{ link.external.context }}">
-          {{ link.external.context }}: {{ link.external.identifier or link.external.URL }}
-        </span>
+      <span class="badge badge-secondary" title="{{ link.external.context }}">
+        {{ link.external.context }}: {{ link.external.identifier or
+        link.external.URL }}
+      </span>
       {% endfor %}
     </span>
   </div>
-  {% endif %}
-  {% if document.part_of %}
+  {% endif %} {% if document.part_of %}
   <div class="info-row">
     <strong>Part of:</strong>
     <span
@@ -82,28 +83,26 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}
       ></span
     >
   </div>
-  {% endif %}
-  {% if document.location %}
+  {% endif %} {% if document.location %}
   <div class="info-row">
     <strong>Settlement:</strong>
     <span>
-      {% set labels = document.location.labels | map(attribute='label') | list %}
-      {{ labels[0] }}
+      {% set labels = document.location.labels | map(attribute='label') | list
+      %}
+      <a href="/settlement/{{ document.location.glob_id }}">{{ labels[0] }}</a>
       {% if labels | length > 1 %}
-      <small style="color: var(--text-muted);">
-        (also: {{ labels[1:] | join(', ') }})
-      </small>
+      <small class="text-muted"> (also: {{ labels[1:] | join(', ') }}) </small>
       {% endif %}
-      <small style="color: var(--text-muted);">[{{ document.location.glob_id }}]</small>
+      <small class="text-muted">[{{ document.location.glob_id }}]</small>
     </span>
   </div>
   {% endif %}
 </div>
 
-{% if document.document_types %}
+{% if document.document_types_linked %}
 <div class="card">
   <h2>Document Types</h2>
-  {% for dt in document.document_types %}
+  {% for dt in document.document_types_linked %}
   <a
     href="/document-type/{{ dt.document_type.id }}"
     class="badge badge-primary"
@@ -162,40 +161,45 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}
         <td>
           {% if page_doc.page.scan %}
           <a href="/page/{{ page_doc.page.id }}">
-            <img src="{{ page_doc.page.scan.get_thumbnail_url() }}"
-                 alt="Page {{ page_doc.index }}"
-                 style="max-width:80px;height:auto;border-radius:4px"
-                 loading="lazy" />
+            <img
+              src="{{ page_doc.page.scan.get_thumbnail_url() }}"
+              alt="Page {{ page_doc.index }}"
+              style="max-width: 80px; height: auto; border-radius: 4px"
+              loading="lazy"
+            />
           </a>
           {% else %}—{% endif %}
         </td>
         <td>{{ page_doc.index }}</td>
         <td>
           <a href="/page/{{ page_doc.page.id }}">
-            {{ page_doc.page.page_or_folio_number if page_doc.page.page_or_folio_number else '—' }}
+            {{ page_doc.page.page_or_folio_number if
+            page_doc.page.page_or_folio_number else '—' }}
           </a>
         </td>
-        <td>{{ page_doc.page.recto_verso.value if page_doc.page.recto_verso else '—' }}</td>
+        <td>
+          {{ page_doc.page.recto_verso.value if page_doc.page.recto_verso else
+          '—' }}
+        </td>
         <td>
           {% if page_doc.source == 'FOLIO_RANGE' %}
-            <span class="badge badge-primary">Folio range</span>
+          <span class="badge badge-primary">Folio range</span>
           {% elif page_doc.source == 'BASELINE' %}
-            <span class="badge badge-secondary">Baseline</span>
+          <span class="badge badge-secondary">Baseline</span>
           {% else %}
-            <span class="badge">{{ page_doc.source }}</span>
+          <span class="badge">{{ page_doc.source }}</span>
           {% endif %}
         </td>
         <td>
-          {% if page_doc.confidence is not none %}
-            {% set pct = (page_doc.confidence * 100)|round|int %}
-            {% if page_doc.confidence >= 0.9 %}
-              <span class="badge badge-confidence high">{{ pct }}%</span>
-            {% elif page_doc.confidence >= 0.6 %}
-              <span class="badge badge-confidence medium">{{ pct }}%</span>
-            {% else %}
-              <span class="badge badge-confidence low">{{ pct }}%</span>
-            {% endif %}
-          {% else %}—{% endif %}
+          {% if page_doc.confidence is not none %} {% set pct =
+          (page_doc.confidence * 100)|round|int %} {% if page_doc.confidence >=
+          0.9 %}
+          <span class="badge badge-confidence high">{{ pct }}%</span>
+          {% elif page_doc.confidence >= 0.6 %}
+          <span class="badge badge-confidence medium">{{ pct }}%</span>
+          {% else %}
+          <span class="badge badge-confidence low">{{ pct }}%</span>
+          {% endif %} {% else %}—{% endif %}
         </td>
       </tr>
       {% endif %}{% endfor %}

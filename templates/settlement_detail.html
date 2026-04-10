@@ -1,8 +1,10 @@
-{% extends "base.html" %} {% block title %}{{ settlement.labels[0].label if settlement.labels else settlement.glob_id }} - GLOBALISE Documents{% endblock %} {% block content %}
+{% extends "base.html" %} {% block title %}{{ settlement.labels[0].label if
+settlement.labels else settlement.glob_id }} - GLOBALISE Documents{% endblock %}
+{% block content %}
 
-<h1>{{ settlement.labels[0].label if settlement.labels else settlement.glob_id }}</h1>
-
-<p><a href="/settlements">← Back to all settlements</a></p>
+<h1>
+  {{ settlement.labels[0].label if settlement.labels else settlement.glob_id }}
+</h1>
 
 <div class="card">
   <h2>Settlement Information</h2>
@@ -11,10 +13,16 @@
     <span><code>{{ settlement.glob_id }}</code></span>
   </div>
   <div class="info-row">
+    <strong>URI:</strong>
+    <span><a href="https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/place:{{ settlement.glob_id }}">https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/place:{{ settlement.glob_id }}</a></span>
+  </div>
+  <div class="info-row">
     <strong>All Names:</strong>
     <span>
       {% for lbl in settlement.labels %}
-        <span class="badge badge-secondary" style="margin-right:0.25rem">{{ lbl.label }}</span>
+      <span class="badge badge-secondary" style="margin-right: 0.25rem"
+        >{{ lbl.label }}</span
+      >
       {% endfor %}
     </span>
   </div>
@@ -23,6 +31,8 @@
     <span>{{ total_docs }}</span>
   </div>
 </div>
+
+<p><a href="/settlements">← Back to all settlements</a></p>
 
 {% if documents %}
 <div class="card">
@@ -53,9 +63,10 @@
         <td>{{ doc|date_range }}</td>
         <td>
           {% if doc.folio_start is not none %}
-            <span class="folio-range">
-              {{ doc.folio_start }}{% if doc.folio_end is not none and doc.folio_end != doc.folio_start %} – {{ doc.folio_end }}{% endif %}
-            </span>
+          <span class="folio-range">
+            {{ doc.folio_start }}{% if doc.folio_end is not none and
+            doc.folio_end != doc.folio_start %} – {{ doc.folio_end }}{% endif %}
+          </span>
           {% else %}—{% endif %}
         </td>
         <td>{{ doc.number_of_pages }}</td>
@@ -69,23 +80,18 @@
     {% if page > 1 %}
     <a href="?page=1">First</a>
     <a href="?page={{ page - 1 }}">Previous</a>
-    {% endif %}
-    {% for p in range(1, total_pages + 1) %}
-      {% if p == page %}
-      <span class="current">{{ p }}</span>
-      {% elif p <= 3 or p > total_pages - 3 or (p >= page - 2 and p <= page + 2) %}
-      <a href="?page={{ p }}">{{ p }}</a>
-      {% elif p == 4 or p == total_pages - 3 %}
-      <span>…</span>
-      {% endif %}
-    {% endfor %}
-    {% if page < total_pages %}
+    {% endif %} {% for p in range(1, total_pages + 1) %} {% if p == page %}
+    <span class="current">{{ p }}</span>
+    {% elif p <= 3 or p > total_pages - 3 or (p >= page - 2 and p <= page + 2)
+    %}
+    <a href="?page={{ p }}">{{ p }}</a>
+    {% elif p == 4 or p == total_pages - 3 %}
+    <span>...</span>
+    {% endif %} {% endfor %} {% if page < total_pages %}
     <a href="?page={{ page + 1 }}">Next</a>
     <a href="?page={{ total_pages }}">Last</a>
     {% endif %}
   </div>
   {% endif %}
 </div>
-{% endif %}
-
-{% endblock %}
+{% endif %} {% endblock %}

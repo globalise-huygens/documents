@@ -499,7 +499,7 @@ class Page(Base):
     )
     page_or_folio_number: Mapped[Optional[str]] = mapped_column(String(255))
     recto_verso: Mapped[Optional[RectoVerso]] = mapped_column(
-        SQLEnum(RectoVerso, values_callable=lambda obj: [e.name for e in obj])
+        SQLEnum(RectoVerso, values_callable=lambda obj: [e.value for e in obj])
     )
     header: Mapped[Optional[str]] = mapped_column(Text)
     inventory_id: Mapped[Optional[str]] = mapped_column(

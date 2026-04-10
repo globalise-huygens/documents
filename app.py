@@ -355,8 +355,6 @@ def prepare_timeline_data(db_session, inventory_id):
 @app.route("/documents")
 def documents():
     """List all documents."""
-    from sqlalchemy.orm import joinedload
-
     db_session = Session()
     page = request.args.get("page", 1, type=int)
     per_page = 20
@@ -375,16 +373,7 @@ def documents():
     doc_query = doc_query.order_by(desc(Document.date_earliest_begin))
 
     total = doc_query.count()
-    documents_list = (
-        doc_query.options(
-            joinedload(Document.document_types_linked).joinedload(
-                Document2DocumentType.document_type
-            ),
-        )
-        .offset((page - 1) * per_page)
-        .limit(per_page)
-        .all()
-    )
+    documents_list = doc_query.offset((page - 1) * per_page).limit(per_page).all()
 
     total_pages = (total + per_page - 1) // per_page
 
@@ -620,9 +609,7 @@ def settlements():
 def settlement_detail(glob_id):
     """Show details and linked documents for a single settlement."""
     db_session = Session()
-    settlement = get_or_404(
-        db_session.query(Settlement).filter_by(glob_id=glob_id)
-    )
+    settlement = get_or_404(db_session.query(Settlement).filter_by(glob_id=glob_id))
 
     page = request.args.get("page", 1, type=int)
     per_page = 20
