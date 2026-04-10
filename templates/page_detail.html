@@ -204,24 +204,27 @@ endblock %} {% block content %}
       </tr>
     </thead>
     <tbody>
-      {% for elem in layout_elements %}
-      {% set le_data = enriched_layouts.get(elem.id, {}) %}
+      {% for elem in layout_elements %} {% set le_data =
+      enriched_layouts.get(elem.id, {}) %}
       <tr>
         <td>
-          <a href="/layout-element/{{ elem.id }}"><span class="badge badge-{{ elem.layout_type }}"
-            >{{ elem.layout_type }}</span></a>
+          <a href="/layout-element/{{ elem.id }}"
+            ><span class="badge badge-{{ elem.layout_type }}"
+              >{{ elem.layout_type }}</span
+            ></a
+          >
         </td>
         <td>
-          {% if le_data.get('text') %}
-          {{ le_data.text[:200] }}{% if le_data.text|length > 200 %}…{% endif %}
-          {% else %}—{% endif %}
+          {% if le_data.get('text') %} {{ le_data.text[:200] }}{% if
+          le_data.text|length > 200 %}…{% endif %} {% else %}—{% endif %}
         </td>
         <td>
-          {% for link in elem.entity_mentions %}
-          {% set em_data = enriched_entities.get(link.entity_mention.id, {}) %}
+          {% for link in elem.entity_mentions %} {% set em_data =
+          enriched_entities.get(link.entity_mention.id, {}) %}
           <span
             class="badge badge-entity badge-{{ link.entity_mention.entity_type }}"
-            >{{ link.entity_mention.entity_type }}{% if em_data.get('text') %}: {{ em_data.text }}{% endif %}</span
+            >{{ link.entity_mention.entity_type }}{% if em_data.get('text') %}:
+            {{ em_data.text }}{% endif %}</span
           >
           {% endfor %} {% if not elem.entity_mentions %}—{% endif %}
         </td>
@@ -248,8 +251,8 @@ endblock %} {% block content %}
       </tr>
     </thead>
     <tbody>
-      {% for mention in entity_mentions %}
-      {% set em_data = enriched_entities.get(mention.id, {}) %}
+      {% for mention in entity_mentions %} {% set em_data =
+      enriched_entities.get(mention.id, {}) %}
       <tr>
         <td>
           <a href="/entity-mention/{{ mention.id }}"

@@ -268,8 +268,11 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}
           >
         </td>
         <td>
-          <a href="/layout-element/{{ elem.id }}"><span class="badge badge-{{ elem.layout_type }}"
-            >{{ elem.layout_type }}</span></a>
+          <a href="/layout-element/{{ elem.id }}"
+            ><span class="badge badge-{{ elem.layout_type }}"
+              >{{ elem.layout_type }}</span
+            ></a
+          >
         </td>
         <td>
           {% for link in elem.entity_mentions %}

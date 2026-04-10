@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 # Annotation page fetching (on-the-fly from object store)
 # ---------------------------------------------------------------------------
 
+
 @lru_cache(maxsize=512)
 def _fetch_annotation_page(url: str) -> dict:
     """Fetch and cache an annotation page JSON from the object store.
@@ -77,7 +78,11 @@ def fetch_annotation_detail(annotation_identifier: str) -> dict | None:
     The part before ``#`` is the annotation page URL; the fragment selects
     the item within the ``items`` list.
     """
-    page_url = annotation_identifier.split("#")[0] if "#" in annotation_identifier else annotation_identifier
+    page_url = (
+        annotation_identifier.split("#")[0]
+        if "#" in annotation_identifier
+        else annotation_identifier
+    )
     try:
         page_data = _fetch_annotation_page(page_url)
         for item in page_data.get("items", []):
@@ -96,7 +101,9 @@ def _extract_entity_display(item: dict) -> dict:
     text = body.get("label", "")
 
     subject_uri = None
-    subject = body.get("has_appellative_subject") or body.get("has_classificatory_subject")
+    subject = body.get("has_appellative_subject") or body.get(
+        "has_classificatory_subject"
+    )
     if isinstance(subject, dict):
         subject_uri = subject.get("id")
 
@@ -161,7 +168,13 @@ def enrich_entity_mention(em) -> dict:
     """Fetch display fields for an EntityMention from the annotation page."""
     item = fetch_annotation_detail(em.annotation_identifier)
     if not item:
-        return {"text": None, "subject_uri": None, "concept_uri": None, "timespan_begin": None, "timespan_end": None}
+        return {
+            "text": None,
+            "subject_uri": None,
+            "concept_uri": None,
+            "timespan_begin": None,
+            "timespan_end": None,
+        }
     return _extract_entity_display(item)
 
 
@@ -990,13 +1003,15 @@ def entity_mentions_list():
 
     # Sort
     if sort == "type":
-        query = query.order_by(EntityMention.entity_type, EntityMention.annotation_identifier)
-    elif sort == "page":
         query = query.order_by(
-            EntityMention.page_id, EntityMention.entity_type
+            EntityMention.entity_type, EntityMention.annotation_identifier
         )
+    elif sort == "page":
+        query = query.order_by(EntityMention.page_id, EntityMention.entity_type)
     else:
-        query = query.order_by(EntityMention.entity_type, EntityMention.annotation_identifier)
+        query = query.order_by(
+            EntityMention.entity_type, EntityMention.annotation_identifier
+        )
 
     # Eager-load linked layout elements for display
     query = query.options(
@@ -1158,15 +1173,27 @@ def api_annotation_detail(entity_or_layout, item_id):
     if entity_or_layout == "entity":
         em = db_session.query(EntityMention).filter_by(id=item_id).first()
         if not em:
-            return json.dumps({"error": "not found"}), 404, {"Content-Type": "application/json"}
+            return (
+                json.dumps({"error": "not found"}),
+                404,
+                {"Content-Type": "application/json"},
+            )
         data = enrich_entity_mention(em)
     elif entity_or_layout == "layout":
         le = db_session.query(LayoutElement).filter_by(id=item_id).first()
         if not le:
-            return json.dumps({"error": "not found"}), 404, {"Content-Type": "application/json"}
+            return (
+                json.dumps({"error": "not found"}),
+                404,
+                {"Content-Type": "application/json"},
+            )
         data = enrich_layout_element(le)
     else:
-        return json.dumps({"error": "invalid type"}), 400, {"Content-Type": "application/json"}
+        return (
+            json.dumps({"error": "invalid type"}),
+            400,
+            {"Content-Type": "application/json"},
+        )
     return json.dumps(data), 200, {"Content-Type": "application/json"}
 
 
