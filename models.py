@@ -236,16 +236,19 @@ class Document(Base):
         String(36), ForeignKey("document.id"), index=True
     )
     location_id: Mapped[Optional[str]] = mapped_column(
-        String(36), ForeignKey("settlement.id"), index=True,
-        comment="FK to Settlement; populated from location_index.csv via OBP import"
+        String(36),
+        ForeignKey("settlement.id"),
+        index=True,
+        comment="FK to Settlement; populated from location_index.csv via OBP import",
     )
     folio_start: Mapped[Optional[int]] = mapped_column(
-        Integer, index=True,
-        comment="First folio number of the document as recorded in the OBP index"
+        Integer,
+        index=True,
+        comment="First folio number of the document as recorded in the OBP index",
     )
     folio_end: Mapped[Optional[int]] = mapped_column(
         Integer,
-        comment="Last folio number of the document as recorded in the OBP index"
+        comment="Last folio number of the document as recorded in the OBP index",
     )
     method_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("document_identification_method.id"), index=True
@@ -528,6 +531,12 @@ class Page(Base):
     documents: Mapped[List["Page2Document"]] = relationship(
         "Page2Document", back_populates="page", cascade="all, delete-orphan"
     )
+    layout_elements: Mapped[List["LayoutElement"]] = relationship(
+        "LayoutElement", back_populates="page", cascade="all, delete-orphan"
+    )
+    entity_mentions: Mapped[List["EntityMention"]] = relationship(
+        "EntityMention", back_populates="page", cascade="all, delete-orphan"
+    )
 
     def __repr__(self):
         return f"<Page(scan='{self.scan_id}', recto_verso='{self.recto_verso}')>"
@@ -572,3 +581,129 @@ class Page2Document(Base):
             f"<Page2Document(page_id='{self.page_id}', document_id='{self.document_id}', "
             f"index={self.index}, source='{self.source}', confidence={self.confidence})>"
         )
+
+
+class LayoutElement(Base):
+    __tablename__ = "layout_element"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    page_id: Mapped[str] = mapped_column(String(36), ForeignKey("page.id"), index=True)
+    annotation_identifier: Mapped[str] = mapped_column(
+        String(500), unique=True, index=True
+    )
+    layout_type: Mapped[str] = mapped_column(String(100))
+
+    # Relationships
+    page: Mapped["Page"] = relationship("Page", back_populates="layout_elements")
+    entity_mentions: Mapped[List["LayoutElement2EntityMention"]] = relationship(
+        "LayoutElement2EntityMention",
+        back_populates="layout_element",
+        cascade="all, delete-orphan",
+    )
+
+    def __repr__(self):
+        return f"<LayoutElement(type='{self.layout_type}', id='{self.annotation_identifier[-40:]}')>"
+
+    def __str__(self):
+        return self.layout_type
+
+
+class Entity(Base):
+    """Canonical/resolved entity — a real-world person, place, date range, group, or ship."""
+
+    __tablename__ = "entity"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    entity_type: Mapped[str] = mapped_column(
+        String(100)
+    )  # Person, Place, TimeSpan, Group, HumanMadeObject
+    label: Mapped[Optional[str]] = mapped_column(Text)
+    date_start: Mapped[Optional[str]] = mapped_column(String(100))  # ISO 8601
+    date_end: Mapped[Optional[str]] = mapped_column(String(100))  # ISO 8601
+    external_uri: Mapped[Optional[str]] = mapped_column(String(500))
+    external_dataset: Mapped[Optional[str]] = mapped_column(String(255))
+
+    # Relationships
+    mentions: Mapped[List["EntityMention"]] = relationship(
+        "EntityMention", back_populates="entity"
+    )
+
+    def __repr__(self):
+        return f"<Entity(type='{self.entity_type}', label='{self.label}')>"
+
+    def __str__(self):
+        return (
+            f"{self.entity_type}: {self.label}"
+            if self.label
+            else f"{self.entity_type} ({self.id})"
+        )
+
+
+class EntityMention(Base):
+    """An NER occurrence of an entity on a page — linked to a canonical Entity when resolved."""
+
+    __tablename__ = "entity_mention"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    annotation_identifier: Mapped[str] = mapped_column(
+        String(500), unique=True, index=True
+    )
+    entity_type: Mapped[str] = mapped_column(
+        String(100)
+    )  # NER type: DATE, PER_NAME, LOC_NAME, etc.
+    page_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("page.id"), index=True
+    )
+    entity_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("entity.id"), index=True
+    )
+
+    # Relationships
+    page: Mapped[Optional["Page"]] = relationship(
+        "Page", back_populates="entity_mentions"
+    )
+    entity: Mapped[Optional["Entity"]] = relationship(
+        "Entity", back_populates="mentions"
+    )
+    layout_elements: Mapped[List["LayoutElement2EntityMention"]] = relationship(
+        "LayoutElement2EntityMention",
+        back_populates="entity_mention",
+        cascade="all, delete-orphan",
+    )
+
+    def __repr__(self):
+        return f"<EntityMention(type='{self.entity_type}', id='{self.annotation_identifier[-40:]}')>"
+
+    def __str__(self):
+        return f"{self.entity_type}: {self.annotation_identifier.split('#')[-1]}"
+
+
+class LayoutElement2EntityMention(Base):
+    __tablename__ = "layout_element2entity_mention"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    layout_element_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("layout_element.id"), index=True
+    )
+    entity_mention_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("entity_mention.id"), index=True
+    )
+
+    # Relationships
+    layout_element: Mapped["LayoutElement"] = relationship(
+        "LayoutElement", back_populates="entity_mentions"
+    )
+    entity_mention: Mapped["EntityMention"] = relationship(
+        "EntityMention", back_populates="layout_elements"
+    )
+
+    def __repr__(self):
+        return f"<LayoutElement2EntityMention(layout_element_id='{self.layout_element_id}', entity_mention_id='{self.entity_mention_id}')>"

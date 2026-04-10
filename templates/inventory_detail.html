@@ -203,7 +203,50 @@ GLOBALISE Documents{% endblock %}
     <strong>Pages:</strong>
     <span>{{ page_count }}</span>
   </div>
+  <div class="info-row">
+    <strong>Layout Elements:</strong>
+    <span>{{ layout_element_count }}</span>
+  </div>
+  <div class="info-row">
+    <strong>Entity Mentions:</strong>
+    <span>{{ entity_mention_count }}</span>
+  </div>
 </div>
+
+{% if layout_type_counts or entity_type_counts %}
+<div class="card">
+  <h2>Annotations Overview</h2>
+  <div style="display: flex; gap: 2rem; flex-wrap: wrap; margin-bottom: 1rem">
+    {% if layout_type_counts %}
+    <div>
+      <h3>Layout Elements ({{ layout_element_count }})</h3>
+      {% for ltype, count in layout_type_counts.items()|sort %}
+      <span class="badge badge-{{ ltype }}">{{ ltype }}: {{ count }}</span>
+      {% endfor %}
+    </div>
+    {% endif %} {% if entity_type_counts %}
+    <div>
+      <h3>Entity Mentions ({{ entity_mention_count }})</h3>
+      {% for etype, count in entity_type_counts.items()|sort %}
+      <a
+        href="/entity-mentions?inventory_id={{ inventory.id }}&entity_type={{ etype }}"
+        style="text-decoration: none"
+      >
+        <span class="badge badge-entity badge-{{ etype }}"
+          >{{ etype }}: {{ count }}</span
+        >
+      </a>
+      {% endfor %}
+      <p style="margin-top: 0.75rem">
+        <a href="/entity-mentions?inventory_id={{ inventory.id }}" class="btn"
+          >View all entity mentions &rarr;</a
+        >
+      </p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
 
 {% if timeline_data and timeline_data.items %}
 <div class="card">

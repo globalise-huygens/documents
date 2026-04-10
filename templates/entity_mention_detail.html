@@ -1,0 +1,150 @@
+{% extends "base.html" %} {% block title %}Entity Mention: {{
+mention.entity_type }} - GLOBALISE Documents{% endblock %} {% block content %}
+
+<h1>Entity Mention</h1>
+
+<div class="card">
+  <h2>
+    <span class="badge badge-entity badge-{{ mention.entity_type }}"
+      >{{ mention.entity_type }}</span
+    >
+    {{ enriched.text or '' }}
+  </h2>
+
+  <div class="info-row">
+    <strong>ID:</strong>
+    <span style="font-family: monospace; font-size: 0.85em"
+      >{{ mention.id }}</span
+    >
+  </div>
+
+  <div class="info-row">
+    <strong>Entity Type:</strong>
+    <span class="badge badge-entity badge-{{ mention.entity_type }}"
+      >{{ mention.entity_type }}</span
+    >
+  </div>
+
+  {% if enriched.text %}
+  <div class="info-row">
+    <strong>Text:</strong>
+    <span>{{ enriched.text }}</span>
+  </div>
+  {% endif %}
+
+  <div class="info-row">
+    <strong>Annotation:</strong>
+    <span style="font-size: 0.85em; word-break: break-all">
+      <a href="{{ mention.annotation_identifier }}" target="_blank"
+        >{{ mention.annotation_identifier }}</a
+      >
+    </span>
+  </div>
+
+  {% if enriched.subject_uri %}
+  <div class="info-row">
+    <strong>Subject URI:</strong>
+    <span style="font-size: 0.85em; word-break: break-all">
+      <a href="{{ enriched.subject_uri }}" target="_blank"
+        >{{ enriched.subject_uri }}</a
+      >
+    </span>
+  </div>
+  {% endif %} {% if enriched.concept_uri %}
+  <div class="info-row">
+    <strong>Concept URI:</strong>
+    <span>
+      <a href="{{ enriched.concept_uri }}" target="_blank"
+        >{{ enriched.concept_uri }}</a
+      >
+    </span>
+  </div>
+  {% endif %} {% if enriched.timespan_begin or enriched.timespan_end %}
+  <div class="info-row">
+    <strong>Timespan:</strong>
+    <span>
+      {% if enriched.timespan_begin %}{{ enriched.timespan_begin }}{% endif %}
+      {% if enriched.timespan_begin and enriched.timespan_end %} — {% endif %}
+      {% if enriched.timespan_end %}{{ enriched.timespan_end }}{% endif %}
+    </span>
+  </div>
+  {% endif %} {% if mention.entity %}
+  <div class="info-row">
+    <strong>Resolved Entity:</strong>
+    <span
+      >{{ mention.entity.label or mention.entity.id }} ({{
+      mention.entity.entity_type }})</span
+    >
+  </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Location</h2>
+
+  <div class="info-row">
+    <strong>Page:</strong>
+    <span>
+      {% if mention.page %}
+      <a href="/page/{{ mention.page_id }}"
+        >{{ mention.page.page_or_folio_number or mention.page_id[:8] }}</a
+      >
+      {% else %} — {% endif %}
+    </span>
+  </div>
+
+  {% if mention.page and mention.page.inventory %}
+  <div class="info-row">
+    <strong>Inventory:</strong>
+    <span>
+      <a href="/inventory/{{ mention.page.inventory.inventory_number }}"
+        >{{ mention.page.inventory.inventory_number }}</a
+      >
+    </span>
+  </div>
+  {% endif %} {% if mention.page and mention.page.scan %}
+  <div class="info-row">
+    <strong>Scan:</strong>
+    <span>
+      <a href="/scan/{{ mention.page.scan.filename }}"
+        >{{ mention.page.scan.filename }}</a
+      >
+    </span>
+  </div>
+  {% endif %} {% if page_docs %}
+  <div class="info-row">
+    <strong>Document{{ 's' if page_docs|length > 1 else '' }}:</strong>
+    <span>
+      {% for pd in page_docs %}
+      <a href="/document/{{ pd.document_id }}"
+        >{{ pd.document.title or pd.document_id[:8] }}</a
+      >{% if not loop.last %}, {% endif %} {% endfor %}
+    </span>
+  </div>
+  {% endif %}
+
+  <div class="info-row">
+    <strong
+      >Layout Element{{ 's' if mention.layout_elements|length > 1 else ''
+      }}:</strong
+    >
+    <span>
+      {% for link in mention.layout_elements %} {% set le = link.layout_element
+      %} {% set le_data = enriched_layouts.get(le.id, {}) %}
+      <a href="/layout-element/{{ le.id }}">
+        <span class="badge badge-layout badge-{{ le.layout_type }}"
+          >{{ le.layout_type }}</span
+        >
+      </a>
+      {% if le_data.get('text') %}
+      <span style="color: var(--muted)"
+        >{{ le_data.text[:80] }}{% if le_data.text|length > 80 %}…{% endif
+        %}</span
+      >
+      {% endif %} {% if not loop.last %}<br />{% endif %} {% endfor %} {% if not
+      mention.layout_elements %}—{% endif %}
+    </span>
+  </div>
+</div>
+
+{% endblock %}

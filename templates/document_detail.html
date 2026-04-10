@@ -96,6 +96,11 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}
       <small class="text-muted">[{{ document.location.glob_id }}]</small>
     </span>
   </div>
+  {% elif document.location_id %}
+  <div class="info-row">
+    <strong>Location:</strong>
+    <span>{{ document.location_id }}</span>
+  </div>
   {% endif %}
 </div>
 
@@ -113,6 +118,13 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}
     dt.document_type.id }}
     <small>({{ dt.document_type.scheme }})</small>
   </a>
+  {% endfor %}
+</div>
+{% elif document.document_types %}
+<div class="card">
+  <h2>Document Types</h2>
+  {% for dt in document.document_types %}
+  <span class="badge badge-primary">{{ dt.document_type }}</span>
   {% endfor %}
 </div>
 {% endif %} {% if sub_documents %}
@@ -203,6 +215,72 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}
         </td>
       </tr>
       {% endif %}{% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %} {% if layout_elements or entity_mention_count %}
+<div class="card">
+  <h2>Annotations Overview</h2>
+  <div style="display: flex; gap: 2rem; flex-wrap: wrap; margin-bottom: 1rem">
+    <div>
+      <h3>Layout Elements ({{ layout_elements|length }})</h3>
+      {% for ltype, count in layout_type_counts.items()|sort %}
+      <span class="badge badge-{{ ltype }}">{{ ltype }}: {{ count }}</span>
+      {% endfor %}
+    </div>
+    <div>
+      <h3>Entity Mentions ({{ entity_mention_count }})</h3>
+      {% for etype, count in entity_type_counts.items()|sort %}
+      <a
+        href="/entity-mentions?document_id={{ document.id }}&entity_type={{ etype }}"
+        style="text-decoration: none"
+      >
+        <span class="badge badge-entity badge-{{ etype }}"
+          >{{ etype }}: {{ count }}</span
+        >
+      </a>
+      {% endfor %}
+      <p style="margin-top: 0.75rem">
+        <a href="/entity-mentions?document_id={{ document.id }}" class="btn"
+          >View all entity mentions &rarr;</a
+        >
+      </p>
+    </div>
+  </div>
+</div>
+{% endif %} {% if layout_elements %}
+<div class="card">
+  <h2>Layout Elements ({{ layout_elements|length }})</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Page</th>
+        <th>Type</th>
+        <th>Entities</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for elem in layout_elements %}
+      <tr>
+        <td>
+          <a href="/page/{{ elem.page_id }}"
+            >{{ elem.page.page_or_folio_number or elem.page_id[:8] }}</a
+          >
+        </td>
+        <td>
+          <a href="/layout-element/{{ elem.id }}"><span class="badge badge-{{ elem.layout_type }}"
+            >{{ elem.layout_type }}</span></a>
+        </td>
+        <td>
+          {% for link in elem.entity_mentions %}
+          <span
+            class="badge badge-entity badge-{{ link.entity_mention.entity_type }}"
+            >{{ link.entity_mention.entity_type }}</span
+          >
+          {% endfor %} {% if not elem.entity_mentions %}—{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
     </tbody>
   </table>
 </div>

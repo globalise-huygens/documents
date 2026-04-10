@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Layout Element: {{ layout_elem.layout_type }} - GLOBALISE Documents{% endblock %}
+{% block content %}
+
+<h1>Layout Element</h1>
+
+<div class="card">
+  <h2>
+    <span class="badge badge-layout badge-{{ layout_elem.layout_type }}">{{ layout_elem.layout_type }}</span>
+  </h2>
+
+  <div class="info-row">
+    <strong>ID:</strong>
+    <span style="font-family: monospace; font-size: 0.85em">{{ layout_elem.id }}</span>
+  </div>
+
+  <div class="info-row">
+    <strong>Layout Type:</strong>
+    <span class="badge badge-layout badge-{{ layout_elem.layout_type }}">{{ layout_elem.layout_type }}</span>
+  </div>
+
+  <div class="info-row">
+    <strong>Annotation:</strong>
+    <span style="font-size: 0.85em; word-break: break-all;">
+      <a href="{{ layout_elem.annotation_identifier }}" target="_blank">{{ layout_elem.annotation_identifier }}</a>
+    </span>
+  </div>
+
+  {% if enriched.text %}
+  <div class="info-row">
+    <strong>Text:</strong>
+    <span>{{ enriched.text }}</span>
+  </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Location</h2>
+
+  <div class="info-row">
+    <strong>Page:</strong>
+    <span>
+      {% if layout_elem.page %}
+      <a href="/page/{{ layout_elem.page_id }}">{{ layout_elem.page.page_or_folio_number or layout_elem.page_id[:8] }}</a>
+      {% else %}
+      —
+      {% endif %}
+    </span>
+  </div>
+
+  {% if layout_elem.page and layout_elem.page.inventory %}
+  <div class="info-row">
+    <strong>Inventory:</strong>
+    <span>
+      <a href="/inventory/{{ layout_elem.page.inventory.inventory_number }}">{{ layout_elem.page.inventory.inventory_number }}</a>
+    </span>
+  </div>
+  {% endif %}
+
+  {% if layout_elem.page and layout_elem.page.scan %}
+  <div class="info-row">
+    <strong>Scan:</strong>
+    <span>
+      <a href="/scan/{{ layout_elem.page.scan.filename }}">{{ layout_elem.page.scan.filename }}</a>
+    </span>
+  </div>
+  {% endif %}
+
+  {% if page_docs %}
+  <div class="info-row">
+    <strong>Document{{ 's' if page_docs|length > 1 else '' }}:</strong>
+    <span>
+      {% for pd in page_docs %}
+      <a href="/document/{{ pd.document_id }}">{{ pd.document.title or pd.document_id[:8] }}</a>{% if not loop.last %}, {% endif %}
+      {% endfor %}
+    </span>
+  </div>
+  {% endif %}
+</div>
+
+{% if layout_elem.entity_mentions %}
+<div class="card">
+  <h2>Entity Mentions ({{ layout_elem.entity_mentions|length }})</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Type</th>
+        <th>Text</th>
+        <th>Subject</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for link in layout_elem.entity_mentions %}
+      {% set em = link.entity_mention %}
+      {% set em_data = enriched_entities.get(em.id, {}) %}
+      <tr>
+        <td><a href="/entity-mention/{{ em.id }}"><span class="badge badge-entity badge-{{ em.entity_type }}">{{ em.entity_type }}</span></a></td>
+        <td>{{ em_data.get('text', '—') }}</td>
+        <td>
+          {% if em_data.get('subject_uri') %}
+          <a href="{{ em_data.subject_uri }}" target="_blank">{{ em_data.subject_uri.split('/')[-1] }}</a>
+          {% else %}—{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if same_page_elements %}
+<div class="card">
+  <h2>Other Layout Elements on This Page ({{ same_page_elements|length }})</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Type</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for elem in same_page_elements %}
+      <tr>
+        <td><a href="/layout-element/{{ elem.id }}"><span class="badge badge-layout badge-{{ elem.layout_type }}">{{ elem.layout_type }}</span></a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% endblock %}

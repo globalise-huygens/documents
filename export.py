@@ -754,8 +754,8 @@ def inventory_to_manifest_jsonld(inventory, manifest_uri: str) -> Dict[str, Any]
                         "service": [
                             {
                                 "@id": service_id,
-                                "@type": "ImageService2",
-                                "profile": "http://iiif.io/api/image/2/level1",
+                                "@type": "ImageService3",
+                                "profile": "level2",
                                 "format": "image/jpeg",
                             }
                         ],

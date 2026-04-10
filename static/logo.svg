@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <!-- Detective hat -->
+  <ellipse cx="60" cy="35" rx="35" ry="8" fill="#2C2C2C"/>
+  <rect x="35" y="25" width="50" height="15" rx="2" fill="#3A3A3A"/>
+  <rect x="45" y="15" width="30" height="15" rx="2" fill="#4A4A4A"/>
+  
+  <!-- Magnifying glass handle -->
+  <rect x="75" y="55" width="25" height="8" rx="4" fill="#8B4513" transform="rotate(45 87.5 59)"/>
+  
+  <!-- Magnifying glass lens rim -->
+  <circle cx="65" cy="50" r="18" fill="none" stroke="#444" stroke-width="3"/>
+  
+  <!-- Magnifying glass lens -->
+  <circle cx="65" cy="50" r="15" fill="#E3F2FD" opacity="0.6"/>
+  
+  <!-- Lens reflection -->
+  <ellipse cx="60" cy="45" rx="8" ry="10" fill="white" opacity="0.7"/>
+  <ellipse cx="58" cy="43" rx="3" ry="4" fill="white" opacity="0.9"/>
+  
+  <!-- Document being inspected -->
+  <rect x="45" y="65" width="28" height="35" rx="2" fill="white" stroke="#333" stroke-width="2"/>
+  
+  <!-- Document lines -->
+  <line x1="50" y1="72" x2="68" y2="72" stroke="#BFEECA" stroke-width="2" stroke-linecap="round"/>
+  <line x1="50" y1="78" x2="68" y2="78" stroke="#BDE6FE" stroke-width="2" stroke-linecap="round"/>
+  <line x1="50" y1="84" x2="65" y2="84" stroke="#E7D3FF" stroke-width="2" stroke-linecap="round"/>
+  <line x1="50" y1="90" x2="68" y2="90" stroke="#FF9F84" stroke-width="2" stroke-linecap="round"/>
+  
+  <!-- Fingerprint on document -->
+  <g opacity="0.3">
+    <circle cx="59" cy="88" r="4" fill="none" stroke="#1d1c1a" stroke-width="0.5"/>
+    <circle cx="59" cy="88" r="6" fill="none" stroke="#1d1c1a" stroke-width="0.5"/>
+    <circle cx="59" cy="88" r="8" fill="none" stroke="#1d1c1a" stroke-width="0.5"/>
+  </g>
+  
+  <!-- Trench coat collar -->
+  <path d="M 30 105 L 35 95 L 45 95 L 45 110 L 30 110 Z" fill="#8B7355"/>
+  <path d="M 90 105 L 85 95 L 75 95 L 75 110 L 90 110 Z" fill="#8B7355"/>
+  
+  <!-- Secret gadget symbol -->
+  <circle cx="25" cy="55" r="8" fill="#FF6B6B" opacity="0.8"/>
+  <text x="25" y="60" font-family="Arial, sans-serif" font-size="12" font-weight="bold" fill="white" text-anchor="middle">G</text>
+</svg>

@@ -1,0 +1,186 @@
+{% extends "base.html" %} {% block title %}Entity Mentions - GLOBALISE
+Documents{% endblock %} {% block content %}
+<h1>Entity Mentions</h1>
+
+<p style="margin-bottom: 1rem">
+  <strong>Scope:</strong> {{ scope_label }} {% if entity_type %} &mdash; entity
+  type
+  <span class="badge badge-entity badge-{{ entity_type }}"
+    >{{ entity_type }}</span
+  >{% endif %} {% if layout_type %} &mdash; layout
+  <span class="badge badge-layout badge-{{ layout_type }}"
+    >{{ layout_type }}</span
+  >{% endif %} &mdash; {{ total }} results
+</p>
+
+<div class="card" style="margin-bottom: 1rem">
+  <h3>Filter by entity type</h3>
+  <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center">
+    <a
+      href="?{% for k, v in scope_params.items() %}{% if k != 'entity_type' %}{{ k }}={{ v }}&{% endif %}{% endfor %}sort={{ sort }}"
+      class="badge {% if not entity_type %}badge-primary{% endif %}"
+      style="text-decoration: none"
+    >
+      All ({{ type_counts|sum(attribute='1') }})
+    </a>
+    {% for etype, count in type_counts %}
+    <a
+      href="?{% for k, v in scope_params.items() %}{% if k != 'entity_type' %}{{ k }}={{ v }}&{% endif %}{% endfor %}entity_type={{ etype }}&sort={{ sort }}"
+      class="badge badge-entity badge-{{ etype }} {% if entity_type == etype %}badge-primary{% endif %}"
+      style="text-decoration: none; {% if entity_type == etype %}outline: 2px solid var(--ink); outline-offset: 1px;{% endif %}"
+    >
+      {{ etype }} ({{ count }})
+    </a>
+    {% endfor %}
+  </div>
+</div>
+
+{% if layout_type_counts %}
+<div class="card" style="margin-bottom: 1rem">
+  <h3>Filter by layout type</h3>
+  <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center">
+    <a
+      href="?{% for k, v in scope_params.items() %}{% if k != 'layout_type' %}{{ k }}={{ v }}&{% endif %}{% endfor %}sort={{ sort }}"
+      class="badge {% if not layout_type %}badge-primary{% endif %}"
+      style="text-decoration: none"
+    >
+      All ({{ layout_type_counts|sum(attribute='1') }})
+    </a>
+    {% for ltype, count in layout_type_counts %}
+    <a
+      href="?{% for k, v in scope_params.items() %}{% if k != 'layout_type' %}{{ k }}={{ v }}&{% endif %}{% endfor %}layout_type={{ ltype }}&sort={{ sort }}"
+      class="badge badge-layout badge-{{ ltype }} {% if layout_type == ltype %}badge-primary{% endif %}"
+      style="text-decoration: none; {% if layout_type == ltype %}outline: 2px solid var(--ink); outline-offset: 1px;{% endif %}"
+    >
+      {{ ltype }} ({{ count }})
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<div style="margin-bottom: 1rem; display: flex; gap: 1rem; align-items: center">
+  <strong>Sort by:</strong>
+  <a
+    href="?{% for k, v in scope_params.items() %}{{ k }}={{ v }}&{% endfor %}sort=text"
+    class="btn {% if sort == 'text' %}btn-primary{% endif %}"
+    style="text-decoration: none"
+  >
+    Text (A-Z)
+  </a>
+  <a
+    href="?{% for k, v in scope_params.items() %}{{ k }}={{ v }}&{% endfor %}sort=type"
+    class="btn {% if sort == 'type' %}btn-primary{% endif %}"
+    style="text-decoration: none"
+  >
+    Type
+  </a>
+  <a
+    href="?{% for k, v in scope_params.items() %}{{ k }}={{ v }}&{% endfor %}sort=page"
+    class="btn {% if sort == 'page' %}btn-primary{% endif %}"
+    style="text-decoration: none"
+  >
+    Page
+  </a>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Type</th>
+      <th>Text</th>
+      <th>Layout</th>
+      <th>Page</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for mention in mentions %}
+    <tr data-entity-id="{{ mention.id }}">
+      <td>
+        <a href="/entity-mention/{{ mention.id }}"
+          ><span class="badge badge-entity badge-{{ mention.entity_type }}"
+            >{{ mention.entity_type }}</span
+          ></a
+        >
+      </td>
+      <td class="entity-text">
+        <span
+          class="loading-placeholder"
+          style="color: var(--muted); font-style: italic"
+          >loading…</span
+        >
+      </td>
+      <td>
+        {% for link in mention.layout_elements %}
+        <a href="/layout-element/{{ link.layout_element.id }}"
+          ><span
+            class="badge badge-layout badge-{{ link.layout_element.layout_type }}"
+            >{{ link.layout_element.layout_type }}</span
+          ></a
+        >
+        {% endfor %} {% if not mention.layout_elements %}—{% endif %}
+      </td>
+      <td>
+        {% if mention.page %}
+        <a href="/page/{{ mention.page_id }}"
+          >{{ mention.page.page_or_folio_number or mention.page_id[:8] }}</a
+        >
+        {% else %} — {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<script>
+  // Lazy-load entity text via the API
+  document.addEventListener("DOMContentLoaded", function () {
+    document.querySelectorAll("tr[data-entity-id]").forEach(function (row) {
+      var id = row.dataset.entityId;
+      var textCell = row.querySelector(".entity-text");
+      fetch("/api/annotation/entity/" + id)
+        .then(function (r) {
+          return r.json();
+        })
+        .then(function (data) {
+          textCell.textContent = data.text || "—";
+        })
+        .catch(function () {
+          textCell.textContent = "—";
+        });
+    });
+  });
+</script>
+
+{% if total_pages > 1 %}
+<div class="pagination">
+  {% if page > 1 %}
+  <a
+    href="?{% for k, v in scope_params.items() %}{{ k }}={{ v }}&{% endfor %}sort={{ sort }}&page=1"
+    >First</a
+  >
+  <a
+    href="?{% for k, v in scope_params.items() %}{{ k }}={{ v }}&{% endfor %}sort={{ sort }}&page={{ page - 1 }}"
+    >Previous</a
+  >
+  {% endif %} {% for p in range(1, total_pages + 1) %} {% if p == page %}
+  <span class="current">{{ p }}</span>
+  {% elif p <= 3 or p > total_pages - 3 or (p >= page - 2 and p <= page + 2) %}
+  <a
+    href="?{% for k, v in scope_params.items() %}{{ k }}={{ v }}&{% endfor %}sort={{ sort }}&page={{ p }}"
+    >{{ p }}</a
+  >
+  {% elif p == 4 or p == total_pages - 3 %}
+  <span>...</span>
+  {% endif %} {% endfor %} {% if page < total_pages %}
+  <a
+    href="?{% for k, v in scope_params.items() %}{{ k }}={{ v }}&{% endfor %}sort={{ sort }}&page={{ page + 1 }}"
+    >Next</a
+  >
+  <a
+    href="?{% for k, v in scope_params.items() %}{{ k }}={{ v }}&{% endfor %}sort={{ sort }}&page={{ total_pages }}"
+    >Last</a
+  >
+  {% endif %}
+</div>
+{% endif %} {% endblock %}

@@ -4,6 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{% block title %}GLOBALISE Documents{% endblock %}</title>
+    <link
+      rel="icon"
+      href="{{ url_for('static', filename='logo.svg') }}"
+      type="image/svg+xml"
+    />
+    <link
+      rel="shortcut icon"
+      href="{{ url_for('static', filename='logo.svg') }}"
+      type="image/svg+xml"
+    />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -371,31 +381,96 @@
         color: var(--ink);
       }
 
-      .badge-secondary {
-        background-color: var(--lilac);
+      /* Layout type badges */
+      .badge-header {
+        background-color: #a8d8ea;
+        color: var(--ink);
+      }
+      .badge-paragraph {
+        background-color: #e8e8e8;
+        color: var(--ink);
+      }
+      .badge-signature {
+        background-color: #f9e79f;
+        color: var(--ink);
+      }
+      .badge-signature-mark {
+        background-color: #f9e79f;
+        color: var(--ink);
+      }
+      .badge-marginalia {
+        background-color: #fadbd8;
+        color: var(--ink);
+      }
+      .badge-page-number {
+        background-color: #d5f5e3;
+        color: var(--ink);
+      }
+      .badge-catch-word {
+        background-color: #d6eaf8;
         color: var(--ink);
       }
 
-      /* Confidence pill: green at 1.0, amber at 0.5, coral below */
-      .badge-confidence {
-        font-variant-numeric: tabular-nums;
-        letter-spacing: 0.02em;
+      /* Entity type badges */
+      .badge-entity {
+        font-size: 0.75rem;
+        margin: 0.1rem;
       }
-      .badge-confidence.high   { background-color: var(--mint);  color: var(--ink); }
-      .badge-confidence.medium { background-color: #fff3cd;       color: #7a5c00; }
-      .badge-confidence.low    { background-color: var(--coral);  color: var(--ink); }
-
-      .text-muted {
-        color: #666;
-        font-size: 0.875em;
+      .badge-PER_NAME {
+        background-color: #aed6f1;
+        color: var(--ink);
       }
-
-      .folio-range {
-        font-variant-numeric: tabular-nums;
-        background: #f3f4f6;
-        border-radius: 6px;
-        padding: 0.1rem 0.5rem;
-        font-size: 0.875em;
+      .badge-PRF {
+        background-color: #a9cce3;
+        color: var(--ink);
+      }
+      .badge-LOC_NAME {
+        background-color: #a9dfbf;
+        color: var(--ink);
+      }
+      .badge-LOC_ADJ {
+        background-color: #82e0aa;
+        color: var(--ink);
+      }
+      .badge-SHIP {
+        background-color: #f9e79f;
+        color: var(--ink);
+      }
+      .badge-SHIP_TYPE {
+        background-color: #f7dc6f;
+        color: var(--ink);
+      }
+      .badge-ORG {
+        background-color: #d7bde2;
+        color: var(--ink);
+      }
+      .badge-DATE {
+        background-color: #f5cba7;
+        color: var(--ink);
+      }
+      .badge-DOC {
+        background-color: #fadbd8;
+        color: var(--ink);
+      }
+      .badge-CMTY_NAME {
+        background-color: #d5f5e3;
+        color: var(--ink);
+      }
+      .badge-CMTY_QUANT {
+        background-color: #abebc6;
+        color: var(--ink);
+      }
+      .badge-CMTY_QUAL {
+        background-color: #82e0aa;
+        color: var(--ink);
+      }
+      .badge-PER_ATTR {
+        background-color: #85c1e9;
+        color: var(--ink);
+      }
+      .badge-ETH_REL {
+        background-color: #bb8fce;
+        color: var(--ink);
       }
 
       .info-row {
@@ -696,15 +771,8 @@
           <li>
             <a
               href="/documents"
-              class="{% if request.path.startswith('/document') and not request.path.startswith('/document-type') %}active{% endif %}"
+              class="{% if request.path.startswith('/document') %}active{% endif %}"
               >Documents</a
-            >
-          </li>
-          <li>
-            <a
-              href="/document-types"
-              class="{% if request.path.startswith('/document-type') %}active{% endif %}"
-              >Doc Types</a
             >
           </li>
           <li>
@@ -712,13 +780,6 @@
               href="/methods"
               class="{% if request.path.startswith('/method') %}active{% endif %}"
               >Methods</a
-            >
-          </li>
-          <li>
-            <a
-              href="/settlements"
-              class="{% if request.path.startswith('/settlement') %}active{% endif %}"
-              >Settlements</a
             >
           </li>
           <li>
