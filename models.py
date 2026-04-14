@@ -494,6 +494,29 @@ class RectoVerso(str, enum.Enum):
     VERSO = "Verso"
 
 
+class LinkConfidence(str, enum.Enum):
+    """
+    Confidence tier for a Page2Document link, ordered from strongest to weakest.
+
+    VALIDATED    – A human has explicitly confirmed this link.
+    DEFINITIVE   – Established by an authoritative source (Gen Missiven /
+                   segmentation dataset import); treated as ground truth.
+    FOLIO_RANGE  – The page's folio number falls inside the document's
+                   folio_start–folio_end range (script 10).
+    INTERPOLATED – The page itself has no folio match, but its immediate
+                   neighbours in scan order are both linked to the same
+                   document (script 11).
+    CANDIDATE    – Multiple documents compete for this page (duplicate folio
+                   numbers); best guess via header matching or manual review.
+    """
+
+    VALIDATED    = "VALIDATED"
+    DEFINITIVE   = "DEFINITIVE"
+    FOLIO_RANGE  = "FOLIO_RANGE"
+    INTERPOLATED = "INTERPOLATED"
+    CANDIDATE    = "CANDIDATE"
+
+
 class Page(Base):
     __tablename__ = "page"
 
@@ -555,12 +578,13 @@ class Page2Document(Base):
         String(32),
         default="BASELINE",
         server_default="BASELINE",
-        comment="How this page-document link was established: BASELINE or FOLIO_RANGE",
+        comment="Which script/process created this link (e.g. BASELINE, FOLIO_RANGE, INTERPOLATED)",
     )
-    confidence: Mapped[float] = mapped_column(
-        default=1.0,
-        server_default="1.0",
-        comment="Confidence of the link: 1.0 = definitive (BASELINE), 0.0-1.0 = indicative",
+    confidence: Mapped[LinkConfidence] = mapped_column(
+        SQLEnum(LinkConfidence, values_callable=lambda obj: [e.value for e in obj]),
+        default=LinkConfidence.DEFINITIVE,
+        server_default=LinkConfidence.DEFINITIVE.value,
+        comment="Confidence tier for this page–document link; see LinkConfidence enum",
     )
 
     # Relationships
@@ -570,5 +594,5 @@ class Page2Document(Base):
     def __repr__(self):
         return (
             f"<Page2Document(page_id='{self.page_id}', document_id='{self.document_id}', "
-            f"index={self.index}, source='{self.source}', confidence={self.confidence})>"
+            f"index={self.index}, source='{self.source}', confidence='{self.confidence.value}')>"
         )
