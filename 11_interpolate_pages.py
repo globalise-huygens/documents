@@ -66,146 +66,175 @@ def _find_neighbour_doc(
 # Core logic
 # ---------------------------------------------------------------------------
 
-def interpolate(database_url: str, propagation_depth: int) -> Dict[str, int]:
+def interpolate(database_url: str) -> Dict[str, int]:
     engine = create_engine(database_url, echo=False)
     Base.metadata.create_all(engine)
 
     stats = {
         "inventories_processed": 0,
         "pages_interpolated": 0,
-        "pages_skipped_boundary": 0,
-        "pages_skipped_no_neighbour": 0,
+        "pages_skipped_ambiguous": 0,
     }
 
     with Session(engine) as session:
         try:
-            inv_rows = session.execute(
-                text(
-                    "SELECT DISTINCT d.inventory_id "
-                    "FROM page2document p2d "
-                    "JOIN document d ON d.id = p2d.document_id"
-                )
-            ).all()
+            inv_rows = session.execute(text("""
+                SELECT DISTINCT d.inventory_id
+                FROM page2document p2d
+                JOIN document d ON d.id = p2d.document_id
+            """)).all()
 
             inventory_ids = [r[0] for r in inv_rows]
 
-            total_inventories = len(inventory_ids)
+            for inv_id in inventory_ids:
+                # ------------------------------------------------------------ #
+                # 1. Load all pages in canonical scan order                    #
+                # ------------------------------------------------------------ #
+                page_rows = session.execute(text("""
+                    SELECT p.id
+                    FROM page p
+                    LEFT JOIN scan s ON s.id = p.scan_id
+                    WHERE p.inventory_id = :inv_id
+                    ORDER BY COALESCE(s.filename, ''),
+                             CASE p.recto_verso
+                                 WHEN 'Verso' THEN 0
+                                 WHEN 'Recto' THEN 1
+                                 ELSE 2 END
+                """), {"inv_id": inv_id}).all()
 
-            for idx_inv, inv_id in enumerate(inventory_ids, start=1):
-                logger.info(f"Processing inventory {idx_inv}/{total_inventories} (ID={inv_id})...")
-                page_rows = session.execute(
-                    text(
-                        "SELECT p.id, p.recto_verso "
-                        "FROM page p "
-                        "LEFT JOIN scan s ON s.id = p.scan_id "
-                        "WHERE p.inventory_id = :inv_id "
-                        "ORDER BY COALESCE(s.filename, ''), "
-                        "         CASE p.recto_verso "
-                        "             WHEN 'Recto' THEN 0 "
-                        "             WHEN 'Verso' THEN 1 "
-                        "             ELSE 2 END"
-                    ),
-                    {"inv_id": inv_id},
-                ).all()
+                if not page_rows:
+                    continue
 
-                ordered_page_ids: List[str] = [r[0] for r in page_rows]
+                ordered_pages = [r[0] for r in page_rows]
 
-                link_rows = session.execute(
-                    text(
-                        "SELECT p2d.page_id, p2d.document_id \
-                        FROM page2document p2d \
-                        JOIN document d ON d.id = p2d.document_id \
-                        WHERE d.inventory_id = :inv_id \
-                        AND p2d.confidence IN ('DEFINITIVE', 'FOLIO_RANGE')"
-                    ),
-                    {"inv_id": inv_id},
-                ).all()
+                # Assign canonical index to ALL pages
+                page_index_map = {
+                    pid: idx for idx, pid in enumerate(ordered_pages)
+                }
 
+                # Reverse lookup: index → page_id
+                index_to_page = {
+                    idx: pid for pid, idx in page_index_map.items()
+                }
+
+                # ------------------------------------------------------------ #
+                # 2. Load existing links (anchors only)                        #
+                # ------------------------------------------------------------ #
+                rows = session.execute(text("""
+                    SELECT p2d.page_id, p2d.document_id
+                    FROM page2document p2d
+                    JOIN document d ON d.id = p2d.document_id
+                    WHERE d.inventory_id = :inv_id
+                      AND p2d.source != 'INTERPOLATED'
+                """), {"inv_id": inv_id}).all()
+
+                if not rows:
+                    continue
+
+                # page → documents
                 page_to_docs: Dict[str, Set[str]] = {}
-                for page_id, doc_id in link_rows:
+                for page_id, doc_id in rows:
                     page_to_docs.setdefault(page_id, set()).add(doc_id)
 
-                base_page_to_docs = {pid: docs.copy() for pid, docs in page_to_docs.items()}
+                # document → indices
+                doc_to_indices: Dict[str, Set[int]] = defaultdict(set)
+                for page_id, doc_id in rows:
+                    idx = page_index_map.get(page_id)
+                    if idx is not None:
+                        doc_to_indices[doc_id].add(idx)
 
-                for depth_iter in range(propagation_depth):
-                    logger.info(f"  Pass {depth_iter + 1}/{propagation_depth}...")
-                    new_links_this_round = False
+                inserts = []
 
-                    unlinked_indices = [
-                        i for i, pid in enumerate(ordered_page_ids)
-                        if pid not in page_to_docs
-                    ]
+                # ------------------------------------------------------------ #
+                # 3. Interpolate per document using index continuity           #
+                # ------------------------------------------------------------ #
+                for doc_id, indices in doc_to_indices.items():
+                    if len(indices) < 2:
+                        continue
 
-                    total_unlinked = len(unlinked_indices)
+                    sorted_indices = sorted(indices)
 
-                    for idx_i, idx in enumerate(unlinked_indices, start=1):
-                        if idx_i % 500 == 0:
-                            logger.info(f"    Processed {idx_i}/{total_unlinked} unlinked pages...")
-                        page_id = ordered_page_ids[idx]
+                    start = sorted_indices[0]
+                    end = sorted_indices[-1]
 
-                        source_map = page_to_docs if propagation_depth > 1 else base_page_to_docs
-
-                        before_doc = _find_neighbour_doc(idx, ordered_page_ids, source_map, -1)
-                        after_doc = _find_neighbour_doc(idx, ordered_page_ids, source_map, +1)
-
-                        if before_doc is None or after_doc is None:
-                            stats["pages_skipped_no_neighbour"] += 1
+                    for idx in range(start, end + 1):
+                        if idx in indices:
                             continue
 
-                        if before_doc != after_doc:
-                            stats["pages_skipped_boundary"] += 1
+                        page_id = index_to_page.get(idx)
+                        if not page_id:
                             continue
 
-                        doc_id = before_doc
+                        # Check if page already linked
+                        if page_id in page_to_docs:
+                            continue
 
-                        page_to_docs.setdefault(page_id, set()).add(doc_id)
+                        # SAFETY: ensure no other document already claims it
+                        existing_docs = page_to_docs.get(page_id, set())
+                        if existing_docs:
+                            stats["pages_skipped_ambiguous"] += 1
+                            continue
 
-                        session.execute(insert(Page2Document), {
+                        inserts.append({
                             "id": str(uuid.uuid4()),
                             "page_id": page_id,
                             "document_id": doc_id,
-                            "index": 0,
+                            "index": idx,
                             "source": SOURCE,
                             "confidence": LinkConfidence.INTERPOLATED.value,
                         })
 
+                        # update in-memory state (important for reruns)
+                        page_to_docs.setdefault(page_id, set()).add(doc_id)
                         stats["pages_interpolated"] += 1
-                        new_links_this_round = True
 
+                # ------------------------------------------------------------ #
+                # 4. Commit batch                                             #
+                # ------------------------------------------------------------ #
+                if inserts:
+                    session.execute(insert(Page2Document), inserts)
                     session.commit()
-
-                    if not new_links_this_round:
-                        break
 
                 stats["inventories_processed"] += 1
 
-        except SQLAlchemyError as e:
+        except SQLAlchemyError:
             session.rollback()
             raise
 
     return stats
-
 
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description="Interpolate page–document links using scan-order neighbours (step 11)."
+    )
     parser.add_argument("--database", default=DATABASE_URL)
     parser.add_argument(
         "--propagation-depth",
         type=int,
         default=1,
-        help="How many interpolation passes to run (default: 1, safe mode)",
+        help=(
+            "How many interpolation passes to run per inventory (default: 1). "
+            "With depth=1 (safe mode) only original anchor links seed neighbours. "
+            "With depth>1 newly interpolated pages can chain-feed into adjacent gaps."
+        ),
     )
     args = parser.parse_args()
 
-    results = interpolate(args.database, args.propagation_depth)
+    print("=" * 60)
+    print("GLOBALISE — Neighbour Interpolation  (step 11)")
+    print("=" * 60)
+
+    results = interpolate(args.database)
 
     print("\n=== Summary ===")
-    print(f"  Inventories processed : {results['inventories_processed']}")
-    print(f"  Pages interpolated    : {results['pages_interpolated']:,}")
+    print(f"  Inventories processed    : {results['inventories_processed']}")
+    print(f"  Pages interpolated       : {results['pages_interpolated']:,}")
+    print(f"  Skipped (boundary)       : {results['pages_skipped_boundary']:,}")
+    print(f"  Skipped (no neighbour)   : {results['pages_skipped_no_neighbour']:,}")
     print("✓ Done.")
 
 
