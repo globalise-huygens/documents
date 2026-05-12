@@ -41,10 +41,20 @@ app.config["SECRET_KEY"] = os.environ.get(
 app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
     "DATABASE_URL", "sqlite:///globalise_documents.db"
 )
+app.config["BASE_URL"] = os.environ.get(
+    "BASE_URL", "https://globalisesearch.globalise-knaw.src.surf-hosted.nl/documents"
+)
 
 # CORS
 
 CORS(app)
+
+# Make BASE_URL and related config available to all templates
+@app.context_processor
+def inject_config():
+    return {
+        "base_url": app.config["BASE_URL"]
+    }
 
 # Initialize database
 engine = create_engine(app.config["SQLALCHEMY_DATABASE_URI"], echo=False)
