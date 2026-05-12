@@ -45,7 +45,7 @@
       {% for inventory in recent_inventories %}
       <tr>
         <td>
-          <a href="/inventory/{{ inventory.inventory_number }}"
+          <a href="{{ base_url }}/inventory/{{ inventory.inventory_number }}"
             >{{ inventory.inventory_number }}</a
           >
         </td>
@@ -70,10 +70,10 @@
 <div class="card">
   <h2>Quick Links</h2>
   <ul>
-    <li><a href="/inventories">Browse all inventories</a></li>
-    <li><a href="/documents">Browse all documents</a></li>
-    <li><a href="/scans">Browse all scans</a></li>
-    <li><a href="/search">Search the archive</a></li>
+    <li><a href="{{ base_url }}/inventories">Browse all inventories</a></li>
+    <li><a href="{{ base_url }}/documents">Browse all documents</a></li>
+    <li><a href="{{ base_url }}/scans">Browse all scans</a></li>
+    <li><a href="{{ base_url }}/search">Search the archive</a></li>
   </ul>
 </div>
 {% endblock %}

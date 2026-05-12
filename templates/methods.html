@@ -26,7 +26,7 @@ GLOBALISE Documents{% endblock %} {% block content %}
     </button>
   </div>
   <div style="margin-top: 1rem" id="add-method-form" hidden>
-    <form action="/methods/new" method="post" class="form-grid">
+    <form action="{{ base_url }}/methods/new" method="post" class="form-grid">
       <div class="form-group">
         <label for="name">Name *</label>
         <input type="text" id="name" name="name" required />
@@ -62,7 +62,7 @@ GLOBALISE Documents{% endblock %} {% block content %}
   <tbody>
     {% for method in methods %}
     <tr>
-      <td><a href="/method/{{ method.id }}">{{ method.name }}</a></td>
+      <td><a href="{{ base_url }}/method/{{ method.id }}">{{ method.name }}</a></td>
       <td>{{ method.date if method.date else 'N/A' }}</td>
       <td>
         {{ method.description[:100] if method.description else 'N/A' }}{% if

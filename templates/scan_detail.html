@@ -11,7 +11,7 @@ Documents{% endblock %} {% block content %}
   <div class="info-row">
     <strong>Inventory:</strong>
     <span
-      ><a href="/inventory/{{ scan.inventory.inventory_number }}"
+      ><a href="{{ base_url }}/inventory/{{ scan.inventory.inventory_number }}"
         >{{ scan.inventory.inventory_number }}</a
       ></span
     >
@@ -107,7 +107,7 @@ Documents{% endblock %} {% block content %}
             >Blank</span
           >{% endif %}
         </td>
-        <td><a href="/page/{{ page.id }}">View Details</a></td>
+        <td><a href="{{ base_url }}/page/{{ page.id }}">View Details</a></td>
       </tr>
       {% endfor %}
     </tbody>

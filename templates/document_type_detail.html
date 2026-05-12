@@ -26,7 +26,7 @@
   </div>
 </div>
 
-<p><a href="/document-types">← Back to all document types</a></p>
+<p><a href="{{ base_url }}/document-types">← Back to all document types</a></p>
 
 {% if documents %}
 <div class="card">
@@ -45,12 +45,12 @@
       {% for doc in documents %}
       <tr>
         <td>
-          <a href="/document/{{ doc.id }}">
+          <a href="{{ base_url }}/document/{{ doc.id }}">
             {{ doc.title if doc.title else 'Untitled Document' }}
           </a>
         </td>
         <td>
-          <a href="/inventory/{{ doc.inventory.inventory_number }}">
+          <a href="{{ base_url }}/inventory/{{ doc.inventory.inventory_number }}">
             {{ doc.inventory.inventory_number }}
           </a>
         </td>

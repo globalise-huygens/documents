@@ -3,7 +3,7 @@ endblock %} {% block content %}
 <h1>Pages</h1>
 
 {% if inventory_id %}
-<p><a href="/pages">View all pages</a></p>
+<p><a href="{{ base_url }}/pages">View all pages</a></p>
 {% endif %}
 
 <table>
@@ -21,7 +21,7 @@ endblock %} {% block content %}
     <tr>
       <td>
         {% if page.scan %}
-        <a href="/page/{{ page.id }}">
+        <a href="{{ base_url }}/page/{{ page.id }}">
           <img
             src="{{ page.scan.get_thumbnail_url() }}"
             alt="Page preview"
@@ -37,7 +37,7 @@ endblock %} {% block content %}
       <td>{{ page.recto_verso.value if page.recto_verso else 'N/A' }}</td>
       <td>
         {% if page.scan %}
-        <a href="/scan/{{ page.scan.filename }}">{{ page.scan.filename }}</a>
+        <a href="{{ base_url }}/scan/{{ page.scan.filename }}">{{ page.scan.filename }}</a>
         {% else %} N/A {% endif %}
       </td>
       <td>

@@ -7,7 +7,7 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}
   <div class="info-row">
     <strong>Inventory:</strong>
     <span
-      ><a href="/inventory/{{ document.inventory.inventory_number }}"
+      ><a href="{{ base_url }}/inventory/{{ document.inventory.inventory_number }}"
         >{{ document.inventory.inventory_number }}</a
       ></span
     >
@@ -30,7 +30,7 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}
     <strong>Start Scan:</strong>
     <span>
       {% if first_scan_filename %}
-      <a href="/scan/{{ first_scan_filename }}">{{ first_scan_filename }}</a>
+      <a href="{{ base_url }}/scan/{{ first_scan_filename }}">{{ first_scan_filename }}</a>
       {% else %} N/A {% endif %}
     </span>
   </div>
@@ -38,7 +38,7 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}
     <strong>End Scan:</strong>
     <span>
       {% if last_scan_filename %}
-      <a href="/scan/{{ last_scan_filename }}">{{ last_scan_filename }}</a>
+      <a href="{{ base_url }}/scan/{{ last_scan_filename }}">{{ last_scan_filename }}</a>
       {% else %} N/A {% endif %}
     </span>
   </div>
@@ -77,7 +77,7 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}
   <div class="info-row">
     <strong>Part of:</strong>
     <span
-      ><a href="/document/{{ document.part_of.id }}"
+      ><a href="{{ base_url }}/document/{{ document.part_of.id }}"
         >{{ document.part_of.title if document.part_of.title else 'Parent
         Document' }}</a
       ></span
@@ -89,7 +89,7 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}
     <span>
       {% set labels = document.location.labels | map(attribute='label') | list
       %}
-      <a href="/settlement/{{ document.location.glob_id }}">{{ labels[0] }}</a>
+      <a href="{{ base_url }}/settlement/{{ document.location.glob_id }}">{{ labels[0] }}</a>
       {% if labels | length > 1 %}
       <small class="text-muted"> (also: {{ labels[1:] | join(', ') }}) </small>
       {% endif %}
@@ -104,7 +104,7 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}
   <h2>Document Types</h2>
   {% for dt in document.document_types_linked %}
   <a
-    href="/document-type/{{ dt.document_type.id }}"
+    href="{{ base_url }}/document-type/{{ dt.document_type.id }}"
     class="badge badge-primary"
     title="{{ dt.document_type.scheme }} concept"
     style="text-decoration: none"
@@ -130,7 +130,7 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}
       {% for subdoc in sub_documents %}
       <tr>
         <td>
-          <a href="/document/{{ subdoc.id }}"
+          <a href="{{ base_url }}/document/{{ subdoc.id }}"
             >{{ subdoc.title if subdoc.title else 'Untitled' }}</a
           >
         </td>
@@ -160,7 +160,7 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}
       <tr>
         <td>
           {% if page_doc.page.scan %}
-          <a href="/page/{{ page_doc.page.id }}">
+          <a href="{{ base_url }}/page/{{ page_doc.page.id }}">
             <img
               src="{{ page_doc.page.scan.get_thumbnail_url() }}"
               alt="Page {{ page_doc.index }}"
@@ -172,7 +172,7 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}
         </td>
         <td>{{ page_doc.index }}</td>
         <td>
-          <a href="/page/{{ page_doc.page.id }}">
+          <a href="{{ base_url }}/page/{{ page_doc.page.id }}">
             {{ page_doc.page.page_or_folio_number if
             page_doc.page.page_or_folio_number else '—' }}
           </a>

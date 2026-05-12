@@ -5,7 +5,7 @@ endblock %} {% block content %}
 <div style="margin-bottom: 1rem; display: flex; gap: 1rem; align-items: center">
   {% if prev_page %}
   <a
-    href="/page/{{ prev_page.id }}"
+    href="{{ base_url }}/page/{{ prev_page.id }}"
     class="button"
     style="text-decoration: none"
   >
@@ -17,7 +17,7 @@ endblock %} {% block content %}
   </span>
   {% endif %} {% if next_page %}
   <a
-    href="/page/{{ next_page.id }}"
+    href="{{ base_url }}/page/{{ next_page.id }}"
     class="button"
     style="text-decoration: none"
   >
@@ -36,7 +36,7 @@ endblock %} {% block content %}
     <strong>Inventory:</strong>
     <span>
       {% if page.inventory %}
-      <a href="/inventory/{{ page.inventory.inventory_number }}"
+      <a href="{{ base_url }}/inventory/{{ page.inventory.inventory_number }}"
         >{{ page.inventory.inventory_number }}</a
       >
       {% else %} N/A {% endif %}
@@ -46,7 +46,7 @@ endblock %} {% block content %}
     <strong>Scan:</strong>
     <span>
       {% if page.scan %}
-      <a href="/scan/{{ page.scan.filename }}">{{ page.scan.filename }}</a>
+      <a href="{{ base_url }}/scan/{{ page.scan.filename }}">{{ page.scan.filename }}</a>
       {% else %} N/A {% endif %}
     </span>
   </div>
@@ -154,14 +154,14 @@ endblock %} {% block content %}
       {% for page_doc in page_docs %}
       <tr>
         <td>
-          <a href="/document/{{ page_doc.document.id }}">
+          <a href="{{ base_url }}/document/{{ page_doc.document.id }}">
             {{ page_doc.document.title if page_doc.document.title else
             'Untitled' }}
           </a>
         </td>
         <td>
           <a
-            href="/inventory/{{ page_doc.document.inventory.inventory_number }}"
+            href="{{ base_url }}/inventory/{{ page_doc.document.inventory.inventory_number }}"
           >
             {{ page_doc.document.inventory.inventory_number }}
           </a>

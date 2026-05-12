@@ -32,7 +32,7 @@ settlement.labels else settlement.glob_id }} - GLOBALISE Documents{% endblock %}
   </div>
 </div>
 
-<p><a href="/settlements">← Back to all settlements</a></p>
+<p><a href="{{ base_url }}/settlements">← Back to all settlements</a></p>
 
 {% if documents %}
 <div class="card">
@@ -51,12 +51,12 @@ settlement.labels else settlement.glob_id }} - GLOBALISE Documents{% endblock %}
       {% for doc in documents %}
       <tr>
         <td>
-          <a href="/document/{{ doc.id }}">
+          <a href="{{ base_url }}/document/{{ doc.id }}">
             {{ doc.title if doc.title else 'Untitled Document' }}
           </a>
         </td>
         <td>
-          <a href="/inventory/{{ doc.inventory.inventory_number }}">
+          <a href="{{ base_url }}/inventory/{{ doc.inventory.inventory_number }}">
             {{ doc.inventory.inventory_number }}
           </a>
         </td>

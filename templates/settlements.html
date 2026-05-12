@@ -8,7 +8,7 @@ endblock %} {% block content %}
 </p>
 
 <div class="search-box">
-  <form method="get" action="/settlements">
+  <form method="get" action="{{ base_url }}/settlements">
     <input
       type="text"
       name="search"
@@ -36,7 +36,7 @@ endblock %} {% block content %}
     {% for s in settlements %}
     <tr>
       <td>
-        <a href="/settlement/{{ s.glob_id }}">
+        <a href="{{ base_url }}/settlement/{{ s.glob_id }}">
           {{ s.labels[0].label if s.labels else s.glob_id }}
         </a>
       </td>

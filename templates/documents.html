@@ -3,7 +3,7 @@ endblock %} {% block content %}
 <h1>Documents</h1>
 
 <div class="search-box">
-  <form method="get" action="/documents">
+  <form method="get" action="{{ base_url }}/documents">
     <input
       type="text"
       name="search"
@@ -33,12 +33,12 @@ endblock %} {% block content %}
     {% for doc in documents %}
     <tr>
       <td>
-        <a href="/document/{{ doc.id }}"
+        <a href="{{ base_url }}/document/{{ doc.id }}"
           >{{ doc.title if doc.title else 'Untitled Document' }}</a
         >
       </td>
       <td>
-        <a href="/inventory/{{ doc.inventory.inventory_number }}"
+        <a href="{{ base_url }}/inventory/{{ doc.inventory.inventory_number }}"
           >{{ doc.inventory.inventory_number }}</a
         >
       </td>

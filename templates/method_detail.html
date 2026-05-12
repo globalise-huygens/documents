@@ -4,7 +4,7 @@ Identification Method{% endblock %} {% block content %}
 
 <div class="card">
   <h2>Method Information</h2>
-  <form action="/method/{{ method.id }}/edit" method="post" class="form-grid">
+  <form action="{{ base_url }}/method/{{ method.id }}/edit" method="post" class="form-grid">
     <div class="form-group">
       <label for="name">Name *</label>
       <input
@@ -65,7 +65,7 @@ Identification Method{% endblock %} {% block content %}
   </form>
 
   <form
-    action="/method/{{ method.id }}/delete"
+    action="{{ base_url }}/method/{{ method.id }}/delete"
     method="post"
     style="margin-top: 0.5rem; text-align: right"
   >
@@ -96,12 +96,12 @@ Identification Method{% endblock %} {% block content %}
       {% for doc in documents %}
       <tr>
         <td>
-          <a href="/document/{{ doc.id }}"
+          <a href="{{ base_url }}/document/{{ doc.id }}">
             >{{ doc.title if doc.title else 'Untitled Document' }}</a
           >
         </td>
         <td>
-          <a href="/inventory/{{ doc.inventory.inventory_number }}"
+          <a href="{{ base_url }}/inventory/{{ doc.inventory.inventory_number }}">
             >{{ doc.inventory.inventory_number }}</a
           >
         </td>

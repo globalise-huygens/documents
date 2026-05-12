@@ -381,9 +381,18 @@
         font-variant-numeric: tabular-nums;
         letter-spacing: 0.02em;
       }
-      .badge-confidence.high   { background-color: var(--mint);  color: var(--ink); }
-      .badge-confidence.medium { background-color: #fff3cd;       color: #7a5c00; }
-      .badge-confidence.low    { background-color: var(--coral);  color: var(--ink); }
+      .badge-confidence.high {
+        background-color: var(--mint);
+        color: var(--ink);
+      }
+      .badge-confidence.medium {
+        background-color: #fff3cd;
+        color: #7a5c00;
+      }
+      .badge-confidence.low {
+        background-color: var(--coral);
+        color: var(--ink);
+      }
 
       .text-muted {
         color: #666;
@@ -682,62 +691,64 @@
       <div class="container">
         <ul>
           <li>
-            <a href="/" class="{% if request.path == '/' %}active{% endif %}"
+            <a
+              href="{{ base_url }}/"
+              class="{% if request.path == '/' %}active{% endif %}"
               >Home</a
             >
           </li>
           <li>
             <a
-              href="/inventories"
+              href="{{ base_url }}/inventories"
               class="{% if request.path.startswith('/inventor') %}active{% endif %}"
               >Inventories</a
             >
           </li>
           <li>
             <a
-              href="/documents"
+              href="{{ base_url }}/documents"
               class="{% if request.path.startswith('/document') and not request.path.startswith('/document-type') %}active{% endif %}"
               >Documents</a
             >
           </li>
           <li>
             <a
-              href="/document-types"
+              href="{{ base_url }}/document-types"
               class="{% if request.path.startswith('/document-type') %}active{% endif %}"
               >Doc Types</a
             >
           </li>
           <li>
             <a
-              href="/methods"
+              href="{{ base_url }}/methods"
               class="{% if request.path.startswith('/method') %}active{% endif %}"
               >Methods</a
             >
           </li>
           <li>
             <a
-              href="/settlements"
+              href="{{ base_url }}/settlements"
               class="{% if request.path.startswith('/settlement') %}active{% endif %}"
               >Settlements</a
             >
           </li>
           <li>
             <a
-              href="/scans"
+              href="{{ base_url }}/scans"
               class="{% if request.path.startswith('/scan') %}active{% endif %}"
               >Scans</a
             >
           </li>
           <li>
             <a
-              href="/pages"
+              href="{{ base_url }}/pages"
               class="{% if request.path.startswith('/page') %}active{% endif %}"
               >Pages</a
             >
           </li>
           <li>
             <a
-              href="/search"
+              href="{{ base_url }}/search"
               class="{% if request.path == '/search' %}active{% endif %}"
               >Search</a
             >

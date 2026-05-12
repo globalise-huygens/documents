@@ -3,13 +3,13 @@ endblock %} {% block content %}
 <h1>Scans</h1>
 
 {% if inventory_id %}
-<p><a href="/scans">View all scans</a></p>
+<p><a href="{{ base_url }}/scans">View all scans</a></p>
 {% endif %}
 
 <div class="image-grid">
   {% for scan in scans %}
   <div class="image-item">
-    <a href="/scan/{{ scan.filename }}">
+    <a href="{{ base_url }}/scan/{{ scan.filename }}">
       <img
         src="{{ scan.get_thumbnail_url() }}"
         alt="{{ scan.filename }}"

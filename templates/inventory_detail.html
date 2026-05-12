@@ -297,7 +297,7 @@ GLOBALISE Documents{% endblock %}
       {% for doc in documents %}
       <tr>
         <td>
-          <a href="/document/{{ doc.id }}"
+          <a href="{{ base_url }}/document/{{ doc.id }}"
             >{{ doc.title if doc.title else 'Untitled' }}</a
           >
         </td>
@@ -312,14 +312,14 @@ GLOBALISE Documents{% endblock %}
         <td>{{ doc.number_of_pages }}</td>
         <td>
           {% if doc.first_scan_filename %}
-          <a href="/scan/{{ doc.first_scan_filename }}">{{ doc.first_scan_filename }}</a>
+          <a href="{{ base_url }}/scan/{{ doc.first_scan_filename }}">{{ doc.first_scan_filename }}</a>
           {% else %}
           N/A
           {% endif %}
         </td>
         <td>
           {% if doc.last_scan_filename %}
-          <a href="/scan/{{ doc.last_scan_filename }}">{{ doc.last_scan_filename }}</a>
+          <a href="{{ base_url }}/scan/{{ doc.last_scan_filename }}">{{ doc.last_scan_filename }}</a>
           {% else %}
           N/A
           {% endif %}
@@ -336,13 +336,13 @@ GLOBALISE Documents{% endblock %}
   {% if scan_count > 50 %}
   <p class="alert alert-info">
     Showing first 50 scans.
-    <a href="/scans?inventory_id={{ inventory.id }}">View all scans</a>
+    <a href="{{ base_url }}/scans?inventory_id={{ inventory.id }}">View all scans</a>
   </p>
   {% endif %}
   <div class="image-grid">
     {% for scan in scans %}
     <div class="image-item">
-      <a href="/scan/{{ scan.filename }}">
+      <a href="{{ base_url }}/scan/{{ scan.filename }}">
         <img
           src="{{ scan.get_thumbnail_url() }}"
           alt="{{ scan.filename }}"
@@ -357,7 +357,7 @@ GLOBALISE Documents{% endblock %}
         <div class="page-info-column {% if scan.pages_info|length == 1 %}single{% endif %} {% if page_info.is_in_document %}in-document{% else %}not-in-document{% endif %}">
           <div class="page-info-header">
             <span class="document-indicator {% if page_info.is_in_document %}in-document{% else %}not-in-document{% endif %}"></span>
-            <a href="/page/{{ page_info.page.id }}" style="color: inherit; text-decoration: none;">
+            <a href="{{ base_url }}/page/{{ page_info.page.id }}" style="color: inherit; text-decoration: none;">
               {{ page_info.recto_verso if page_info.recto_verso else 'Page' }}
             </a>
           </div>
@@ -371,7 +371,7 @@ GLOBALISE Documents{% endblock %}
   </div>
   {% if scan_count > 50 %}
   <p style="text-align: center; margin-top: 1rem">
-    <a href="/scans?inventory_id={{ inventory.id }}"
+    <a href="{{ base_url }}/scans?inventory_id={{ inventory.id }}"
       >View all {{ scan_count }} scans</a
     >
   </p>

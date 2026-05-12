@@ -5,12 +5,12 @@
 <div class="card" style="margin-bottom: 1.5rem">
   <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center">
     <strong>Filter by scheme:</strong>
-    <a href="/document-types"
+    <a href="{{ base_url }}/document-types"
        class="btn {% if not selected_scheme %}btn-primary{% endif %}">
       All
     </a>
     {% for s in schemes %}
-    <a href="/document-types?scheme={{ s }}"
+    <a href="{{ base_url }}/document-types?scheme={{ s }}"
        class="btn {% if selected_scheme == s %}btn-primary{% endif %}">
       {{ s }}
     </a>
@@ -33,7 +33,7 @@
     <tr>
       <td><span class="badge badge-primary">{{ dt.scheme }}</span></td>
       <td>
-        <a href="/document-type/{{ dt.id }}">
+        <a href="{{ base_url }}/document-type/{{ dt.id }}">
           {{ dt.pref_label_en if dt.pref_label_en else '—' }}
         </a>
       </td>
