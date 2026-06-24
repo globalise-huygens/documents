@@ -1,5 +1,6 @@
 """
-Export documents to CSV with identifier, scan filenames, title, date, and settlement.
+Export documents to CSV with identifier, inventory number, scan filenames,
+title, date, settlement, method, and start/end scan types.
 """
 
 import os
@@ -67,6 +68,35 @@ def get_end_scan_filename(document):
     return ""
 
 
+def get_start_end_scan_types(document):
+    """Get the scan types of the first and last scans for a document."""
+    if not document.pages:
+        return "", ""
+
+    sorted_pages = sorted(document.pages, key=lambda p: p.index)
+    first_page_link = sorted_pages[0]
+    last_page_link = sorted_pages[-1]
+
+    start_scan_type = ""
+    end_scan_type = ""
+
+    if first_page_link.page and first_page_link.page.scan:
+        scan_type = getattr(first_page_link.page.scan, "scan_type", None)
+        if scan_type:
+            start_scan_type = (
+                scan_type.value if hasattr(scan_type, "value") else str(scan_type)
+            )
+
+    if last_page_link.page and last_page_link.page.scan:
+        scan_type = getattr(last_page_link.page.scan, "scan_type", None)
+        if scan_type:
+            end_scan_type = (
+                scan_type.value if hasattr(scan_type, "value") else str(scan_type)
+            )
+
+    return start_scan_type, end_scan_type
+
+
 def get_date_start(document):
     """Get the start date in ISO 8601 format."""
     if document.date_earliest_begin:
@@ -109,6 +139,8 @@ def export_documents_csv():
                     "inventory_number",
                     "start_scan_filename",
                     "end_scan_filename",
+                    "start_scan_type",
+                    "end_scan_type",
                     "title",
                     "date_start",
                     "date_end",
@@ -119,12 +151,15 @@ def export_documents_csv():
 
             # Write data rows
             for document in documents:
+                start_scan_type, end_scan_type = get_start_end_scan_types(document)
                 writer.writerow(
                     [
                         document.id,
                         get_inventory_number(document),
                         get_start_scan_filename(document),
                         get_end_scan_filename(document),
+                        start_scan_type,
+                        end_scan_type,
                         document.title or "",
                         get_date_start(document),
                         get_date_end(document),
