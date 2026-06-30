@@ -203,6 +203,59 @@ uv run python 9_import_annotation_pages_exist.py [--dry-run]
 
 Sets `has_transcriptions`, `has_entities`, and `has_events` flags on Scan records based on `annotationpages.csv`. These flags control whether annotation page links are included in IIIF manifest exports.
 
+### Step 9.5: Migrate Confidence Column
+```bash
+uv run python 9.5_backfill_confidence.py
+```
+
+Migrates the `page2document.confidence` column from a Float to a String-based Enum (`LinkConfidence`). This ensures compatibility with the refined matching scripts.
+
+### Step 10: Match Folios
+```bash
+uv run python 10_match_folios.py
+```
+
+Matches pages to OBP documents by folio range. It assigns the `FOLIO_RANGE` confidence tier to every page whose folio number falls within a document's start/end range.
+
+### Step 11: Interpolate pages
+```bash
+uv run python 11_interpolate_pages.py
+```
+
+Fills gaps for unlinked pages using scan-order neighbors.
+
+An unlinked page is only interpolated if:
+
+- it has a linked neighbour on both sides
+- both neighbours resolve to exactly one document
+- both neighbours belong to the same document
+
+This avoids guessing at document boundaries or using ambiguous matches.
+
+By default, interpolation is strict (propagation depth = 1):
+
+- only original, confidently linked pages are used as neighbours
+- gaps are filled one step at a time
+
+You can increase interpolation depth to allow propagation across multiple gaps:
+
+```bash
+uv run python 11_interpolate_pages.py --propagation-depth 2
+```
+
+Example:
+```
+[Doc A] — [gap] — [gap] — [Doc A]
+```
+- depth = 1 → no interpolation (gap too large)
+- depth = 2 → both gaps are filled
+
+The script is safe to rerun:
+
+- it will only fill previously unlinked pages
+- useful after improving earlier matching steps (e.g. folio matching)
+
+
 ### Verify Database
 
 After running the import scripts, you should have a populated `globalise_documents.db` file.

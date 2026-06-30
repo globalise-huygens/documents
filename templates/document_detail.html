@@ -184,6 +184,8 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}
         <td>
           {% if page_doc.source == 'FOLIO_RANGE' %}
           <span class="badge badge-primary">Folio range</span>
+          {% elif page_doc.source == 'INTERPOLATED' %}
+          <span class="badge badge-warning">Interpolated</span>
           {% elif page_doc.source == 'BASELINE' %}
           <span class="badge badge-secondary">Baseline</span>
           {% else %}
@@ -191,15 +193,18 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}
           {% endif %}
         </td>
         <td>
-          {% if page_doc.confidence is not none %} {% set pct =
-          (page_doc.confidence * 100)|round|int %} {% if page_doc.confidence >=
-          0.9 %}
-          <span class="badge badge-confidence high">{{ pct }}%</span>
-          {% elif page_doc.confidence >= 0.6 %}
-          <span class="badge badge-confidence medium">{{ pct }}%</span>
-          {% else %}
-          <span class="badge badge-confidence low">{{ pct }}%</span>
-          {% endif %} {% else %}—{% endif %}
+          {% set conf = page_doc.confidence.value if page_doc.confidence is not none else none %}
+          {% if conf == 'VALIDATED' %}
+          <span class="badge badge-confidence high" title="Manually validated">Validated</span>
+          {% elif conf == 'DEFINITIVE' %}
+          <span class="badge badge-confidence high" title="From authoritative source (Gen Missiven / segmentation dataset)">Definitive</span>
+          {% elif conf == 'FOLIO_RANGE' %}
+          <span class="badge badge-confidence medium" title="Folio number falls within document range">Folio range</span>
+          {% elif conf == 'INTERPOLATED' %}
+          <span class="badge badge-confidence low" title="Both neighbouring pages link to this document">Interpolated</span>
+          {% elif conf == 'CANDIDATE' %}
+          <span class="badge badge-confidence low" title="Competing documents — needs review">Candidate</span>
+          {% else %}—{% endif %}
         </td>
       </tr>
       {% endif %}{% endfor %}
