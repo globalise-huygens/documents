@@ -191,13 +191,13 @@ def export_documents_csv(
                 f"Exported {len(documents)} documents to gzip file {output_file}"
             )
             logger.info(
-                "Upload with: aws s3 sync data/s3/ s3://globalise-data/objects/document/ --acl=public-read --content-encoding gzip"
+                "Upload with: aws s3 sync data/s3/document/ s3://globalise-data/objects/document/ --acl=public-read --content-encoding gzip"
             )
 
         else:
             logger.info(f"Exported {len(documents)} documents to {output_file}")
             logger.info(
-                "Upload with: aws s3 sync data/s3/ s3://globalise-data/objects/document/ --acl=public-read"
+                "Upload with: aws s3 sync data/s3/document/ s3://globalise-data/objects/document/ --acl=public-read"
             )
 
 
