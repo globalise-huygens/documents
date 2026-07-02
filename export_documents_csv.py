@@ -1,10 +1,22 @@
 """
 Export documents to CSV with identifier, inventory number, scan filenames,
 title, date, settlement, method, and start/end scan types.
+
+Export documents to a CSV file.
+
+options:
+  -h, --help            show this help message and exit
+  --filename, -f FILENAME
+                        Output filename (default: data/s3/document/documents.csv)
+  --gzip                Gzip-compress the output file (default)
+  --no-gzip             Write plain CSV without gzip compression
+
 """
 
 import os
 import csv
+import argparse
+import gzip
 import logging
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
@@ -118,18 +130,24 @@ def get_identification_method(document):
     return ""
 
 
-def export_documents_csv():
-    """Export all documents to CSV."""
+def export_documents_csv(
+    output_file="data/s3/document/documents.csv", gzip_output=True
+):
+    """Export all documents to CSV.
+
+    Args:
+        output_file: Output filename for the CSV export.
+        gzip_output: When True, gzip-compress the output file.
+    """
     with Session(engine) as session:
         # Query all documents
         documents = session.query(Document).all()
 
         logger.info(f"Found {len(documents)} documents to export")
 
-        # Write to CSV
-        output_file = "documents_export.csv"
-
-        with open(output_file, "w", newline="", encoding="utf-8") as f:
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        open_fn = gzip.open if gzip_output else open
+        with open_fn(output_file, "wt", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
 
             # Write header
@@ -168,8 +186,46 @@ def export_documents_csv():
                     ]
                 )
 
-        logger.info(f"Exported {len(documents)} documents to {output_file}")
+        if gzip_output:
+            logger.info(
+                f"Exported {len(documents)} documents to gzip file {output_file}"
+            )
+            logger.info(
+                "Upload with: aws s3 sync data/s3/ s3://globalise-data/objects/document/ --acl=public-read --content-encoding gzip"
+            )
+
+        else:
+            logger.info(f"Exported {len(documents)} documents to {output_file}")
+            logger.info(
+                "Upload with: aws s3 sync data/s3/ s3://globalise-data/objects/document/ --acl=public-read"
+            )
+
+
+def parse_args():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(description="Export documents to a CSV file.")
+    parser.add_argument(
+        "--filename",
+        "-f",
+        default="data/s3/document/documents.csv",
+        help="Output filename (default: data/s3/document/documents.csv)",
+    )
+    parser.add_argument(
+        "--gzip",
+        dest="gzip",
+        action="store_true",
+        help="Gzip-compress the output file (default)",
+    )
+    parser.add_argument(
+        "--no-gzip",
+        dest="gzip",
+        action="store_false",
+        help="Write plain CSV without gzip compression",
+    )
+    parser.set_defaults(gzip=True)
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
-    export_documents_csv()
+    args = parse_args()
+    export_documents_csv(output_file=args.filename, gzip_output=args.gzip)
