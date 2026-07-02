@@ -28,6 +28,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+TYPE_URI_PREFIX = "https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/thesaurus:"
+
 # Database setup
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///globalise_documents.db")
 engine = create_engine(DATABASE_URL, echo=False)
@@ -36,13 +38,16 @@ engine = create_engine(DATABASE_URL, echo=False)
 Base.metadata.create_all(engine)
 
 
-def get_settlement_label(document):
-    """Get the settlement label for a document, or empty string if none."""
+def get_settlement(document):
+    """Get the settlement UUID and label for a document."""
     if document.location:
+        settlement_id = document.location.id
         if document.location.labels:
-            return document.location.labels[0].label
-        return document.location.glob_id
-    return ""
+            settlement_label = document.location.labels[0].label
+        else:
+            settlement_label = document.location.glob_id
+        return settlement_id, settlement_label
+    return "", ""
 
 
 def get_inventory_number(document):
@@ -130,6 +135,19 @@ def get_identification_method(document):
     return ""
 
 
+def get_document_type_uuids(document):
+    """Get a comma-separated list of linked document type UUIDs."""
+    if not document.document_types_linked:
+        return ""
+
+    type_ids = sorted(
+        f"{TYPE_URI_PREFIX}{link.document_type.id}"
+        for link in document.document_types_linked
+        if link.document_type and link.document_type.id
+    )
+    return ",".join(type_ids)
+
+
 def export_documents_csv(
     output_file="data/s3/document/documents.csv", gzip_output=True
 ):
@@ -155,6 +173,7 @@ def export_documents_csv(
                 [
                     "identifier",
                     "inventory_number",
+                    "type_uuids",
                     "start_scan_filename",
                     "end_scan_filename",
                     "start_scan_type",
@@ -163,6 +182,7 @@ def export_documents_csv(
                     "date_start",
                     "date_end",
                     "settlement",
+                    "settlement_id",
                     "method",
                 ]
             )
@@ -170,10 +190,12 @@ def export_documents_csv(
             # Write data rows
             for document in documents:
                 start_scan_type, end_scan_type = get_start_end_scan_types(document)
+                settlement_id, settlement_label = get_settlement(document)
                 writer.writerow(
                     [
                         document.id,
                         get_inventory_number(document),
+                        get_document_type_uuids(document),
                         get_start_scan_filename(document),
                         get_end_scan_filename(document),
                         start_scan_type,
@@ -181,7 +203,8 @@ def export_documents_csv(
                         document.title or "",
                         get_date_start(document),
                         get_date_end(document),
-                        get_settlement_label(document),
+                        settlement_label,
+                        settlement_id,
                         get_identification_method(document),
                     ]
                 )
