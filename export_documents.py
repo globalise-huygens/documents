@@ -167,6 +167,30 @@ def export_documents():
             }
         ],
         "member": [build_nested_member(s) for s in top_level_series],
+        "subject_of": [
+            {
+                "type": "LinguisticObject",
+                "digitally_carried_by": [
+                    {
+                        "type": "DigitalObject",
+                        "access_point": [
+                            {
+                                "id": "https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/inventory:collection",
+                                "type": "DigitalObject",  # Also Manifest?
+                                "_label": "IIIF Collection of all inventories in the Globalise corpus",
+                            }
+                        ],
+                        "conforms_to": [
+                            {
+                                "id": "http://iiif.io/api/presentation/",
+                                "type": "InformationObject",
+                            }
+                        ],
+                        "format": "application/ld+json;profile='http://iiif.io/api/presentation/3/context.json'",
+                    }
+                ],
+            },
+        ],
     }
     set_out_path = os.path.join(inv_dir, "set.json")
     with gzip.open(set_out_path, "wb") as f:
