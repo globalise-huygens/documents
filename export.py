@@ -202,12 +202,12 @@ def document_physical_to_jsonld(document) -> Dict[str, Any]:
         timespan = {
             "type": "Timespan",
             "begin_of_the_begin": (
-                str(document.date_earliest_begin)
+                str(document.date_earliest_begin) + "T00:00:00Z"
                 if getattr(document, "date_earliest_begin", None) is not None
                 else None
             ),
             "end_of_the_end": (
-                str(document.date_latest_end)
+                str(document.date_latest_end) + "T00:00:00Z"
                 if getattr(document, "date_latest_end", None) is not None
                 else None
             ),
@@ -336,7 +336,7 @@ def series_to_jsonld(series) -> Dict[str, Any]:
         classified_as = {
             "id": "http://vocab.getty.edu/aat/300404023",
             "type": "Type",
-            "_label": "Archival SubGrouping",
+            "_label": "Archival Subseries (subgroups)",
         }
     else:
         classified_as = {
@@ -437,12 +437,22 @@ def inventory_to_jsonld(inventory) -> Dict[str, Any]:
     # Parts: physical documents within inventory with full structure (pages as parts)
     parts: List[Dict[str, Any]] = []
     if getattr(inventory, "documents", None):
-        for doc in inventory.documents[:100]:  # limit to avoid huge payloads
-            # Get the full document structure with pages as parts
-            doc_jsonld = document_physical_to_jsonld(doc)
-            parts.append(doc_jsonld)
+        for doc in inventory.documents:  # limit to avoid huge payloads
+            # # Get the full document structure with pages as parts
+            # doc_jsonld = document_physical_to_jsonld(doc)
+            # parts.append(doc_jsonld)
 
-    equivalent = inventory.handle if getattr(inventory, "handle", None) else None
+            title = doc.title or f"Document {doc.id}"
+
+            # Get the shallow document reference (without pages) to avoid huge payloads
+            doc_ref = {
+                "id": f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/document:{doc.id}",
+                "type": "PhysicalHumanMadeThing",
+                "_label": title,
+            }
+            parts.append(doc_ref)
+
+    handle = inventory.handle if getattr(inventory, "handle", None) else None
 
     # Build member_of from real series relationships with nested parent chain per series
     def series_chain(s) -> Dict[str, Any]:
@@ -515,24 +525,47 @@ def inventory_to_jsonld(inventory) -> Dict[str, Any]:
         "produced_by": produced_by,
         "member_of": member_of_list,
         "part": parts,
-        "equivalent": equivalent,
+        # "equivalent": handle,
         # IIIF
         "subject_of": [
+            # Handle for Website NA
+            {
+                "type": "LinguisticObject",
+                "digitally_carried_by": [
+                    {
+                        "type": "DigitalObject",
+                        "_label": f"Inventory {inventory.inventory_number} at the National Archives",
+                        "classified_as": [
+                            {
+                                "id": "http://vocab.getty.edu/aat/300264578",
+                                "type": "Type",
+                                "_label": "Web Page",
+                            }
+                        ],
+                        "access_point": {
+                            "id": handle,
+                            "type": "DigitalObject",
+                        },
+                    }
+                ],
+            },
+            # IIIF Manifest
             {
                 "type": "LinguisticObject",
                 "digitally_carried_by": [
                     {
                         "type": "DigitalObject",
                         "access_point": [
-                            # {
-                            #     "id": manifest_uri,
-                            #     "type": "DigitalObject",  # Also Manifest?
-                            #     "_label": f"IIIF Manifest for Inventory {inventory.inventory_number}",
-                            # }
-                            inventory_to_manifest_jsonld(
-                                inventory,
-                                manifest_uri=f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/inventory:{inventory.inventory_number}.manifest",
-                            )
+                            # Shallow reference
+                            {
+                                "id": f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/inventory:{inventory.inventory_number}.manifest",
+                                "type": "DigitalObject",  # Also Manifest?
+                                "_label": f"IIIF Manifest for Inventory {inventory.inventory_number}",
+                            }
+                            # inventory_to_manifest_jsonld(
+                            #     inventory,
+                            #     manifest_uri=f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/inventory:{inventory.inventory_number}.manifest",
+                            # )
                         ],
                         "conforms_to": [
                             {
@@ -543,8 +576,24 @@ def inventory_to_jsonld(inventory) -> Dict[str, Any]:
                         "format": "application/ld+json;profile='http://iiif.io/api/presentation/3/context.json'",
                     }
                 ],
-            }
+            },
         ],
+        "carries": {
+            "type": "LinguisticObject",
+            "_label": "Textual content of the inventory",
+            "digitally_carried_by": {
+                # txt file
+                "id": f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/inventory:{inventory.inventory_number}.txt",
+                "type": "DigitalObject",
+                "_label": f"Plain text of Inventory {inventory.inventory_number}",
+                "classified_as": {
+                    "id": "http://vocab.getty.edu/aat/300460247",
+                    "type": "Type",
+                    "_label": "Plain text",
+                },
+                "format": "text/plain",
+            },
+        },
     }
 
     return result
@@ -647,6 +696,7 @@ def inventory_to_manifest_jsonld(inventory, manifest_uri: str) -> Dict[str, Any]
 
     manifest: Dict[str, Any] = {
         "@context": [
+            "https://linked.art/ns/v1/linked-art.json",
             "http://iiif.io/api/extension/navplace/context.json",
             "http://iiif.io/api/presentation/3/context.json",
         ],
@@ -688,7 +738,13 @@ def inventory_to_manifest_jsonld(inventory, manifest_uri: str) -> Dict[str, Any]
         ],
         "metadata": manifest_metadata,
         "items": [],
-        "seeAlso": f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/inventory:{inventory.inventory_number}",
+        "seeAlso": [
+            {
+                "id": f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/inventory:{inventory.inventory_number}",
+                "type": "CuratedHolding",
+                "label": {"en": ["Curated Holding metadata"]},
+            }
+        ],
     }
 
     # Add navDate if inventory has date information
@@ -976,6 +1032,15 @@ def inventory_to_manifest_jsonld(inventory, manifest_uri: str) -> Dict[str, Any]
                     "value": {"none": [doc.id]},
                 }
             )
+
+            # Link to the document physical metadata (via seeAlso)
+            doc_range["seeAlso"] = [
+                {
+                    "id": f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/document:{doc.id}",
+                    "type": "HumanMadeObject",
+                    "label": {"en": ["Document metadata"]},
+                }
+            ]
 
             # Check if this document has subdocuments
             has_subdocuments = bool(

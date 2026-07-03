@@ -149,7 +149,7 @@ def get_document_type_uuids(document):
 
 
 def export_documents_csv(
-    output_file="data/s3/document/documents.csv", gzip_output=True
+    output_file="data/s3/objects/document/documents.csv", gzip_output=True
 ):
     """Export all documents to CSV.
 

@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, selectinload
 from models import Inventory, InventoryTitle, Scan
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///globalise_documents.db")
-OUTPUT_DIR = os.environ.get("MANIFEST_OUTPUT_DIR", "objects")
+OUTPUT_DIR = os.environ.get("MANIFEST_OUTPUT_DIR", "data/s3/objects/inventory/")
 BASE_URI = "https://data.globalise.huygens.knaw.nl/hdl:20.500.14722"
 
 
@@ -101,7 +101,10 @@ def export_collection():
         items.append(manifest_ref)
 
     collection = {
-        "@context": "http://iiif.io/api/presentation/3/context.json",
+        "@context": [
+            "https://linked.art/ns/v1/linked-art.json",
+            "http://iiif.io/api/presentation/3/context.json",
+        ],
         "id": f"{BASE_URI}/inventory:collection",
         "type": "Collection",
         "label": {
@@ -159,10 +162,17 @@ def export_collection():
                 ],
             }
         ],
+        "seeAlso": [
+            {
+                "id": f"{BASE_URI}/inventory:set",
+                "type": "Set",
+                "label": {"en": ["Set metadata"]},
+            }
+        ],
         "items": items,
     }
 
-    out_path = os.path.join(OUTPUT_DIR, "inventory", "collection.json")
+    out_path = os.path.join(OUTPUT_DIR, "collection.json")
     json_bytes = json.dumps(collection, ensure_ascii=False, indent=2).encode("utf-8")
 
     with gzip.open(out_path, "wb") as f:

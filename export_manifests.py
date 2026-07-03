@@ -18,7 +18,7 @@ from models import Base, Inventory, Document, Scan, Page, Series
 from export import inventory_to_manifest_jsonld
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///globalise_documents.db")
-OUTPUT_DIR = os.environ.get("MANIFEST_OUTPUT_DIR", "objects/inventory")
+OUTPUT_DIR = os.environ.get("MANIFEST_OUTPUT_DIR", "data/s3/objects/inventory")
 BASE_URI = "https://data.globalise.huygens.knaw.nl/hdl:20.500.14722"
 
 
