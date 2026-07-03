@@ -555,6 +555,96 @@ def inventory_to_manifest_jsonld(inventory, manifest_uri: str) -> Dict[str, Any]
     Generate a IIIF Presentation 3.0 Manifest for the Inventory
     """
 
+    # Metadata values for top-level IIIF Presentation 3.0 manifest metadata.
+    title_values: List[str] = []
+    if getattr(inventory, "titles", None):
+        title_values = [t.title for t in inventory.titles if getattr(t, "title", None)]
+
+    collection_values: List[str] = []
+    if getattr(inventory, "member_of_series", None):
+        collection_values = [
+            s.title for s in inventory.member_of_series if getattr(s, "title", None)
+        ]
+
+    settlement_values: List[str] = []
+    if getattr(inventory, "documents", None):
+        for doc in inventory.documents:
+            location = getattr(doc, "location", None)
+            if not location:
+                continue
+            if getattr(location, "labels", None) and location.labels:
+                first_label = getattr(location.labels[0], "label", None)
+                if first_label:
+                    settlement_values.append(first_label)
+                    continue
+            glob_id = getattr(location, "glob_id", None)
+            if glob_id:
+                settlement_values.append(glob_id)
+
+    # Preserve order while de-duplicating; use null when no value is available.
+    cleaned_title_values = [v.strip() for v in title_values if v and v.strip()]
+    title_value = (
+        "; ".join(list(dict.fromkeys(cleaned_title_values)))
+        if cleaned_title_values
+        else None
+    )
+
+    cleaned_collection_values = [
+        v.strip() for v in collection_values if v and v.strip()
+    ]
+    collection_value = (
+        "; ".join(list(dict.fromkeys(cleaned_collection_values)))
+        if cleaned_collection_values
+        else None
+    )
+
+    cleaned_settlement_values = [
+        v.strip() for v in settlement_values if v and v.strip()
+    ]
+    settlement_value = (
+        "; ".join(list(dict.fromkeys(cleaned_settlement_values)))
+        if cleaned_settlement_values
+        else None
+    )
+
+    if getattr(inventory, "date_start", None) and getattr(inventory, "date_end", None):
+        date_value = f"{inventory.date_start} / {inventory.date_end}"
+    elif getattr(inventory, "date_start", None):
+        date_value = str(inventory.date_start)
+    elif getattr(inventory, "date_end", None):
+        date_value = str(inventory.date_end)
+    else:
+        date_value = None
+
+    manifest_metadata: List[Dict[str, Any]] = [
+        {
+            "label": {"en": ["Inventory number"], "nl": ["Inventarisnummer"]},
+            "value": {
+                "none": [str(getattr(inventory, "inventory_number", "") or "") or None]
+            },
+        },
+        {
+            "label": {"en": ["Collection"], "nl": ["Collectie"]},
+            "value": {"none": [collection_value]},
+        },
+        {
+            "label": {"en": ["Date"], "nl": ["Datum"]},
+            "value": {"none": [date_value]},
+        },
+        {
+            "label": {"en": ["Title(s)"], "nl": ["Titel(s)"]},
+            "value": {"none": [title_value]},
+        },
+        {
+            "label": {"en": ["Settlement"], "nl": ["Comptoir"]},
+            "value": {"none": [settlement_value]},
+        },
+        {
+            "label": {"en": ["Handle"], "nl": ["Handle"]},
+            "value": {"none": [str(getattr(inventory, "handle", "") or "") or None]},
+        },
+    ]
+
     manifest: Dict[str, Any] = {
         "@context": [
             "http://iiif.io/api/extension/navplace/context.json",
@@ -596,6 +686,7 @@ def inventory_to_manifest_jsonld(inventory, manifest_uri: str) -> Dict[str, Any]
                 ],
             }
         ],
+        "metadata": manifest_metadata,
         "items": [],
         "seeAlso": f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/inventory:{inventory.inventory_number}",
     }
