@@ -87,12 +87,12 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///globalise_documents.db"
 
 # Identification methods created/looked up for the two kinds of Documents
 # this script produces.
-TANAP_METHOD_NAME = "Document Segmentation — TANAP boundaries"
+TANAP_METHOD_NAME = "Manual Validation (document)"
 TANAP_METHOD_DESC = (
     "TANAP document boundaries identified in the per-inventory document "
     "segmentation ground truth."
 )
-SUBDOC_METHOD_NAME = "Document Segmentation — Subdocument boundaries"
+SUBDOC_METHOD_NAME = "Manual Validation (subdocument)"
 SUBDOC_METHOD_DESC = (
     "Subdocument boundaries identified in the per-inventory document "
     "segmentation ground truth. Subdocuments have no external identifier of "
@@ -120,21 +120,38 @@ SAME_AS_RE = re.compile(r"^SAME AS\s+(.+)$", re.IGNORECASE)
 # ---------------------------------------------------------------------------
 
 
+REQUIRED_COLUMNS = {
+    "Scan File_Name",
+    "TANAP Boundaries",
+    "TANAP ID",
+    "Subdocument boundaries",
+    "Type of non-document page",
+}
+
+
 def read_segmentation_csv(path: str) -> pd.DataFrame:
-    """Read one segmentation CSV, tolerant of the BOM Excel likes to add."""
-    df = pd.read_csv(path, sep=";", dtype=str, encoding="utf-8-sig")
-    df.columns = [c.strip() for c in df.columns]
-    required = {
-        "Scan File_Name",
-        "TANAP Boundaries",
-        "TANAP ID",
-        "Subdocument boundaries",
-        "Type of non-document page",
-    }
-    missing = required - set(df.columns)
-    if missing:
-        raise ValueError(f"{path}: missing expected column(s): {sorted(missing)}")
-    return df
+    """
+    Read one segmentation CSV, tolerant of the BOM Excel likes to add and of
+    the delimiter being either ';' or ',' (some files export as one, some as
+    the other). Whichever delimiter actually produces the expected columns
+    wins; if neither does, raise with both attempts' columns for debugging.
+    """
+    attempts = {}
+    for sep in (";", ","):
+        try:
+            df = pd.read_csv(path, sep=sep, dtype=str, encoding="utf-8-sig")
+        except Exception as exc:  # malformed for this delimiter — try the other
+            attempts[sep] = f"<failed to parse: {exc}>"
+            continue
+        df.columns = [c.strip() for c in df.columns]
+        attempts[sep] = list(df.columns)
+        if REQUIRED_COLUMNS <= set(df.columns):
+            return df
+
+    raise ValueError(
+        f"{path}: could not find expected columns with ';' or ',' as the "
+        f"delimiter. Columns found — ';': {attempts.get(';')} | ',': {attempts.get(',')}"
+    )
 
 
 def inventory_number_from_scan_filename(filename: str) -> Optional[str]:
