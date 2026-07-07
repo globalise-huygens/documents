@@ -198,31 +198,41 @@ def export_documents():
     print(f"Exported global Set object to {set_out_path}")
 
     # How to save 500K files?
-    # # 2. Export Documents
-    # print("Loading documents...")
+    # 2. Export Documents
+
+    print("Loading documents...")
     # documents = session.query(Document).all()
-    # total_docs = len(documents)
-    # print(f"Loaded {total_docs} documents.")
 
-    # t1 = time.time()
-    # for i, doc in enumerate(documents, 1):
-    #     doc_data = document_physical_to_jsonld(doc)
+    # For now, only inventory 1053 and 3598
+    documents = (
+        session.query(Document)
+        .join(Document.inventory)
+        .filter(Inventory.inventory_number.in_(["1053", "3598"]))
+        .all()
+    )
 
-    #     out_path = os.path.join(doc_dir, f"{doc.id}.json")
-    #     json_bytes = json.dumps(doc_data, ensure_ascii=False, indent=2).encode("utf-8")
+    total_docs = len(documents)
+    print(f"Loaded {total_docs} documents.")
 
-    #     with gzip.open(out_path, "wb") as f:
-    #         f.write(json_bytes)
+    t1 = time.time()
+    for i, doc in enumerate(documents, 1):
+        doc_data = document_physical_to_jsonld(doc)
 
-    #     if i % 1000 == 0:
-    #         print(f"  Exported {i}/{total_docs} document objects...")
+        out_path = os.path.join(doc_dir, f"{doc.id}.json")
+        json_bytes = json.dumps(doc_data, ensure_ascii=False, indent=2).encode("utf-8")
 
-    # elapsed_doc = time.time() - t1
-    # print(f"Exported {total_docs} documents in {elapsed_doc:.1f}s.")
+        with gzip.open(out_path, "wb") as f:
+            f.write(json_bytes)
 
-    # print("\nDone.")
-    # print("Output available in data/s3/objects/")
-    # session.close()
+        if i % 1000 == 0:
+            print(f"  Exported {i}/{total_docs} document objects...")
+
+    elapsed_doc = time.time() - t1
+    print(f"Exported {total_docs} documents in {elapsed_doc:.1f}s.")
+
+    print("\nDone.")
+    print("Output available in data/s3/objects/")
+    session.close()
 
 
 if __name__ == "__main__":

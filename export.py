@@ -418,14 +418,63 @@ def inventory_to_jsonld(inventory) -> Dict[str, Any]:
             ),
         }
 
+    # Derive production places from settlements linked to documents in this inventory.
+    place_candidates: List[Dict[str, Any]] = []
+    seen_place_keys = set()
+    if getattr(inventory, "documents", None):
+        for doc in inventory.documents:
+            settlement = getattr(doc, "location", None)
+            if not settlement:
+                continue
+
+            place_key = getattr(settlement, "id", None) or getattr(
+                settlement, "glob_id", None
+            )
+            if place_key in seen_place_keys:
+                continue
+            seen_place_keys.add(place_key)
+
+            labels = []
+            if getattr(settlement, "labels", None):
+                labels = [
+                    lbl.label.strip()
+                    for lbl in settlement.labels
+                    if getattr(lbl, "label", None) and lbl.label.strip()
+                ]
+
+            deduped_labels = list(dict.fromkeys(labels))
+            place_label = deduped_labels[0] if deduped_labels else settlement.glob_id
+
+            place_obj: Dict[str, Any] = {
+                "type": "Place",
+                "_label": place_label,
+            }
+
+            if getattr(settlement, "glob_id", None):
+                place_obj["id"] = (
+                    "https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/"
+                    f"place:{settlement.glob_id}"
+                )
+
+            if deduped_labels:
+                place_obj["identified_by"] = [
+                    {"type": "Name", "content": label} for label in deduped_labels
+                ]
+
+            place_candidates.append(place_obj)
+
+    took_place_at: Any
+    if len(place_candidates) == 1:
+        took_place_at = place_candidates[0]
+    elif place_candidates:
+        took_place_at = place_candidates
+    else:
+        took_place_at = None
+
     produced_by = {
         "type": "Production",
         # "classified_as": None,
-        "took_place_at": {
-            # "id": None,
-            "type": "Place",
-            "_label": "Place from our thesaurus",
-        },
+        "took_place_at": took_place_at,
         "timespan": timespan,
         "carried_out_by": {
             # "id": None,
