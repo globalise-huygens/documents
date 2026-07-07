@@ -111,6 +111,18 @@ SUBDOC_ID_CONTEXT = "SEGMENTATION_SUBDOC"
 
 P2D_SOURCE = "SEGMENTATION"
 
+# Confidence tiers, strongest to weakest (see LinkConfidence docstring in
+# models.py: VALIDATED > DEFINITIVE > FOLIO_RANGE > INTERPOLATED > CANDIDATE).
+# This script writes DEFINITIVE-confidence links. Segmentation imports can
+# happen at any point in the pipeline — before or after scripts like
+# 10_match_folios.py or 12_interpolate_documents.py have run — so rather than
+# having every other script defensively avoid stepping on manually validated
+# data, THIS import is the one responsible for cleaning up anything weaker
+# that conflicts with what it now knows to be ground truth. See
+# supersede_weaker_links() below.
+_CONFIDENCE_RANK: dict[str, int] = {c.value: i for i, c in enumerate(LinkConfidence)}
+_DEFINITIVE_RANK = _CONFIDENCE_RANK[LinkConfidence.DEFINITIVE.value]
+
 # Matches "SAME AS <filename>"
 SAME_AS_RE = re.compile(r"^SAME AS\s+(.+)$", re.IGNORECASE)
 
@@ -268,18 +280,77 @@ def create_or_get_external_id(
     return ext
 
 
-def already_imported(
-    session: Session, inventory: Inventory, method: DocumentIdentificationMethod
-) -> bool:
+def already_imported(session: Session, inventory: Inventory) -> bool:
+    """
+    Has this script already linked pages for this inventory? Checked by the
+    presence of any Page2Document row with source=P2D_SOURCE, rather than by
+    DocumentIdentificationMethod, because a TANAP document reused from a
+    prior GM import keeps GM's method_id, not this script's.
+    """
     return (
-        session.query(Document)
+        session.query(Page2Document)
+        .join(Document, Document.id == Page2Document.document_id)
         .filter(
             Document.inventory_id == inventory.id,
-            Document.method_id == method.id,
+            Page2Document.source == P2D_SOURCE,
         )
         .first()
         is not None
     )
+
+
+def _confidence_rank(value) -> int:
+    value = getattr(value, "value", value)  # unwrap LinkConfidence -> str if needed
+    return _CONFIDENCE_RANK.get(value, len(_CONFIDENCE_RANK))
+
+
+def supersede_weaker_links(
+    session: Session,
+    stats: dict,
+    *,
+    page_id: Optional[str] = None,
+    document_id: Optional[str] = None,
+) -> None:
+    """
+    Remove existing Page2Document rows at DEFINITIVE confidence or weaker
+    (DEFINITIVE, FOLIO_RANGE, INTERPOLATED, CANDIDATE) for the given page
+    and/or document. VALIDATED rows — an explicit human sign-off, stronger
+    than what a dataset import establishes — are never touched.
+
+    This is how manually validated / segmentation-derived material overrides
+    earlier, less precise linking: since a segmentation import can happen at
+    any point in the pipeline (not necessarily before scripts like
+    10_match_folios.py or 12_interpolate_documents.py), it's this import's
+    job to clean up whatever weaker data is already there when it runs,
+    rather than have every other script defensively work around it.
+
+    Called at two scopes:
+      - document_id: the first time this run touches a document, clearing
+        out anything previously attached to that exact document (e.g. a
+        coarser prior import, or an earlier run of this script).
+      - page_id: every page this run links, clearing out weaker guesses that
+        pointed that page at some *other* document (e.g. a folio-range or
+        interpolated match that turned out to be wrong).
+    """
+    if page_id is None and document_id is None:
+        return
+    query = session.query(Page2Document)
+    if page_id is not None:
+        query = query.filter(Page2Document.page_id == page_id)
+    if document_id is not None:
+        query = query.filter(Page2Document.document_id == document_id)
+
+    to_delete = [row for row in query.all() if _confidence_rank(row.confidence) >= _DEFINITIVE_RANK]
+    for row in to_delete:
+        session.delete(row)
+    if to_delete:
+        stats["weaker_links_superseded"] += len(to_delete)
+        logger.debug(
+            "Superseded %d weaker link(s) (page_id=%s, document_id=%s).",
+            len(to_delete),
+            page_id,
+            document_id,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -290,12 +361,15 @@ def already_imported(
 class PageLinker:
     """Keeps a running Page2Document index per document so pages appended
     across several rows (and across the two passes) keep increasing indices.
+    Also makes sure every page it links has any weaker, conflicting links to
+    other documents cleared out first (see supersede_weaker_links).
     """
 
     def __init__(self, session: Session, stats: dict):
         self.session = session
         self.stats = stats
         self._next_index: dict[str, int] = defaultdict(int)
+        self._cleared_pages: set[str] = set()
 
     def link(self, document: Document, scan: Scan) -> None:
         pages = get_pages_for_scan(self.session, scan)
@@ -304,6 +378,10 @@ class PageLinker:
             self.stats["scans_without_pages"] += 1
             return
         for page in pages:
+            if page.id not in self._cleared_pages:
+                self._cleared_pages.add(page.id)
+                supersede_weaker_links(self.session, self.stats, page_id=page.id)
+
             idx = self._next_index[document.id]
             self.session.add(
                 Page2Document(
@@ -346,19 +424,19 @@ def import_file(
         stats["skipped_files"] += 1
         return
 
-    if not force and already_imported(session, inventory, tanap_method):
+    if not force and already_imported(session, inventory):
         logger.warning(
-            "%s: inventory %s already has documents from %r — skipping "
-            "(use --force to re-import).",
+            "%s: inventory %s already has segmentation-derived page links — "
+            "skipping (use --force to re-import).",
             path,
             inv_number,
-            tanap_method.name,
         )
         stats["skipped_files"] += 1
         return
 
     logger.info("Importing %s (inventory %s, %d rows)", path, inv_number, len(df))
     linker = PageLinker(session, stats)
+    cleared_document_ids: set[str] = set()
 
     open_tanap_docs: dict[str, Document] = {}
     current_tanap_doc: Optional[Document] = None
@@ -424,6 +502,9 @@ def import_file(
                         )
                     )
                     stats["tanap_documents_created"] += 1
+                if doc.id not in cleared_document_ids:
+                    cleared_document_ids.add(doc.id)
+                    supersede_weaker_links(session, stats, document_id=doc.id)
                 open_tanap_docs[tanap_id] = doc
 
             docs_to_link.append(doc)
@@ -449,22 +530,36 @@ def import_file(
                     subdoc_counter += 1
                     identifier = f"{inv_number}-SUBDOC-{subdoc_counter:04d}"
                     ext = create_or_get_external_id(session, identifier, SUBDOC_ID_CONTEXT)
-                    current_subdoc = Document(
-                        id=str(uuid.uuid4()),
-                        inventory_id=inventory.id,
-                        method_id=subdoc_method.id,
-                        part_of_id=current_tanap_doc.id if current_tanap_doc else None,
+                    existing_subdoc_link = (
+                        session.query(Document2ExternalID)
+                        .filter(Document2ExternalID.external_id == ext.id)
+                        .first()
                     )
-                    session.add(current_subdoc)
-                    session.flush()
-                    session.add(
-                        Document2ExternalID(
-                            id=str(uuid.uuid4()),
-                            document_id=current_subdoc.id,
-                            external_id=ext.id,
+                    if existing_subdoc_link is not None:
+                        current_subdoc = existing_subdoc_link.document
+                        current_subdoc.part_of_id = (
+                            current_tanap_doc.id if current_tanap_doc else None
                         )
-                    )
-                    stats["subdocuments_created"] += 1
+                    else:
+                        current_subdoc = Document(
+                            id=str(uuid.uuid4()),
+                            inventory_id=inventory.id,
+                            method_id=subdoc_method.id,
+                            part_of_id=current_tanap_doc.id if current_tanap_doc else None,
+                        )
+                        session.add(current_subdoc)
+                        session.flush()
+                        session.add(
+                            Document2ExternalID(
+                                id=str(uuid.uuid4()),
+                                document_id=current_subdoc.id,
+                                external_id=ext.id,
+                            )
+                        )
+                        stats["subdocuments_created"] += 1
+                    if current_subdoc.id not in cleared_document_ids:
+                        cleared_document_ids.add(current_subdoc.id)
+                        supersede_weaker_links(session, stats, document_id=current_subdoc.id)
                     docs_to_link.append(current_subdoc)
                 elif token.upper() == "END":
                     if current_subdoc is not None:
@@ -555,6 +650,7 @@ def make_stats() -> dict:
         "tanap_documents_created": 0,
         "subdocuments_created": 0,
         "pages_linked": 0,
+        "weaker_links_superseded": 0,
         "missing_scans": 0,
         "scans_without_pages": 0,
         "non_document_pages": 0,
@@ -643,12 +739,13 @@ def main() -> None:
     logger.info("Done.")
     logger.info(
         "files_imported=%d skipped_files=%d tanap_documents_created=%d "
-        "subdocuments_created=%d pages_linked=%d",
+        "subdocuments_created=%d pages_linked=%d weaker_links_superseded=%d",
         stats["files_imported"],
         stats["skipped_files"],
         stats["tanap_documents_created"],
         stats["subdocuments_created"],
         stats["pages_linked"],
+        stats["weaker_links_superseded"],
     )
     logger.info(
         "missing_scans=%d scans_without_pages=%d same_as_resolved=%d "
