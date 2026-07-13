@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import uuid
 from typing import Optional
 
@@ -40,6 +41,8 @@ from models import (
 )
 
 log = logging.getLogger(__name__)
+
+DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///globalise_documents.db")
 
 # ---------------------------------------------------------------------------
 # Core query: documents linked to a single scan (via page2document)
@@ -303,8 +306,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--db",
-        default="sqlite:///archive.db",
-        help="SQLAlchemy database URL (default: sqlite:///archive.db)",
+        default=DATABASE_URL,
+        help="SQLAlchemy database URL (default: env DATABASE_URL or sqlite:///globalise_documents.db)",
     )
     p.add_argument(
         "--max-gap",
