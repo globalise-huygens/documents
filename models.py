@@ -450,19 +450,27 @@ class Scan(Base):
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
     filename: Mapped[str] = mapped_column(String(255), index=True)
+
     na_identifier: Mapped[Optional[str]] = mapped_column(String(36))
     iiif_image_info: Mapped[Optional[str]] = mapped_column(String(255))
+
     inventory_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("inventory.id"), index=True
     )
+
     height: Mapped[int] = mapped_column(Integer)
     width: Mapped[int] = mapped_column(Integer)
+
     scan_type: Mapped[Optional[PageType]] = mapped_column(
         SQLEnum(PageType, values_callable=lambda obj: [e.value for e in obj])
     )
+
     has_transcriptions: Mapped[bool] = mapped_column(Boolean, default=False)
     has_entities: Mapped[bool] = mapped_column(Boolean, default=False)
     has_events: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # NEW FIELD
+    scan_order: Mapped[Optional[int]] = mapped_column(Integer, index=True)
 
     # Relationships
     inventory: Mapped["Inventory"] = relationship("Inventory", back_populates="scans")
