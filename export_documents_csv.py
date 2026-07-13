@@ -57,42 +57,55 @@ def get_inventory_number(document):
     return ""
 
 
-def get_start_scan_filename(document):
-    """Get the filename of the first scan for a document."""
+def get_start_end_scan_filenames(document):
+    """Get the first and last scan filenames for a document, sorted by scan name."""
     if not document.pages:
-        return ""
+        return "", ""
 
-    # Sort Page2Document entries by index to get the first one
-    sorted_pages = sorted(document.pages, key=lambda p: p.index)
+    sorted_pages = sorted(
+        document.pages,
+        key=lambda p: ((p.page and p.page.scan and p.page.scan.filename) or ""),
+    )
     first_page_link = sorted_pages[0]
-
-    if first_page_link.page and first_page_link.page.scan:
-        return first_page_link.page.scan.filename
-    return ""
-
-
-def get_end_scan_filename(document):
-    """Get the filename of the last scan for a document."""
-    if not document.pages:
-        return ""
-
-    # Sort Page2Document entries by index to get the last one
-    sorted_pages = sorted(document.pages, key=lambda p: p.index)
     last_page_link = sorted_pages[-1]
 
+    start_scan_filename = ""
+    end_scan_filename = ""
+
+    if first_page_link.page and first_page_link.page.scan:
+        start_scan_filename = first_page_link.page.scan.filename or ""
+
     if last_page_link.page and last_page_link.page.scan:
-        return last_page_link.page.scan.filename
-    return ""
+        end_scan_filename = last_page_link.page.scan.filename or ""
+
+    return start_scan_filename, end_scan_filename
+
+
+def get_ordered_page_links(document):
+    """Get document page links sorted by scan filename."""
+    if not document.pages:
+        return []
+
+    return sorted(
+        document.pages,
+        key=lambda p: ((p.page and p.page.scan and p.page.scan.filename) or ""),
+    )
+
+
+def get_start_end_page_links(document):
+    """Get the first and last page links for a document, sorted by scan filename."""
+    sorted_pages = get_ordered_page_links(document)
+    if not sorted_pages:
+        return None, None
+
+    return sorted_pages[0], sorted_pages[-1]
 
 
 def get_start_end_scan_types(document):
     """Get the scan types of the first and last scans for a document."""
-    if not document.pages:
+    first_page_link, last_page_link = get_start_end_page_links(document)
+    if not first_page_link or not last_page_link:
         return "", ""
-
-    sorted_pages = sorted(document.pages, key=lambda p: p.index)
-    first_page_link = sorted_pages[0]
-    last_page_link = sorted_pages[-1]
 
     start_scan_type = ""
     end_scan_type = ""
@@ -189,6 +202,9 @@ def export_documents_csv(
 
             # Write data rows
             for document in documents:
+                start_scan_filename, end_scan_filename = get_start_end_scan_filenames(
+                    document
+                )
                 start_scan_type, end_scan_type = get_start_end_scan_types(document)
                 settlement_id, settlement_label = get_settlement(document)
                 writer.writerow(
@@ -196,8 +212,8 @@ def export_documents_csv(
                         document.id,
                         get_inventory_number(document),
                         get_document_type_uuids(document),
-                        get_start_scan_filename(document),
-                        get_end_scan_filename(document),
+                        start_scan_filename,
+                        end_scan_filename,
                         start_scan_type,
                         end_scan_type,
                         document.title or "",
