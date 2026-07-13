@@ -48,8 +48,7 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///globalise_documents.db"
 # Core query: documents linked to a single scan (via page2document)
 # ---------------------------------------------------------------------------
 
-_DOCS_FOR_SCAN_SQL = text(
-    """
+_DOCS_FOR_SCAN_SQL = text("""
     SELECT DISTINCT d.id
     FROM scan s
     JOIN page p            ON p.scan_id      = s.id
@@ -57,8 +56,7 @@ _DOCS_FOR_SCAN_SQL = text(
     JOIN document d        ON d.id           = p2d.document_id
     WHERE s.id = :scan_id
       AND p2d.source IN ('FOLIO_RANGE')   -- only trust explicit folio matches
-    """
-)
+    """)
 
 
 def _document_ids_for_scan(session: Session, scan_id: str) -> set[str]:
@@ -70,6 +68,7 @@ def _document_ids_for_scan(session: Session, scan_id: str) -> set[str]:
 # ---------------------------------------------------------------------------
 # Per-inventory interpolation
 # ---------------------------------------------------------------------------
+
 
 def interpolate_inventory(
     session: Session,
@@ -132,7 +131,7 @@ def interpolate_inventory(
 
     while i < n:
         _, docs = scan_docs[i]
-        if docs:           # this scan already has a document – move on
+        if docs:  # this scan already has a document – move on
             i += 1
             continue
 
@@ -140,7 +139,7 @@ def interpolate_inventory(
         gap_start = i
         while i < n and not scan_docs[i][1]:
             i += 1
-        gap_end = i - 1    # inclusive
+        gap_end = i - 1  # inclusive
 
         gap_length = gap_end - gap_start + 1
 
@@ -231,9 +230,7 @@ def _link_scan_to_document(
 
     Returns the number of rows inserted (or that would be inserted).
     """
-    pages: list[Page] = (
-        session.query(Page).filter(Page.scan_id == scan.id).all()
-    )
+    pages: list[Page] = session.query(Page).filter(Page.scan_id == scan.id).all()
 
     if not pages:
         log.warning("Scan %s has no pages – cannot link to document.", scan.filename)
@@ -242,9 +239,7 @@ def _link_scan_to_document(
     count = 0
     for page in pages:
         # Skip if this page is already linked to the same document
-        already_linked = any(
-            p2d.document_id == document_id for p2d in page.documents
-        )
+        already_linked = any(p2d.document_id == document_id for p2d in page.documents)
         if already_linked:
             continue
 
@@ -271,6 +266,7 @@ def _link_scan_to_document(
 # ---------------------------------------------------------------------------
 # Process all inventories
 # ---------------------------------------------------------------------------
+
 
 def interpolate_all(
     session: Session,
@@ -300,6 +296,7 @@ def interpolate_all(
 # CLI entry point
 # ---------------------------------------------------------------------------
 
+
 def _build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="Interpolate missing scan→document links within inventories."
@@ -326,7 +323,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Log what would be inserted without writing to the database",
     )
     p.add_argument(
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         action="store_true",
         help="Enable DEBUG logging",
     )
@@ -355,7 +353,8 @@ def main() -> None:
                 return
 
             n = interpolate_inventory(
-                session, inv,
+                session,
+                inv,
                 max_gap=args.max_gap,
                 dry_run=args.dry_run,
             )
