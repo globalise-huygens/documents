@@ -4,7 +4,11 @@ Identification Method{% endblock %} {% block content %}
 
 <div class="card">
   <h2>Method Information</h2>
-  <form action="{{ base_url }}/method/{{ method.id }}/edit" method="post" class="form-grid">
+  <form
+    action="{{ base_url }}/method/{{ method.id }}/edit"
+    method="post"
+    class="form-grid"
+  >
     <div class="form-group">
       <label for="name">Name *</label>
       <input
@@ -48,6 +52,14 @@ Identification Method{% endblock %} {% block content %}
     <div class="form-group" style="grid-column: 1 / -1">
       <label>Total Documents</label>
       <p style="margin: 0; font-weight: 600">{{ total_docs }}</p>
+    </div>
+
+    <div class="form-group" style="grid-column: 1 / -1">
+      <label>Coverage</label>
+      <p style="margin: 0; font-weight: 600">
+        {{ pages_covered }} / {{ total_pages_available }} ({{
+        '%.1f'|format(coverage_pct) }}%)
+      </p>
     </div>
 
     <div
@@ -97,20 +109,23 @@ Identification Method{% endblock %} {% block content %}
       <tr>
         <td>
           <a href="{{ base_url }}/document/{{ doc.id }}">
-            >{{ doc.title if doc.title else 'Untitled Document' }}</a
+            {{ doc.title if doc.title else 'Untitled Document' }}</a
           >
         </td>
         <td>
-          <a href="{{ base_url }}/inventory/{{ doc.inventory.inventory_number }}">
-            >{{ doc.inventory.inventory_number }}</a
+          <a
+            href="{{ base_url }}/inventory/{{ doc.inventory.inventory_number }}"
+          >
+            {{ doc.inventory.inventory_number }}</a
           >
         </td>
         <td>{{ doc|date_range }}</td>
         <td>
           {% if doc.folio_start is not none %}
-            <span class="folio-range">
-              {{ doc.folio_start }}{% if doc.folio_end is not none and doc.folio_end != doc.folio_start %} – {{ doc.folio_end }}{% endif %}
-            </span>
+          <span class="folio-range">
+            {{ doc.folio_start }}{% if doc.folio_end is not none and
+            doc.folio_end != doc.folio_start %} – {{ doc.folio_end }}{% endif %}
+          </span>
           {% else %}—{% endif %}
         </td>
         <td>{{ doc.number_of_pages }}</td>

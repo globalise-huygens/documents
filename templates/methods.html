@@ -57,6 +57,7 @@ GLOBALISE Documents{% endblock %} {% block content %}
       <th>Date</th>
       <th>Description</th>
       <th>Documents</th>
+      <th>Coverage</th>
     </tr>
   </thead>
   <tbody>
@@ -69,6 +70,10 @@ GLOBALISE Documents{% endblock %} {% block content %}
         method.description and method.description|length > 100 %}...{% endif %}
       </td>
       <td>{{ method.documents|length if method.documents else 0 }}</td>
+      <td>
+        {{ method_page_counts.get(method.id, 0) }} / {{ total_pages_available }}
+        ({{ '%.1f'|format(method_coverage_pct.get(method.id, 0)) }}%)
+      </td>
     </tr>
     {% endfor %}
   </tbody>

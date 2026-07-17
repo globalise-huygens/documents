@@ -289,8 +289,6 @@ def prepare_timeline_data(db_session, inventory_id):
     - groups: list of identification methods
     - items: list of documents with their page ranges
     """
-    from sqlalchemy import func
-
     # Get all pages for this inventory, ordered by scan filename and page id
     pages = (
         db_session.query(Page)
@@ -708,6 +706,32 @@ def methods():
     total = method_query.count()
     methods_list = method_query.offset((page - 1) * per_page).limit(per_page).all()
 
+    total_pages_available = db_session.query(Page).count()
+
+    method_ids = [m.id for m in methods_list]
+    method_page_counts = {}
+    if method_ids:
+        page_rows = (
+            db_session.query(
+                Document.method_id,
+                func.count(Page2Document.id),
+            )
+            .join(Page2Document, Page2Document.document_id == Document.id)
+            .filter(Document.method_id.in_(method_ids))
+            .group_by(Document.method_id)
+            .all()
+        )
+        method_page_counts = {row[0]: int(row[1] or 0) for row in page_rows}
+
+    method_coverage_pct = {
+        method_id: (
+            (pages_covered / total_pages_available) * 100
+            if total_pages_available
+            else 0.0
+        )
+        for method_id, pages_covered in method_page_counts.items()
+    }
+
     total_pages = (total + per_page - 1) // per_page
 
     return render_template(
@@ -715,6 +739,9 @@ def methods():
         methods=methods_list,
         page=page,
         total_pages=total_pages,
+        total_pages_available=total_pages_available,
+        method_page_counts=method_page_counts,
+        method_coverage_pct=method_coverage_pct,
     )
 
 
@@ -767,6 +794,18 @@ def method_detail(method_id):
     documents = doc_query.offset((page - 1) * per_page).limit(per_page).all()
     total_pages = (total + per_page - 1) // per_page
 
+    total_pages_available = db_session.query(Page).count()
+    pages_covered = int(
+        db_session.query(func.count(Page2Document.id))
+        .join(Document, Document.id == Page2Document.document_id)
+        .filter(Document.method_id == method_id)
+        .scalar()
+        or 0
+    )
+    coverage_pct = (
+        (pages_covered / total_pages_available) * 100 if total_pages_available else 0.0
+    )
+
     return render_template(
         "method_detail.html",
         method=method,
@@ -774,6 +813,9 @@ def method_detail(method_id):
         page=page,
         total_pages=total_pages,
         total_docs=total,
+        pages_covered=pages_covered,
+        total_pages_available=total_pages_available,
+        coverage_pct=coverage_pct,
     )
 
 
