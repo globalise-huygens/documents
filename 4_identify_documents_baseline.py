@@ -7,6 +7,7 @@ This script identifies document boundaries based on:
 
 A new document starts:
 - At the beginning of an inventory, after skipping initial empty pages/covers
+- Never on the first page of an inventory
 - After a sequence of empty pages
 - After a page with a signature
 
@@ -60,10 +61,11 @@ def create_identification_method(session: Session) -> str:
         name="Baseline: Empty Pages & Signatures",
         description=(
             "Identifies documents in early modern archival inventories:\n"
-            "1. Skips empty pages (is_blank=True) at inventory start\n"
-            "2. First document starts with first non-blank page\n"
-            "3. Empty page sequences (is_blank=True) indicate document boundaries\n"
-            "4. Pages with signatures indicate document end; new document starts after"
+            "1. Never starts a document on page 1 of an inventory\n"
+            "2. Skips empty pages (is_blank=True) at inventory start\n"
+            "3. First document starts with first eligible non-blank page\n"
+            "4. Empty page sequences (is_blank=True) indicate document boundaries\n"
+            "5. Pages with signatures indicate document end; new document starts after"
         ),
         date=datetime.now().date(),
     )
@@ -82,10 +84,11 @@ def identify_documents_for_inventory(
     Identify documents for a single inventory using baseline rules.
 
     For early modern archival documents:
-    1. Skip empty pages (is_blank=True) at the beginning of inventory
-    2. Start first document with first non-blank page
-    3. Empty page sequences indicate document boundaries
-    4. Pages with signatures indicate document end
+    1. Never start a document on the first page of an inventory
+    2. Skip empty pages (is_blank=True) at the beginning of inventory
+    3. Start first document with first eligible non-blank page
+    4. Empty page sequences indicate document boundaries
+    5. Pages with signatures indicate document end
 
     Args:
         session: SQLAlchemy session
@@ -107,9 +110,12 @@ def identify_documents_for_inventory(
     if not pages:
         return 0, 0
 
-    # Find the first non-blank page
+    # Find the first eligible non-blank page.
+    # Rule: never start a document on the first page of the inventory.
     first_content_idx = None
     for i, page in enumerate(pages):
+        if i == 0:
+            continue
         if not page.is_blank:
             first_content_idx = i
             break
@@ -203,10 +209,11 @@ def identify_documents_baseline(
     Identify documents for one or all inventories using baseline rules.
 
     Optimized for early modern archival documents:
-    1. Skip empty pages (is_blank=True) at the beginning of inventory
-    2. First document starts with first non-blank page
-    3. Empty page sequences (is_blank=True) indicate document boundaries
-    4. Pages with signatures indicate document end; new document starts after
+    1. Never start a document on the first page of an inventory
+    2. Skip empty pages (is_blank=True) at the beginning of inventory
+    3. First document starts with first eligible non-blank page
+    4. Empty page sequences (is_blank=True) indicate document boundaries
+    5. Pages with signatures indicate document end; new document starts after
 
     Args:
         inventory_id: Specific inventory to process, or None for all

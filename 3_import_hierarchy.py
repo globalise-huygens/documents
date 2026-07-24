@@ -367,6 +367,7 @@ def main():
     )
     parser.add_argument(
         "json_file",
+        default="data/archival_hierarchy.json",
         help="Path to JSON file with archival hierarchy",
     )
     parser.add_argument(
