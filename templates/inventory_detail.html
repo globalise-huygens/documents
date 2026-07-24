@@ -272,7 +272,7 @@ GLOBALISE Documents{% endblock %}
   timeline.on('select', function(properties) {
     if (properties.items.length > 0) {
       var documentId = properties.items[0];
-      window.location.href = '/documents/document/' + documentId;
+      window.location.href = '{{ base_url }}' + '/document/' + documentId;
     }
   });
 </script>

@@ -41,20 +41,18 @@ app.config["SECRET_KEY"] = os.environ.get(
 app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
     "DATABASE_URL", "sqlite:///globalise_documents.db"
 )
-app.config["BASE_URL"] = os.environ.get(
-    "BASE_URL", "https://globalisesearch.globalise-knaw.src.surf-hosted.nl/documents"
-)
+app.config["BASE_URL"] = os.environ.get("BASE_URL", "")
 
 # CORS
 
 CORS(app)
 
+
 # Make BASE_URL and related config available to all templates
 @app.context_processor
 def inject_config():
-    return {
-        "base_url": app.config["BASE_URL"]
-    }
+    return {"base_url": app.config["BASE_URL"]}
+
 
 # Initialize database
 engine = create_engine(app.config["SQLALCHEMY_DATABASE_URI"], echo=False)
@@ -959,7 +957,7 @@ def page_jsonld(page_id):
     )
 
 
-@app.route("/document/<document_id>/physical/jsonld")
+@app.route("/document/<document_id>/jsonld")
 def document_physical_jsonld(document_id):
     db_session = Session()
     document = get_or_404(db_session.query(Document).filter_by(id=document_id))

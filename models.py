@@ -236,16 +236,19 @@ class Document(Base):
         String(36), ForeignKey("document.id"), index=True
     )
     location_id: Mapped[Optional[str]] = mapped_column(
-        String(36), ForeignKey("settlement.id"), index=True,
-        comment="FK to Settlement; populated from location_index.csv via OBP import"
+        String(36),
+        ForeignKey("settlement.id"),
+        index=True,
+        comment="FK to Settlement; populated from location_index.csv via OBP import",
     )
     folio_start: Mapped[Optional[int]] = mapped_column(
-        Integer, index=True,
-        comment="First folio number of the document as recorded in the OBP index"
+        Integer,
+        index=True,
+        comment="First folio number of the document as recorded in the OBP index",
     )
     folio_end: Mapped[Optional[int]] = mapped_column(
         Integer,
-        comment="Last folio number of the document as recorded in the OBP index"
+        comment="Last folio number of the document as recorded in the OBP index",
     )
     method_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("document_identification_method.id"), index=True
@@ -472,6 +475,14 @@ class Scan(Base):
     # NEW FIELD
     scan_order: Mapped[Optional[int]] = mapped_column(Integer, index=True)
 
+    languages: Mapped[Optional[str]] = mapped_column(
+        Text,
+        comment=(
+            "Comma-separated ISO 639-3 language codes detected for this scan "
+            "(e.g. 'fra,nld'), or 'unknown'; from data/language_data_per_scan.parquet"
+        ),
+    )
+
     # Relationships
     inventory: Mapped["Inventory"] = relationship("Inventory", back_populates="scans")
     pages: Mapped[List["Page"]] = relationship("Page", back_populates="scan")
@@ -518,11 +529,11 @@ class LinkConfidence(str, enum.Enum):
                    numbers); best guess via header matching or manual review.
     """
 
-    VALIDATED    = "VALIDATED"
-    DEFINITIVE   = "DEFINITIVE"
-    FOLIO_RANGE  = "FOLIO_RANGE"
+    VALIDATED = "VALIDATED"
+    DEFINITIVE = "DEFINITIVE"
+    FOLIO_RANGE = "FOLIO_RANGE"
     INTERPOLATED = "INTERPOLATED"
-    CANDIDATE    = "CANDIDATE"
+    CANDIDATE = "CANDIDATE"
 
 
 class Page(Base):

@@ -3,18 +3,16 @@ Export helpers: JSON/JSON-LD serializers for GLOBALISE entities.
 Moved out of app.py to keep routes lean.
 """
 
-from __future__ import annotations
-
+import re
 from typing import Any, Dict, List, Optional
 
-from models import RectoVerso
+from models import Document, RectoVerso
 
 
 def slugify(value: str) -> str:
     """Simple slugify: lowercase, replace spaces/underscores with hyphens, strip non-alnum-hyphen."""
     if not value:
         return "unknown"
-    import re
 
     v = value.lower().strip()
     v = re.sub(r"[\s_]+", "-", v)
@@ -142,10 +140,11 @@ def page_to_jsonld(page) -> Dict[str, Any]:
             "id": None,  # TODO: supply LinguisticObject id when available
             "type": "LinguisticObject",
             "_label": "Textual content of the page",
+            "language": scan_languages_jsonld(page.scan) or None,
             "digitally_carried_by": {
                 "id": "",
                 "type": "DigitalObject",
-                "_label": f"PageXML of {page.scan.filename}",
+                "_label": f"PageXML of {page.scan.filename if page.scan else 'unknown scan'}",
             },
         },
         "shows": {
@@ -160,30 +159,150 @@ def page_to_jsonld(page) -> Dict[str, Any]:
 # Physical Document JSON-LD (material manifestation of a conceptual document)
 
 
+def settlement_to_place_jsonld(settlement) -> Dict[str, Any]:
+    """Serialize a Settlement to a Linked Art Place object."""
+    labels = []
+    if getattr(settlement, "labels", None):
+        labels = [
+            lbl.label.strip()
+            for lbl in settlement.labels
+            if getattr(lbl, "label", None) and lbl.label.strip()
+        ]
+
+    deduped_labels = list(dict.fromkeys(labels))
+    place_label = deduped_labels[0] if deduped_labels else settlement.glob_id
+
+    place_obj: Dict[str, Any] = {
+        "type": "Place",
+        "_label": place_label,
+    }
+
+    if getattr(settlement, "glob_id", None):
+        place_obj["id"] = (
+            "https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/"
+            f"place:{settlement.glob_id}"
+        )
+
+    if deduped_labels:
+        place_obj["identified_by"] = [
+            {"type": "Name", "content": label} for label in deduped_labels
+        ]
+
+    return place_obj
+
+
+# ISO 639-3 codes found in data/language_data_per_scan.parquet, mapped to the
+# Linked Art recommended language vocabulary
+# (https://linked.art/model/vocab/recommended/languages/), which is keyed by
+# ISO 639-1. Codes with no ISO 639-1 equivalent (and therefore no AAT id in
+# that vocabulary) keep a label only.
+LANGUAGE_MAP: Dict[str, Dict[str, Optional[str]]] = {
+    "nld": {"label": "Dutch", "aat": "300388256"},
+    "fra": {"label": "French", "aat": "300388306"},
+    "eng": {"label": "English", "aat": "300388277"},
+    "lat": {"label": "Latin", "aat": "300388693"},
+    "por": {"label": "Portuguese", "aat": "300389115"},
+    "msa": {"label": "Malay", "aat": "300388786"},
+    "sin": {"label": "Sinhala", "aat": "300389279"},
+    "deu": {"label": "German", "aat": "300388344"},
+    "spa": {"label": "Spanish", "aat": "300389311"},
+    "dan": {"label": "Danish", "aat": "300388204"},
+    "ita": {"label": "Italian", "aat": "300388474"},
+    "tam": {"label": "Tamil", "aat": "300389365"},
+    "fas": {"label": "Persian", "aat": "300389087"},
+    "jpn": {"label": "Japanese", "aat": "300388486"},
+    "ben": {"label": "Bengali", "aat": "300387971"},
+    "guj": {"label": "Gujarati", "aat": "300388371"},
+    "heb": {"label": "Hebrew", "aat": "300388401"},
+    "lzh": {
+        "label": "Literary Chinese",
+        "aat": None,
+    },  # TODO: map to AAT id if available
+    "chu": {"label": "Church Slavic", "aat": "300389289"},
+    "bug": {"label": "Buginese", "aat": None},  # TODO: map to AAT id if available
+    "grc": {"label": "Ancient Greek", "aat": "300387827"},
+    "art": {"label": "Artificial language (unspecified)", "aat": "300389747"},
+}
+
+
+def language_code_to_jsonld(code: str) -> Optional[Dict[str, Any]]:
+    """Map a single ISO 639-3 code to a Linked Art Language object.
+
+    Returns None for empty/unknown codes (i.e. no language detected).
+    """
+    code = (code or "").strip().lower()
+    if not code or code == "unknown":
+        return None
+
+    info = LANGUAGE_MAP.get(code)
+    if info is None:
+        # Unrecognized/unmapped code: keep it visible without a resolved id.
+        return {"type": "Language", "_label": code}
+
+    lang_obj: Dict[str, Any] = {"type": "Language", "_label": info["label"]}
+    if info["aat"]:
+        lang_obj["id"] = f"http://vocab.getty.edu/aat/{info['aat']}"
+    return lang_obj
+
+
+def scan_languages_jsonld(scan) -> List[Dict[str, Any]]:
+    """Map a single Scan's raw `languages` field to a list of known Language objects."""
+    raw = getattr(scan, "languages", None) if scan is not None else None
+    if not raw:
+        return []
+
+    languages: List[Dict[str, Any]] = []
+    seen = set()
+    for code in raw.split(","):
+        code = code.strip().lower()
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        lang = language_code_to_jsonld(code)
+        if lang is not None:
+            languages.append(lang)
+    return languages
+
+
+def document_languages_jsonld(document) -> List[Dict[str, Any]]:
+    """Collect the distinct known languages across all scans linked to a document's pages."""
+    languages: List[Dict[str, Any]] = []
+    seen = set()
+    for link in document.pages or []:
+        pg = link.page
+        scan = getattr(pg, "scan", None) if pg else None
+        for lang in scan_languages_jsonld(scan):
+            key = lang.get("id") or lang.get("_label")
+            if key in seen:
+                continue
+            seen.add(key)
+            languages.append(lang)
+    return languages
+
+
 def document_physical_to_jsonld(document) -> Dict[str, Any]:
     base_id = f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/document:{document.id}"
-    # Classification from document types
-    if document.document_types:
-        classified = []
-        for dt_link in document.document_types:
+    # Classification from linked (thesaurus) document types
+    classified = []
+    if document.document_types_linked:
+        for dt_link in document.document_types_linked:
             dt = dt_link.document_type
+            if dt is None:
+                continue
             doc_type_str = dt.pref_label_en or dt.pref_label_nl or dt.id
-            doc_type_slug = slugify(doc_type_str)
+            pref_label = []
+            if dt.pref_label_nl:
+                pref_label.append({"@language": "nl", "@value": dt.pref_label_nl})
+            if dt.pref_label_en:
+                pref_label.append({"@language": "en", "@value": dt.pref_label_en})
             classified.append(
                 {
-                    "id": f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/thesaurus:{doc_type_slug}",
+                    "id": f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/thesaurus:{dt.id}",
                     "type": "Type",
                     "_label": f"{doc_type_str} (document type)",
+                    "prefLabel": pref_label,
                 }
             )
-    else:
-        classified = [
-            {
-                "id": "https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/thesaurus:unknown",
-                "type": "Type",
-                "_label": "Unknown document type",
-            }
-        ]
 
     # Title object
     title_obj = None
@@ -207,7 +326,7 @@ def document_physical_to_jsonld(document) -> Dict[str, Any]:
                 else None
             ),
             "end_of_the_end": (
-                str(document.date_latest_end) + "T00:00:00Z"
+                str(document.date_latest_end) + "T23:59:59Z"
                 if getattr(document, "date_latest_end", None) is not None
                 else None
             ),
@@ -256,7 +375,7 @@ def document_physical_to_jsonld(document) -> Dict[str, Any]:
 
             # Create detailed part with carries and shows
             part: Dict[str, Any] = {
-                "id": f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/document:{document.id}#page:{pg.id}",
+                # "id": f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/document:{document.id}#page:{pg.id}",
                 "type": "PhysicalHumanMadeThing",
                 "_label": label,
                 "classified_as": {
@@ -275,6 +394,7 @@ def document_physical_to_jsonld(document) -> Dict[str, Any]:
                     "id": None,  # TODO: reference PageXML/text resource when available
                     "type": "LinguisticObject",
                     "_label": "Textual content of the page",
+                    "language": scan_languages_jsonld(pg.scan) or None,
                     "digitally_carried_by": {
                         "id": None,  # TODO: reference PageXML service
                         "type": "DigitalObject",
@@ -292,30 +412,106 @@ def document_physical_to_jsonld(document) -> Dict[str, Any]:
             parts.append(part)
 
     subject_of = {
-        "id": f"https://globalise.huygens.knaw.nl/document/{document.id}",
+        # "id": f"https://globalise.huygens.knaw.nl/document/{document.id}", # TODO: ???
         "type": "DigitalObject",
-        "_label": "Digital representation of this document",
+        "_label": "This document shown by Globalise",
     }
+
+    # Identifiers: the two possible external identifiers (e.g. OBP_INDEX, TANAP)
+    identified_by = []
+    for ext_link in getattr(document, "external_ids", None) or []:
+        ext = ext_link.external
+        if ext is None:
+            continue
+
+        if "TANAP" in ext.context:
+            identifier_type = "https://digitaalerfgoed.poolparty.biz/globalise/5874f9e1-5645-4b4c-a61b-cc17ebde93a0"
+            identifier_type_label = "TANAP Identifier"
+        elif "OBP_INDEX" in ext.context:
+            identifier_type = "https://digitaalerfgoed.poolparty.biz/globalise/2122ddb6-c61f-4288-a592-4970bf42fc13"
+            identifier_type_label = "OBP_INDEX Identifier"
+        else:
+            identifier_type = None
+            identifier_type_label = None
+
+        identified_by.append(
+            {
+                "type": "Identifier",
+                "classified_as": {
+                    "id": identifier_type,
+                    "type": "Type",
+                    "_label": identifier_type_label,
+                },
+                "content": ext.identifier or ext.URL or "",
+            }
+        )
+
+    place = settlement_to_place_jsonld(document.location) if document.location else None
+
+    # Languages detected across the document's scans (attached to its textual content)
+    languages = document_languages_jsonld(document)
+
+    # Extent: number of pages (recto/verso) and number of distinct scans
+    number_of_pages = len(document.pages) if document.pages else 0
+    scan_ids = {
+        link.page.scan_id
+        for link in (document.pages or [])
+        if link.page and link.page.scan_id
+    }
+    number_of_scans = len(scan_ids)
+
+    dimension = [
+        {
+            "type": "Dimension",
+            "classified_as": {
+                "id": "http://vocab.getty.edu/aat/300404433",
+                "type": "Type",
+                "_label": "Count of",
+            },
+            "value": number_of_pages,
+            "unit": {
+                "id": "http://vocab.getty.edu/aat/300194222",
+                "type": "MeasurementUnit",
+                "_label": "Pages",
+            },
+        },
+        {
+            "type": "Dimension",
+            "classified_as": {
+                "id": "http://vocab.getty.edu/aat/300404433",
+                "type": "Type",
+                "_label": "Number of scans",
+            },
+            "value": number_of_scans,
+            "unit": {
+                "id": "http://vocab.getty.edu/aat/300417380",
+                "type": "MeasurementUnit",
+                "_label": "Digitized images",
+            },
+        },
+    ]
 
     return {
         "@context": "https://linked.art/ns/v1/linked-art.json",
         "id": base_id,
         "type": "PhysicalHumanMadeThing",
-        "_label": f"Document {document.id}",
+        "_label": f"{document.title or document.id} (Document)",
         "classified_as": classified,
         "title": title_obj,
+        "identified_by": identified_by,
+        "dimension": dimension,
         "produced_by": {
             "type": "Production",
-            "classified_as": None,  # placeholder
-            "took_place_at": None,  # no place data
+            "took_place_at": place,
             "timespan": timespan,
-            "carried_out_by": None,  # unknown actor
+            # "carried_out_by": None,  # unknown actor
         },
         "part": parts,
         "carries": {
             "id": None,
             "type": "LinguisticObject",
             "_label": "Textual content of the document",
+            "language": languages if languages else None,
             "digitally_carried_by": None,
         },
         "subject_of": subject_of,
@@ -434,34 +630,7 @@ def inventory_to_jsonld(inventory) -> Dict[str, Any]:
                 continue
             seen_place_keys.add(place_key)
 
-            labels = []
-            if getattr(settlement, "labels", None):
-                labels = [
-                    lbl.label.strip()
-                    for lbl in settlement.labels
-                    if getattr(lbl, "label", None) and lbl.label.strip()
-                ]
-
-            deduped_labels = list(dict.fromkeys(labels))
-            place_label = deduped_labels[0] if deduped_labels else settlement.glob_id
-
-            place_obj: Dict[str, Any] = {
-                "type": "Place",
-                "_label": place_label,
-            }
-
-            if getattr(settlement, "glob_id", None):
-                place_obj["id"] = (
-                    "https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/"
-                    f"place:{settlement.glob_id}"
-                )
-
-            if deduped_labels:
-                place_obj["identified_by"] = [
-                    {"type": "Name", "content": label} for label in deduped_labels
-                ]
-
-            place_candidates.append(place_obj)
+            place_candidates.append(settlement_to_place_jsonld(settlement))
 
     took_place_at: Any
     if len(place_candidates) == 1:
@@ -981,8 +1150,11 @@ def inventory_to_manifest_jsonld(inventory, manifest_uri: str) -> Dict[str, Any]
         top_level_docs = [doc for doc in inventory.documents if doc.part_of_id is None]
         sorted_docs = sorted(top_level_docs, key=get_first_page_index)
 
-        def create_document_range(doc, doc_index=None):
-            """Create a Range for a document and its subdocuments recursively."""
+        def create_document_range(doc: Document, doc_index: str | int | None = None):
+            """
+            Create a Range for a document and its subdocuments recursively.
+            """
+
             # Create range ID with optional index for uniqueness
             range_id_suffix = f"doc-{doc.id}"
             if doc_index is not None:
@@ -1036,10 +1208,12 @@ def inventory_to_manifest_jsonld(inventory, manifest_uri: str) -> Dict[str, Any]
                         }
                     )
 
-            # Type (from document_types)
-            if doc.document_types:
-                for dt_link in doc.document_types:
+            # Type (from linked document types)
+            if doc.document_types_linked:
+                for dt_link in doc.document_types_linked:
                     dt = dt_link.document_type
+                    if dt is None:
+                        continue
                     label = dt.pref_label_en or dt.pref_label_nl or dt.id
                     doc_range["metadata"].append(
                         {

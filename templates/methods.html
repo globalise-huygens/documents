@@ -20,7 +20,11 @@ GLOBALISE Documents{% endblock %} {% block content %}
         color: var(--white);
         border-color: var(--coral);
       "
-      onclick="const f = document.getElementById('add-method-form'); f.hidden = !f.hidden; this.textContent = f.hidden ? 'Show form' : 'Hide form';"
+      onclick="
+        const f = document.getElementById('add-method-form');
+        f.hidden = !f.hidden;
+        this.textContent = f.hidden ? 'Show form' : 'Hide form';
+      "
     >
       Show form
     </button>
@@ -63,7 +67,9 @@ GLOBALISE Documents{% endblock %} {% block content %}
   <tbody>
     {% for method in methods %}
     <tr>
-      <td><a href="{{ base_url }}/method/{{ method.id }}">{{ method.name }}</a></td>
+      <td>
+        <a href="{{ base_url }}/method/{{ method.id }}">{{ method.name }}</a>
+      </td>
       <td>{{ method.date if method.date else 'N/A' }}</td>
       <td>
         {{ method.description[:100] if method.description else 'N/A' }}{% if

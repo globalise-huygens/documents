@@ -83,7 +83,7 @@ data/
 
 ## Database Setup
 
-Run the three import scripts sequentially to create and populate the SQLite database:
+Run the import scripts sequentially to create and populate the SQLite database:
 
 ### Step 1: Import Scans and Inventories
 
@@ -125,6 +125,25 @@ This script:
 - Establishes parent-child relationships
 - Updates inventory records with series information
 - Expected runtime: 1-2 minutes
+
+### Step 3.5: Mark Blank Pages from Normalized Text
+
+```bash
+uv run python 3.5_import_empty_pages.py
+# optional overrides:
+uv run python 3.5_import_empty_pages.py --threshold 30
+uv run python 3.5_import_empty_pages.py --parquet data/normalized_texts.parquet
+```
+
+This script:
+
+- Reads normalized text per scan from parquet (`filename`, `normalized_text`)
+- Computes character length of `normalized_text`
+- Sets `page.is_blank=True` when text length is below the threshold (default: 20)
+- Sets `page.is_blank=False` otherwise
+- Updates all pages linked to each matched scan filename
+
+Use this step before baseline document identification so empty-page boundaries are available.
 
 ### Step 4: Identify Documents (Optional)
 
@@ -204,6 +223,7 @@ uv run python 9_import_annotation_pages_exist.py [--dry-run]
 Sets `has_transcriptions`, `has_entities`, and `has_events` flags on Scan records based on `annotationpages.csv`. These flags control whether annotation page links are included in IIIF manifest exports.
 
 ### Step 9.5: Migrate Confidence Column
+
 ```bash
 uv run python 9.5_backfill_confidence.py
 ```
@@ -211,6 +231,7 @@ uv run python 9.5_backfill_confidence.py
 Migrates the `page2document.confidence` column from a Float to a String-based Enum (`LinkConfidence`). This ensures compatibility with the refined matching scripts.
 
 ### Step 10: Match Folios
+
 ```bash
 uv run python 10_match_folios.py
 ```
@@ -218,6 +239,7 @@ uv run python 10_match_folios.py
 Matches pages to OBP documents by folio range. It assigns the `FOLIO_RANGE` confidence tier to every page whose folio number falls within a document's start/end range.
 
 ### Step 11: Interpolate pages
+
 ```bash
 uv run python 11_interpolate_pages.py
 ```
@@ -244,9 +266,11 @@ uv run python 11_interpolate_pages.py --propagation-depth 2
 ```
 
 Example:
+
 ```
 [Doc A] — [gap] — [gap] — [Doc A]
 ```
+
 - depth = 1 → no interpolation (gap too large)
 - depth = 2 → both gaps are filled
 
@@ -255,6 +279,22 @@ The script is safe to rerun:
 - it will only fill previously unlinked pages
 - useful after improving earlier matching steps (e.g. folio matching)
 
+### Step 16: Add Titles to Baseline Documents
+
+```bash
+uv run python 16_add_titles_to_documents.py
+# inspect without writing:
+uv run python 16_add_titles_to_documents.py --dry-run
+# replace existing non-empty titles as well:
+uv run python 16_add_titles_to_documents.py --overwrite
+```
+
+This script:
+
+- Targets documents created by `Baseline: Empty Pages & Signatures`
+- Looks at pages linked to each baseline document in sequential order (`page2document.index`)
+- Assigns the first non-empty `page.header` as the document title
+- By default, only fills missing titles (does not overwrite existing non-empty titles)
 
 ### Verify Database
 
