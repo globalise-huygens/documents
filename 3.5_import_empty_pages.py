@@ -11,20 +11,29 @@ is_blank for all linked pages:
 - True  when char_length < threshold
 - False when char_length >= threshold
 
+It also computes inventory-relative text offsets for each scan. The inventory
+text is the concatenation of the per-scan texts in scan order, separated by
+newlines. The offsets are stored on Scan as start/end character positions in
+that concatenated text.
+
 Default threshold is 20 characters.
 """
 
 import argparse
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Iterable
 
 import pandas as pd
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session
 
+from models import Base, Inventory, Scan
+
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///globalise_documents.db")
+SCAN_ORDER_RE = re.compile(r"_(\d+)[A-Za-z]*$")
 
 
 def resolve_parquet_path(user_path: str | None) -> Path:
@@ -61,6 +70,117 @@ def _prepare_temp_table(session: Session) -> None:
                 is_blank BOOLEAN NOT NULL
             )
             """))
+
+
+def _ensure_scan_offset_columns(engine) -> None:
+    inspector = inspect(engine)
+    columns = {col["name"] for col in inspector.get_columns("scan")}
+    with engine.begin() as conn:
+        if "inventory_text_start_offset" not in columns:
+            conn.execute(
+                text("ALTER TABLE scan ADD COLUMN inventory_text_start_offset INTEGER")
+            )
+        if "inventory_text_end_offset" not in columns:
+            conn.execute(
+                text("ALTER TABLE scan ADD COLUMN inventory_text_end_offset INTEGER")
+            )
+
+
+def extract_scan_order(filename: str) -> int | None:
+    match = SCAN_ORDER_RE.search(filename or "")
+    if not match:
+        return None
+    return int(match.group(1))
+
+
+def _longest_text(values: pd.Series) -> str:
+    non_null = [str(value) for value in values.dropna().tolist() if str(value)]
+    if not non_null:
+        return ""
+    return max(non_null, key=len)
+
+
+def _build_inventory_text_offsets(session: Session, parquet_path: Path) -> list[dict]:
+    df = pd.read_parquet(parquet_path, columns=["filename", "normalized_text"])
+    df["filename"] = df["filename"].astype(str).str.strip()
+    df = df[df["filename"] != ""]
+
+    per_filename = df.groupby("filename", sort=False, as_index=False).agg(
+        scan_text=("normalized_text", _longest_text)
+    )
+    text_by_filename = dict(
+        per_filename[["filename", "scan_text"]].itertuples(index=False, name=None)
+    )
+
+    scans = (
+        session.query(
+            Scan.id, Scan.filename, Scan.scan_order, Inventory.inventory_number
+        )
+        .join(Inventory, Inventory.id == Scan.inventory_id)
+        .all()
+    )
+
+    scans_by_inventory: dict[str, list[dict]] = {}
+    for scan_id, filename, scan_order, inventory_number in scans:
+        if not inventory_number:
+            continue
+        scans_by_inventory.setdefault(str(inventory_number), []).append(
+            {
+                "id": scan_id,
+                "filename": filename or "",
+                "scan_order": (
+                    scan_order
+                    if scan_order is not None
+                    else extract_scan_order(filename or "")
+                ),
+                "scan_text": text_by_filename.get((filename or "").strip(), ""),
+            }
+        )
+
+    rows: list[dict] = []
+    for inventory_scans in scans_by_inventory.values():
+        ordered_scans = sorted(
+            inventory_scans,
+            key=lambda item: (
+                item["scan_order"] is None,
+                item["scan_order"] if item["scan_order"] is not None else 0,
+                item["filename"],
+            ),
+        )
+        offset = 0
+        for index, scan in enumerate(ordered_scans):
+            scan_text = scan["scan_text"] or ""
+            start = offset
+            end = start + len(scan_text)
+            rows.append(
+                {
+                    "id": scan["id"],
+                    "inventory_text_start_offset": start,
+                    "inventory_text_end_offset": end,
+                }
+            )
+            offset = end
+            if index < len(ordered_scans) - 1:
+                offset += 1
+
+    return rows
+
+
+def apply_inventory_text_offsets(session: Session, parquet_path: Path) -> int:
+    rows = _build_inventory_text_offsets(session, parquet_path)
+    if not rows:
+        return 0
+
+    result = session.execute(
+        text("""
+            UPDATE scan
+            SET inventory_text_start_offset = :inventory_text_start_offset,
+                inventory_text_end_offset = :inventory_text_end_offset
+            WHERE id = :id
+            """),
+        rows,
+    )
+    return int(getattr(result, "rowcount", 0) or len(rows))
 
 
 def _insert_flags_batch(session: Session, rows: list[dict], chunk_size: int) -> int:
@@ -204,7 +324,6 @@ def apply_blank_flags(session: Session) -> tuple[int, int, int]:
             """))
 
     updated_pages = int(getattr(result, "rowcount", 0) or 0)
-    session.commit()
     return matched_scans, unmatched_filenames, updated_pages
 
 
@@ -256,6 +375,8 @@ def main() -> int:
     print(f"Using threshold: {args.threshold} characters")
 
     engine = create_engine(args.database_url, echo=False)
+    Base.metadata.create_all(engine)
+    _ensure_scan_offset_columns(engine)
     session = Session(engine)
     try:
         prepared_flags, backend = load_flags_into_temp_table(
@@ -267,6 +388,8 @@ def main() -> int:
         print(f"Prepared {prepared_flags} filename flags using {backend}")
 
         matched_scans, unmatched_filenames, updated_pages = apply_blank_flags(session)
+        updated_scans = apply_inventory_text_offsets(session, parquet_path)
+        session.commit()
     except Exception as exc:
         session.rollback()
         print(f"Failed to import blank flags: {exc}")
@@ -277,6 +400,7 @@ def main() -> int:
     print(f"Matched scans: {matched_scans}")
     print(f"Unmatched filenames: {unmatched_filenames}")
     print(f"Updated pages: {updated_pages}")
+    print(f"Updated scans with inventory text offsets: {updated_scans}")
 
     return 0
 

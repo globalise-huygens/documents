@@ -971,6 +971,11 @@ def inventory_to_manifest_jsonld(inventory, manifest_uri: str) -> Dict[str, Any]
     elif getattr(inventory, "date_end", None):
         manifest["navDate"] = f"{inventory.date_end}T00:00:00+00:00"
 
+    inventory_text_uri = (
+        f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/"
+        f"inventory:{inventory.inventory_number}.txt"
+    )
+
     # Add Canvas for each Inventory's Scan (avoid document linkage)
     if getattr(inventory, "scans", None):
         # Sort scans by filename for consistent ordering
@@ -997,6 +1002,9 @@ def inventory_to_manifest_jsonld(inventory, manifest_uri: str) -> Dict[str, Any]
             service_id = None
             if getattr(scan, "iiif_image_info", None):
                 service_id = scan.iiif_image_info.replace("/info.json", "")
+
+            text_start = getattr(scan, "inventory_text_start_offset", None)
+            text_end = getattr(scan, "inventory_text_end_offset", None)
 
             # Metadata entries similar to the example (Filename, Web)
             # Use scan.filename directly; only include Web if `na_identifier` is a URL
@@ -1052,7 +1060,39 @@ def inventory_to_manifest_jsonld(inventory, manifest_uri: str) -> Dict[str, Any]
             }
 
             # Add annotation pages for transcriptions, entities, and events (only if available)
-            annotations = []
+            annotations: List[Dict[str, Any]] = []
+            if text_start is not None and text_end is not None:
+                annotations.append(
+                    {
+                        "id": f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/annotations:text:{scan.filename}",
+                        "type": "AnnotationPage",
+                        "items": [
+                            {
+                                "id": f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/annotations:text:{scan.filename}#annotation",
+                                "type": "Annotation",
+                                "motivation": "describing",
+                                "body": {
+                                    "type": "TextualBody",
+                                    "value": f"Scan text range for {scan.filename}",
+                                    "format": "text/plain",
+                                },
+                                "target": {
+                                    "type": "SpecificResource",
+                                    "source": {
+                                        "id": inventory_text_uri,
+                                        "type": "DigitalObject",
+                                        "_label": f"Plain text of Inventory {inventory.inventory_number}",
+                                    },
+                                    "selector": {
+                                        "type": "TextPositionSelector",
+                                        "start": text_start,
+                                        "end": text_end,
+                                    },
+                                },
+                            }
+                        ],
+                    }
+                )
             if getattr(scan, "has_transcriptions", False):
                 annotations.append(
                     {

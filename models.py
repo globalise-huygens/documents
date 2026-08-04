@@ -475,6 +475,9 @@ class Scan(Base):
     # NEW FIELD
     scan_order: Mapped[Optional[int]] = mapped_column(Integer, index=True)
 
+    inventory_text_start_offset: Mapped[Optional[int]] = mapped_column(Integer)
+    inventory_text_end_offset: Mapped[Optional[int]] = mapped_column(Integer)
+
     languages: Mapped[Optional[str]] = mapped_column(
         Text,
         comment=(
