@@ -321,22 +321,31 @@ def document_physical_to_jsonld(document) -> Dict[str, Any]:
         timespan = {
             "type": "Timespan",
             "begin_of_the_begin": (
-                str(document.date_earliest_begin) + "T00:00:00Z"
+                str(document.date_earliest_begin) + "T00:00:00"
                 if getattr(document, "date_earliest_begin", None) is not None
                 else None
             ),
+            "end_of_the_begin": (
+                str(document.date_latest_begin) + "T23:59:59"
+                if getattr(document, "date_latest_begin", None) is not None
+                else None
+            ),
+            "begin_of_the_end": (
+                str(document.date_earliest_end) + "T00:00:00"
+                if getattr(document, "date_earliest_end", None) is not None
+                else None
+            ),
             "end_of_the_end": (
-                str(document.date_latest_end) + "T23:59:59Z"
+                str(document.date_latest_end) + "T23:59:59"
                 if getattr(document, "date_latest_end", None) is not None
                 else None
             ),
         }
         if getattr(document, "date_text", None):
-            timespan["referred_to_by"] = {
-                "id": "",
-                "type": "LinguisticObject",
+            timespan["name"] = {
+                "type": "Name",
                 "content": document.date_text,
-                "_label": "Original date expression",
+                "_label": document.date_text,
             }  # type: ignore[assignment]
 
     # Parts: physical pages (recto/verso) from Page2Document
@@ -612,6 +621,19 @@ def inventory_to_jsonld(inventory) -> Dict[str, Any]:
                 if getattr(inventory, "date_end", None) is not None
                 else None
             ),
+            "name": {
+                "type": "Name",
+                "_label": (
+                    inventory.date_text
+                    if getattr(inventory, "date_text", None)
+                    else None
+                ),
+                "content": (
+                    inventory.date_text
+                    if getattr(inventory, "date_text", None)
+                    else None
+                ),
+            },
         }
 
     # Derive production places from settlements linked to documents in this inventory.
@@ -1247,6 +1269,35 @@ def inventory_to_manifest_jsonld(inventory, manifest_uri: str) -> Dict[str, Any]
                             "value": {"none": [date_str]},
                         }
                     )
+
+            if doc.date_earliest_begin:
+                doc_range["metadata"].append(
+                    {
+                        "label": {"en": ["Date earliest begin"]},
+                        "value": {"none": [str(doc.date_earliest_begin)]},
+                    }
+                )
+            if doc.date_latest_begin:
+                doc_range["metadata"].append(
+                    {
+                        "label": {"en": ["Date latest begin"]},
+                        "value": {"none": [str(doc.date_latest_begin)]},
+                    }
+                )
+            if doc.date_earliest_end:
+                doc_range["metadata"].append(
+                    {
+                        "label": {"en": ["Date earliest end"]},
+                        "value": {"none": [str(doc.date_earliest_end)]},
+                    }
+                )
+            if doc.date_latest_end:
+                doc_range["metadata"].append(
+                    {
+                        "label": {"en": ["Date latest end"]},
+                        "value": {"none": [str(doc.date_latest_end)]},
+                    }
+                )
 
             # Type (from linked document types)
             if doc.document_types_linked:

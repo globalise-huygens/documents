@@ -128,14 +128,28 @@ def get_start_end_scan_types(document):
 
 
 def get_date_start(document):
-    """Get the start date in ISO 8601 format."""
+    """Get the document's earliest begin date in ISO 8601 format."""
     if document.date_earliest_begin:
         return document.date_earliest_begin.isoformat()
     return ""
 
 
+def get_date_latest_begin(document):
+    """Get the document's latest begin date in ISO 8601 format."""
+    if document.date_latest_begin:
+        return document.date_latest_begin.isoformat()
+    return ""
+
+
+def get_date_earliest_end(document):
+    """Get the document's earliest end date in ISO 8601 format."""
+    if document.date_earliest_end:
+        return document.date_earliest_end.isoformat()
+    return ""
+
+
 def get_date_end(document):
-    """Get the end date in ISO 8601 format."""
+    """Get the document's latest end date in ISO 8601 format."""
     if document.date_latest_end:
         return document.date_latest_end.isoformat()
     return ""
@@ -192,8 +206,10 @@ def export_documents_csv(
                     "start_scan_type",
                     "end_scan_type",
                     "title",
-                    "date_start",
-                    "date_end",
+                    "date_earliest_begin",
+                    "date_latest_begin",
+                    "date_earliest_end",
+                    "date_latest_end",
                     "settlement",
                     "settlement_id",
                     "method",
@@ -218,6 +234,8 @@ def export_documents_csv(
                         end_scan_type,
                         document.title or "",
                         get_date_start(document),
+                        get_date_latest_begin(document),
+                        get_date_earliest_end(document),
                         get_date_end(document),
                         settlement_label,
                         settlement_id,

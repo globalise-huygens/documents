@@ -11,10 +11,10 @@ Column mapping
 Mapped:
   DESCRIPTION                          → Document.title
   INVENTORY NUMBER                     → FK to existing Inventory (by inventory_number)
-  YEAR (EARLIEST)                      → Document.date_earliest_begin (Jan 1) /
-                                          Document.date_latest_begin  (Dec 31)
-  YEAR (LATEST)                        → Document.date_earliest_end  (Jan 1) /
-                                          Document.date_latest_end    (Dec 31)
+    begin_of_begin                       → Document.date_earliest_begin
+    end_of_begin                         → Document.date_latest_begin
+    begin_of_end                         → Document.date_earliest_end
+    end_of_end                           → Document.date_latest_end
   DOCUMENT TYPE URI (TANAP)            → Document2DocumentType rows (UUIDs extracted
   DOCUMENT TYPE URI (GLOBALISE)          from PoolParty URIs, split on ";")
   ID                                   → ExternalID(context="OBP_INDEX")
@@ -75,33 +75,26 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 METHOD_NAME = "TANAP Digitized Index"
 BATCH_SIZE = 5_000
 
-CSV_PATH = os.path.join(
-    SCRIPT_DIR,
-    "data",
-    "globalise_digitized_indexes.csv",
-)
+CSV_PATH_CANDIDATES = [
+    os.path.join(SCRIPT_DIR, "data", "globalise_digitized_indexes_enriched.csv"),
+    os.path.join(SCRIPT_DIR, "data", "globalise_digitized_indexes.csv"),
+]
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
-def year_to_start(year) -> Optional[date]:
-    """Convert an integer year to Jan 1 of that year."""
-    if year is None or (isinstance(year, float) and pd.isna(year)):
+
+def parse_date(value) -> Optional[date]:
+    """Parse a CSV date cell into a Python date, returning None for blanks."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
         return None
     try:
-        return date(int(year), 1, 1)
-    except (ValueError, TypeError):
+        parsed = pd.to_datetime(value, errors="coerce")
+    except Exception:
         return None
-
-
-def year_to_end(year) -> Optional[date]:
-    """Convert an integer year to Dec 31 of that year."""
-    if year is None or (isinstance(year, float) and pd.isna(year)):
+    if pd.isna(parsed):
         return None
-    try:
-        return date(int(year), 12, 31)
-    except (ValueError, TypeError):
-        return None
+    return parsed.date()
 
 
 def int_or_none(value) -> Optional[str]:
@@ -167,6 +160,7 @@ def parse_type_uris(raw) -> list[str]:
 
 # ── database helpers ──────────────────────────────────────────────────────────
 
+
 def get_or_create_method(session: Session) -> str:
     """Return the ID of the TANAP identification method, creating it if needed."""
     existing = (
@@ -205,7 +199,9 @@ def check_already_imported(session: Session, method_id: str) -> int:
     return result or 0
 
 
-def preload_inventories(session: Session, inventory_numbers: set[str]) -> dict[str, str]:
+def preload_inventories(
+    session: Session, inventory_numbers: set[str]
+) -> dict[str, str]:
     """Return {inventory_number: inventory.id} for all requested numbers."""
     result: dict[str, str] = {}
     inv_list = list(inventory_numbers)
@@ -260,14 +256,18 @@ def preload_settlement_labels(session: Session) -> dict[str, str]:
 
 # ── core import ───────────────────────────────────────────────────────────────
 
-def load_csv() -> pd.DataFrame:
-    if not os.path.exists(CSV_PATH):
-        logger.error(f"CSV file not found: {CSV_PATH}")
+
+def load_csv() -> tuple[str, pd.DataFrame]:
+    csv_path = next(
+        (path for path in CSV_PATH_CANDIDATES if os.path.exists(path)), None
+    )
+    if csv_path is None:
+        logger.error("CSV file not found: tried %s", ", ".join(CSV_PATH_CANDIDATES))
         sys.exit(1)
-    df = pd.read_csv(CSV_PATH)
-    df = df.where(pd.notnull(df), None)
-    logger.info(f"Loaded {len(df)} rows from CSV ({os.path.basename(CSV_PATH)})")
-    return df
+
+    df = pd.read_csv(csv_path)
+    logger.info(f"Loaded {len(df)} rows from CSV ({os.path.basename(csv_path)})")
+    return csv_path, df
 
 
 def bulk_insert(session: Session, table, rows: list[dict], label: str) -> int:
@@ -284,7 +284,8 @@ def bulk_insert(session: Session, table, rows: list[dict], label: str) -> int:
 
 
 def main():
-    df = load_csv()
+    csv_path, df = load_csv()
+    print(f"Source : {os.path.basename(csv_path)}")
     session = Session(engine)
 
     try:
@@ -361,14 +362,16 @@ def main():
                     "id": doc_id,
                     "inventory_id": inv_id,
                     "title": row.get("DESCRIPTION"),
-                    "date_earliest_begin": year_to_start(row.get("YEAR (EARLIEST)")),
-                    "date_latest_begin": year_to_end(row.get("YEAR (EARLIEST)")),
-                    "date_earliest_end": year_to_start(row.get("YEAR (LATEST)")),
-                    "date_latest_end": year_to_end(row.get("YEAR (LATEST)")),
+                    "date_earliest_begin": parse_date(row.get("begin_of_begin")),
+                    "date_latest_begin": parse_date(row.get("end_of_begin")),
+                    "date_earliest_end": parse_date(row.get("begin_of_end")),
+                    "date_latest_end": parse_date(row.get("end_of_end")),
                     "date_text": None,
                     "part_of_id": None,
-                    "location_id": settlement_id,     # NULL when not found in settlement_label
-                    "folio_start": int_field(row.get("FOLIONUMBER (START OF DOCUMENT)")),
+                    "location_id": settlement_id,  # NULL when not found in settlement_label
+                    "folio_start": int_field(
+                        row.get("FOLIONUMBER (START OF DOCUMENT)")
+                    ),
                     "folio_end": int_field(row.get("FOLIONUMBER (END OF DOCUMENT)")),
                     "method_id": method_id,
                 }
@@ -446,7 +449,12 @@ def main():
         )
 
         bulk_insert(session, Document.__table__, doc_rows, "documents")
-        bulk_insert(session, Document2DocumentType.__table__, doc_type_rows, "document-type links")
+        bulk_insert(
+            session,
+            Document2DocumentType.__table__,
+            doc_type_rows,
+            "document-type links",
+        )
         bulk_insert(session, ExternalID.__table__, ext_id_rows, "external IDs")
         bulk_insert(
             session,
@@ -472,7 +480,6 @@ if __name__ == "__main__":
     print("=" * 60)
     print("GLOBALISE OBP Index Import  (script 7 of 7)")
     print("=" * 60)
-    print(f"Source : {os.path.basename(CSV_PATH)}")
     print(f"DB     : {DATABASE_URL}")
     print(
         "\nThis script requires scripts 1–6 to have been run first "
