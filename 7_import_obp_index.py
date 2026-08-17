@@ -85,21 +85,21 @@ CSV_PATH_CANDIDATES = [
 
 
 def parse_date(value) -> Optional[date]:
-    """Parse an ISO-8601 date string from the CSV, returning None for empty cells."""
+    """Parse a CSV date cell into a Python date, returning None for blanks."""
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return None
-
-    text = str(value).strip()
-    if not text:
+    try:
+        parsed = pd.to_datetime(value, errors="coerce")
+    except Exception:
+        return None
+    if pd.isna(parsed):
         return None
 
-    try:
-        d = date.fromisoformat(text)
-    except ValueError:
-        logger.warning(f"Could not parse date from value: {value!r}")
-        d = None
+    # if date's year is >1800, return None
+    if parsed.year > 1800:
+        return None
 
-    return d
+    return parsed.date()
 
 
 def int_or_none(value) -> Optional[str]:
