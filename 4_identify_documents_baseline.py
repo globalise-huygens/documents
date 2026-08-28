@@ -25,6 +25,7 @@ from models import (
     Document,
     DocumentIdentificationMethod,
     Page2Document,
+    LinkConfidence,
 )
 import os
 from typing import Optional
@@ -173,6 +174,8 @@ def identify_documents_for_inventory(
                 page_id=page.id,
                 document_id=current_document.id,
                 index=page_index,
+                source="BASELINE",
+                confidence=LinkConfidence.CANDIDATE,
             )
             session.add(page2doc)
             page_index += 1
@@ -188,6 +191,8 @@ def identify_documents_for_inventory(
                 page_id=page.id,
                 document_id=current_document.id,
                 index=page_index,
+                source="BASELINE",
+                confidence=LinkConfidence.CANDIDATE,
             )
             session.add(page2doc)
             page_index += 1

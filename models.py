@@ -221,7 +221,7 @@ class Document(Base):
     __tablename__ = "document"
 
     id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+        String(128), primary_key=True, default=lambda: str(uuid.uuid4())
     )
     inventory_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("inventory.id"), index=True
@@ -233,7 +233,7 @@ class Document(Base):
     date_latest_end: Mapped[Optional[Date]] = mapped_column(DateType)
     date_text: Mapped[Optional[str]] = mapped_column(Text)
     part_of_id: Mapped[Optional[str]] = mapped_column(
-        String(36), ForeignKey("document.id"), index=True
+        String(128), ForeignKey("document.id"), index=True
     )
     location_id: Mapped[Optional[str]] = mapped_column(
         String(36),
@@ -309,7 +309,7 @@ class Document2Type(Base):
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
     document_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("document.id"), index=True
+        String(128), ForeignKey("document.id"), index=True
     )
     document_type: Mapped[str] = mapped_column(String(255))
 
@@ -354,7 +354,7 @@ class Document2ExternalID(Base):
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
     document_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("document.id"), index=True
+        String(128), ForeignKey("document.id"), index=True
     )
     external_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("external_id.id"), index=True
@@ -418,7 +418,7 @@ class Document2DocumentType(Base):
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
     document_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("document.id"), index=True
+        String(128), ForeignKey("document.id"), index=True
     )
     document_type_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("document_type.id"), index=True
@@ -593,7 +593,7 @@ class Page2Document(Base):
     )
     page_id: Mapped[str] = mapped_column(String(36), ForeignKey("page.id"), index=True)
     document_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("document.id"), index=True
+        String(128), ForeignKey("document.id"), index=True
     )
     index: Mapped[int] = mapped_column(Integer)
     source: Mapped[str] = mapped_column(
@@ -604,8 +604,8 @@ class Page2Document(Base):
     )
     confidence: Mapped[LinkConfidence] = mapped_column(
         SQLEnum(LinkConfidence, values_callable=lambda obj: [e.value for e in obj]),
-        default=LinkConfidence.DEFINITIVE,
-        server_default=LinkConfidence.DEFINITIVE.value,
+        default=LinkConfidence.CANDIDATE,
+        server_default=LinkConfidence.CANDIDATE.value,
         comment="Confidence tier for this page–document link; see LinkConfidence enum",
     )
 
