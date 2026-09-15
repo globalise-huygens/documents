@@ -17,9 +17,16 @@ import time
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, selectinload
+from tqdm import tqdm
 
 from models import Inventory, Document, Series
-from export import document_physical_to_jsonld, inventory_to_jsonld, series_to_jsonld
+from export import (
+    document_physical_to_jsonld,
+    inventory_to_jsonld,
+    inventory_to_annotations_jsonld,
+    get_annotationcollections_for_inventory,
+    series_to_jsonld,
+)
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///globalise_documents.db")
 OUTPUT_DIR = os.environ.get("DOCUMENTS_OUTPUT_DIR", "data/s3/objects")
@@ -53,7 +60,7 @@ def export_documents():
     t0 = time.time()
 
     # 1. Export Inventories
-    for i, inventory in enumerate(inventories, 1):
+    for inventory in tqdm(inventories, desc="Exporting inventories"):
         inv_data = inventory_to_jsonld(inventory)
 
         # Override the seeAlso embedding and subject_of if necessary (this logic
@@ -64,8 +71,32 @@ def export_documents():
         with gzip.open(out_path, "wb") as f:
             f.write(json_bytes)
 
-        if i % 100 == 0:
-            print(f"  Exported {i} inventory objects...")
+        # Export .annotations Set for the inventory
+        ann_data = inventory_to_annotations_jsonld(inventory)
+        ann_out_path = os.path.join(
+            inv_dir, f"{inventory.inventory_number}.annotations.json"
+        )
+        ann_json_bytes = json.dumps(ann_data, ensure_ascii=False, indent=2).encode(
+            "utf-8"
+        )
+
+        with gzip.open(ann_out_path, "wb") as f:
+            f.write(ann_json_bytes)
+
+        # Export individual AnnotationCollections (.annotations.transcriptions, .annotations.entities, .annotations.events)
+        ann_collections = get_annotationcollections_for_inventory(inventory)
+        for collection_type, collection_data in zip(
+            ["transcriptions", "entities", "events"], ann_collections
+        ):
+            col_out_path = os.path.join(
+                inv_dir,
+                f"{inventory.inventory_number}.annotations.{collection_type}.json",
+            )
+            col_json_bytes = json.dumps(
+                collection_data, ensure_ascii=False, indent=2
+            ).encode("utf-8")
+            with gzip.open(col_out_path, "wb") as f:
+                f.write(col_json_bytes)
 
     elapsed_inv = time.time() - t0
     print(f"Exported {len(inventories)} inventories in {elapsed_inv:.1f}s.")
@@ -79,7 +110,7 @@ def export_documents():
     )
     print(f"Loaded {len(series_all)} series records.")
 
-    for s in series_all:
+    for s in tqdm(series_all, desc="Exporting series"):
         s_data = series_to_jsonld(s)
 
         # Inject the members (which are sub-series and inventories)
@@ -215,7 +246,7 @@ def export_documents():
     print(f"Loaded {total_docs} documents.")
 
     t1 = time.time()
-    for i, doc in enumerate(documents, 1):
+    for doc in tqdm(documents, desc="Exporting documents"):
         doc_data = document_physical_to_jsonld(doc)
 
         out_path = os.path.join(doc_dir, f"{doc.id}.json")
@@ -223,9 +254,6 @@ def export_documents():
 
         with gzip.open(out_path, "wb") as f:
             f.write(json_bytes)
-
-        if i % 1000 == 0:
-            print(f"  Exported {i}/{total_docs} document objects...")
 
     elapsed_doc = time.time() - t1
     print(f"Exported {total_docs} documents in {elapsed_doc:.1f}s.")

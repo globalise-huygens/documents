@@ -24,6 +24,7 @@ from models import (
 )
 from export import (  # type: ignore[import-not-found]
     inventory_to_manifest_jsonld,
+    inventory_to_annotations_jsonld,
     scan_to_jsonld,
     page_to_jsonld,
     document_physical_to_jsonld,
@@ -991,6 +992,20 @@ def inventory_manifest(inventory_number):
     manifest_uri = f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/inventory:{inventory_number}.manifest"
 
     data = inventory_to_manifest_jsonld(inventory, manifest_uri)
+
+    return Response(
+        json.dumps(data, ensure_ascii=False, indent=2), mimetype="application/ld+json"
+    )
+
+
+@app.route("/inventory/<inventory_number>/annotations")
+def inventory_annotations(inventory_number):
+    db_session = Session()
+    inventory = get_or_404(
+        db_session.query(Inventory).filter_by(inventory_number=inventory_number)
+    )
+
+    data = inventory_to_annotations_jsonld(inventory)
 
     return Response(
         json.dumps(data, ensure_ascii=False, indent=2), mimetype="application/ld+json"

@@ -12,6 +12,7 @@ import time
 
 from sqlalchemy import create_engine, func
 from sqlalchemy.orm import Session, selectinload
+from tqdm import tqdm
 
 from models import Inventory, InventoryTitle, Scan
 
@@ -50,7 +51,7 @@ def export_collection():
     print(f"Building IIIF Collection for {len(inventories)} inventories...")
 
     items = []
-    for inventory in inventories:
+    for inventory in tqdm(inventories, desc="Building collection items"):
         inv_num = inventory.inventory_number
 
         # Build label from titles or fall back to inventory number
@@ -68,9 +69,9 @@ def export_collection():
 
         # Add navDate if date information is available
         if inventory.date_start:
-            manifest_ref["navDate"] = f"{inventory.date_start}T00:00:00+00:00"
+            manifest_ref["navDate"] = f"{inventory.date_start}T00:00:00"
         elif inventory.date_end:
-            manifest_ref["navDate"] = f"{inventory.date_end}T00:00:00+00:00"
+            manifest_ref["navDate"] = f"{inventory.date_end}T00:00:00"
 
         # Add thumbnail from first scan
         if inventory.scans:

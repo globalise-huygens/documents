@@ -13,6 +13,7 @@ import time
 
 from sqlalchemy import create_engine, func
 from sqlalchemy.orm import Session, selectinload
+from tqdm import tqdm
 
 from models import Base, Inventory, Document, Scan, Page, Series
 from export import inventory_to_manifest_jsonld
@@ -34,7 +35,7 @@ def export_all_manifests():
     inventories = session.query(Inventory).all()
 
     t0 = time.time()
-    for i, inventory in enumerate(inventories, 1):
+    for inventory in tqdm(inventories, desc="Exporting manifests"):
         inv_num = inventory.inventory_number
         manifest_uri = f"{BASE_URI}/inventory:{inv_num}.manifest"
         manifest = inventory_to_manifest_jsonld(inventory, manifest_uri)
@@ -44,10 +45,6 @@ def export_all_manifests():
 
         with gzip.open(out_path, "wb") as f:
             f.write(json_bytes)
-
-        if i % 50 == 0 or i == total:
-            elapsed = time.time() - t0
-            print(f"  [{i}/{total}] {elapsed:.1f}s")
 
     elapsed = time.time() - t0
     print(f"\nDone. {total} manifests written to {OUTPUT_DIR}/ in {elapsed:.1f}s")

@@ -20,6 +20,7 @@ import gzip
 import logging
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
+from tqdm import tqdm
 from models import Base, Document
 
 # Configure logging
@@ -217,7 +218,7 @@ def export_documents_csv(
             )
 
             # Write data rows
-            for document in documents:
+            for document in tqdm(documents, desc="Exporting documents to CSV"):
                 start_scan_filename, end_scan_filename = get_start_end_scan_filenames(
                     document
                 )

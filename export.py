@@ -6,7 +6,7 @@ Moved out of app.py to keep routes lean.
 import re
 from typing import Any, Dict, List, Optional
 
-from models import Document, RectoVerso
+from models import Document, Inventory, RectoVerso
 
 
 def slugify(value: str) -> str:
@@ -18,6 +18,111 @@ def slugify(value: str) -> str:
     v = re.sub(r"[\s_]+", "-", v)
     v = re.sub(r"[^a-z0-9\-]", "", v)
     return v or "unknown"
+
+
+def get_annotationcollections_for_inventory(
+    inventory: Inventory,
+) -> List[Dict[str, Any]]:
+    """Return a list of Linked Art AnnotationCollection objects for the given inventory (CuratedHolding)."""
+    collections: List[Dict[str, Any]] = []
+    if not inventory:
+        return collections
+
+    # Collect distinct scans for this inventory in filename order
+    scans = []
+    if getattr(inventory, "scans", None):
+        scans = sorted(inventory.scans, key=lambda s: s.filename or "")
+
+    transcription_pages: List[Dict[str, Any]] = []
+    entity_pages: List[Dict[str, Any]] = []
+    event_pages: List[Dict[str, Any]] = []
+
+    for scan in scans:
+        if getattr(scan, "has_transcriptions", False):
+            transcription_pages.append(
+                {
+                    "id": f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/annotations:transcriptions:{scan.filename}",
+                    "type": "AnnotationPage",
+                    "label": {"en": [f"Transcriptions of scan {scan.filename}"]},
+                }
+            )
+        if getattr(scan, "has_entities", False):
+            entity_pages.append(
+                {
+                    "id": f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/annotations:entities:{scan.filename}",
+                    "type": "AnnotationPage",
+                    "label": {"en": [f"Entities identified on scan {scan.filename}"]},
+                }
+            )
+        if getattr(scan, "has_events", False):
+            event_pages.append(
+                {
+                    "id": f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/annotations:events:{scan.filename}",
+                    "type": "AnnotationPage",
+                    "label": {"en": [f"Events identified on scan {scan.filename}"]},
+                }
+            )
+
+    # Transcriptions
+    annotation_collection_transcription = {
+        "@context": [
+            "http://www.w3.org/ns/anno.jsonld",
+            "http://www.w3.org/ns/ldp.jsonld",
+        ],
+        "id": f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/inventory:{inventory.inventory_number}.annotations.transcriptions",
+        "type": ["BasicContainer", "AnnotationCollection"],
+        "label": "Transcriptions of the inventory",
+        "total": len(transcription_pages),
+        "first": transcription_pages[0] if transcription_pages else None,
+        "last": transcription_pages[-1] if transcription_pages else None,
+    }
+    collections.append(annotation_collection_transcription)
+
+    # Entities
+    annotation_collection_entities = {
+        "@context": [
+            "http://www.w3.org/ns/anno.jsonld",
+            "http://www.w3.org/ns/ldp.jsonld",
+        ],
+        "id": f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/inventory:{inventory.inventory_number}.annotations.entities",
+        "type": ["BasicContainer", "AnnotationCollection"],
+        "label": "Entities in the inventory",
+        "total": len(entity_pages),
+        "first": entity_pages[0] if entity_pages else None,
+        "last": entity_pages[-1] if entity_pages else None,
+    }
+    collections.append(annotation_collection_entities)
+
+    # Events
+    annotation_collection_events = {
+        "@context": [
+            "http://www.w3.org/ns/anno.jsonld",
+            "http://www.w3.org/ns/ldp.jsonld",
+        ],
+        "id": f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/inventory:{inventory.inventory_number}.annotations.events",
+        "type": ["BasicContainer", "AnnotationCollection"],
+        "label": "Events in the inventory",
+        "total": len(event_pages),
+        "first": event_pages[0] if event_pages else None,
+        "last": event_pages[-1] if event_pages else None,
+    }
+    collections.append(annotation_collection_events)
+
+    return collections
+
+
+def inventory_to_annotations_jsonld(inventory: Inventory) -> Dict[str, Any]:
+    """Serialize the annotations for an inventory (.annotations) as a Linked Art Set containing its AnnotationCollections."""
+    collections = (
+        get_annotationcollections_for_inventory(inventory) if inventory else []
+    )
+    return {
+        "@context": "https://linked.art/ns/v1/linked-art.json",
+        "id": f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/inventory:{inventory.inventory_number}.annotations",
+        "type": "Set",
+        "_label": f"Annotations for Inventory {inventory.inventory_number}",
+        "member": collections,
+    }
 
 
 # Helper to serialize a Scan to JSON-LD (preliminary, can be extended)
@@ -833,6 +938,13 @@ def inventory_to_jsonld(inventory) -> Dict[str, Any]:
                 },
                 "format": "text/plain",
             },
+            "referred_to_by": [
+                {
+                    "id": f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/inventory:{inventory.inventory_number}.annotations",
+                    "type": "Set",
+                    "_label": f"Annotations for Inventory {inventory.inventory_number}",
+                }
+            ],
         },
     }
 
@@ -989,9 +1101,9 @@ def inventory_to_manifest_jsonld(inventory, manifest_uri: str) -> Dict[str, Any]
 
     # Add navDate if inventory has date information
     if getattr(inventory, "date_start", None):
-        manifest["navDate"] = f"{inventory.date_start}T00:00:00+00:00"
+        manifest["navDate"] = f"{inventory.date_start}T00:00:00"
     elif getattr(inventory, "date_end", None):
-        manifest["navDate"] = f"{inventory.date_end}T00:00:00+00:00"
+        manifest["navDate"] = f"{inventory.date_end}T00:00:00"
 
     inventory_text_uri = (
         f"https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/"
