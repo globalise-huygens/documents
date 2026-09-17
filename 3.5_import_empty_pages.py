@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
 """
-Set Page.is_blank using normalized transcription lengths from parquet.
+Set Page.is_blank using normalized transcription lengths from parquet,
+and compute inventory-relative text offsets for both normalized and HTR texts.
 
-This script reads a parquet file with at least:
-- filename
-- normalized_text
+This script reads:
+- normalized text parquet (e.g., data/normalized_texts.parquet) with filename and normalized_text
+- HTR text parquet (e.g., data/htr_texts.parquet) with filename and transcription_text
 
 For each scan filename, it computes character length of normalized_text and sets
 is_blank for all linked pages:
 - True  when char_length < threshold
 - False when char_length >= threshold
 
-It also computes inventory-relative text offsets for each scan. The inventory
-text is the concatenation of the per-scan texts in scan order, separated by
+It also computes inventory-relative text offsets for each scan for both text formats:
+1. Normalized text offsets (stored on Scan as inventory_text_start_offset / inventory_text_end_offset)
+2. HTR text offsets (stored on Scan as inventory_htr_text_start_offset / inventory_htr_text_end_offset)
+
+The inventory text is the concatenation of the per-scan texts in scan order, separated by
 newlines. The offsets are stored on Scan as start/end character positions in
 that concatenated text.
 
@@ -27,7 +31,7 @@ from pathlib import Path
 from typing import Iterable
 
 import pandas as pd
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
 from models import Base, Inventory, Scan
@@ -36,25 +40,35 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///globalise_documents.db"
 SCAN_ORDER_RE = re.compile(r"_(\d+)[A-Za-z]*$")
 
 
-def resolve_parquet_path(user_path: str | None) -> Path:
+def resolve_parquet_path(
+    user_path: str | None,
+    default_filenames: list[str] | None = None,
+    description: str = "parquet",
+) -> Path:
     """Resolve parquet path from CLI or common defaults."""
     if user_path:
         p = Path(user_path)
         if p.exists():
             return p
-        raise FileNotFoundError(f"Parquet file not found: {p}")
+        raise FileNotFoundError(f"{description} file not found: {p}")
 
-    candidates = [
-        Path("data/normalized_texts.parquet"),
-        Path("normalized_texts.parquet"),
-    ]
+    candidates = []
+    if default_filenames:
+        for fn in default_filenames:
+            candidates.append(Path("data") / fn)
+            candidates.append(Path(fn))
+    else:
+        candidates = [
+            Path("data/normalized_texts.parquet"),
+            Path("normalized_texts.parquet"),
+        ]
+
     for p in candidates:
         if p.exists():
             return p
 
-    raise FileNotFoundError(
-        "Could not find normalized text parquet. Tried: data/normalized_texts.parquet, normalized_texts.parquet"
-    )
+    tried = ", ".join(str(c) for c in candidates)
+    raise FileNotFoundError(f"Could not find {description} parquet. Tried: {tried}")
 
 
 def _chunked(rows: list[dict], size: int) -> Iterable[list[dict]]:
@@ -72,20 +86,6 @@ def _prepare_temp_table(session: Session) -> None:
             """))
 
 
-def _ensure_scan_offset_columns(engine) -> None:
-    inspector = inspect(engine)
-    columns = {col["name"] for col in inspector.get_columns("scan")}
-    with engine.begin() as conn:
-        if "inventory_text_start_offset" not in columns:
-            conn.execute(
-                text("ALTER TABLE scan ADD COLUMN inventory_text_start_offset INTEGER")
-            )
-        if "inventory_text_end_offset" not in columns:
-            conn.execute(
-                text("ALTER TABLE scan ADD COLUMN inventory_text_end_offset INTEGER")
-            )
-
-
 def extract_scan_order(filename: str) -> int | None:
     match = SCAN_ORDER_RE.search(filename or "")
     if not match:
@@ -100,13 +100,45 @@ def _longest_text(values: pd.Series) -> str:
     return max(non_null, key=len)
 
 
-def _build_inventory_text_offsets(session: Session, parquet_path: Path) -> list[dict]:
-    df = pd.read_parquet(parquet_path, columns=["filename", "normalized_text"])
+def _detect_text_column(parquet_path: Path, candidate_columns: list[str]) -> str:
+    try:
+        import duckdb
+
+        con = duckdb.connect()
+        try:
+            cols = {
+                row[0]
+                for row in con.execute(
+                    "DESCRIBE SELECT * FROM read_parquet(?)", [str(parquet_path)]
+                ).fetchall()
+            }
+        finally:
+            con.close()
+    except Exception:
+        cols = set(pd.read_parquet(parquet_path).columns)
+
+    for cand in candidate_columns:
+        if cand in cols:
+            return cand
+    raise ValueError(
+        f"None of candidate columns {candidate_columns} found in {parquet_path}. Found: {sorted(cols)}"
+    )
+
+
+def _build_inventory_text_offsets(
+    session: Session,
+    parquet_path: Path,
+    text_column_candidates: list[str] = ["normalized_text", "text"],
+    start_col: str = "inventory_text_start_offset",
+    end_col: str = "inventory_text_end_offset",
+) -> list[dict]:
+    text_col = _detect_text_column(parquet_path, text_column_candidates)
+    df = pd.read_parquet(parquet_path, columns=["filename", text_col])
     df["filename"] = df["filename"].astype(str).str.strip()
     df = df[df["filename"] != ""]
 
     per_filename = df.groupby("filename", sort=False, as_index=False).agg(
-        scan_text=("normalized_text", _longest_text)
+        scan_text=(text_col, _longest_text)
     )
     text_by_filename = dict(
         per_filename[["filename", "scan_text"]].itertuples(index=False, name=None)
@@ -155,8 +187,8 @@ def _build_inventory_text_offsets(session: Session, parquet_path: Path) -> list[
             rows.append(
                 {
                     "id": scan["id"],
-                    "inventory_text_start_offset": start,
-                    "inventory_text_end_offset": end,
+                    start_col: start,
+                    end_col: end,
                 }
             )
             offset = end
@@ -166,16 +198,28 @@ def _build_inventory_text_offsets(session: Session, parquet_path: Path) -> list[
     return rows
 
 
-def apply_inventory_text_offsets(session: Session, parquet_path: Path) -> int:
-    rows = _build_inventory_text_offsets(session, parquet_path)
+def apply_inventory_text_offsets(
+    session: Session,
+    parquet_path: Path,
+    text_column_candidates: list[str] = ["normalized_text", "text"],
+    start_col: str = "inventory_text_start_offset",
+    end_col: str = "inventory_text_end_offset",
+) -> int:
+    rows = _build_inventory_text_offsets(
+        session,
+        parquet_path,
+        text_column_candidates=text_column_candidates,
+        start_col=start_col,
+        end_col=end_col,
+    )
     if not rows:
         return 0
 
     result = session.execute(
-        text("""
+        text(f"""
             UPDATE scan
-            SET inventory_text_start_offset = :inventory_text_start_offset,
-                inventory_text_end_offset = :inventory_text_end_offset
+            SET {start_col} = :{start_col},
+                {end_col} = :{end_col}
             WHERE id = :id
             """),
         rows,
@@ -329,13 +373,21 @@ def apply_blank_flags(session: Session) -> tuple[int, int, int]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Set page.is_blank from normalized text parquet"
+        description="Set page.is_blank from normalized text parquet and compute text offsets"
     )
     parser.add_argument(
         "--parquet",
+        "--normalized-parquet",
+        dest="parquet",
         type=str,
         default=None,
-        help="Path to parquet file (default: auto-detect)",
+        help="Path to normalized text parquet file (default: auto-detect)",
+    )
+    parser.add_argument(
+        "--htr-parquet",
+        type=str,
+        default=None,
+        help="Path to HTR text parquet file (default: auto-detect)",
     )
     parser.add_argument(
         "--threshold",
@@ -366,33 +418,60 @@ def main() -> int:
         return 1
 
     try:
-        parquet_path = resolve_parquet_path(args.parquet)
+        normalized_parquet_path = resolve_parquet_path(
+            args.parquet,
+            default_filenames=["normalized_texts.parquet"],
+            description="normalized text",
+        )
     except FileNotFoundError as exc:
         print(str(exc))
         return 1
 
-    print(f"Using parquet: {parquet_path}")
+    try:
+        htr_parquet_path = resolve_parquet_path(
+            args.htr_parquet,
+            default_filenames=["htr_texts.parquet"],
+            description="HTR text",
+        )
+    except FileNotFoundError as exc:
+        print(str(exc))
+        return 1
+
+    print(f"Using normalized parquet: {normalized_parquet_path}")
+    print(f"Using HTR parquet: {htr_parquet_path}")
     print(f"Using threshold: {args.threshold} characters")
 
     engine = create_engine(args.database_url, echo=False)
     Base.metadata.create_all(engine)
-    _ensure_scan_offset_columns(engine)
     session = Session(engine)
     try:
         prepared_flags, backend = load_flags_into_temp_table(
             session,
-            parquet_path,
+            normalized_parquet_path,
             args.threshold,
             args.chunk_size,
         )
         print(f"Prepared {prepared_flags} filename flags using {backend}")
 
         matched_scans, unmatched_filenames, updated_pages = apply_blank_flags(session)
-        updated_scans = apply_inventory_text_offsets(session, parquet_path)
+        updated_norm_scans = apply_inventory_text_offsets(
+            session,
+            normalized_parquet_path,
+            text_column_candidates=["normalized_text", "text"],
+            start_col="inventory_text_start_offset",
+            end_col="inventory_text_end_offset",
+        )
+        updated_htr_scans = apply_inventory_text_offsets(
+            session,
+            htr_parquet_path,
+            text_column_candidates=["transcription_text", "htr_text", "text"],
+            start_col="inventory_htr_text_start_offset",
+            end_col="inventory_htr_text_end_offset",
+        )
         session.commit()
     except Exception as exc:
         session.rollback()
-        print(f"Failed to import blank flags: {exc}")
+        print(f"Failed to import blank flags and offsets: {exc}")
         return 1
     finally:
         session.close()
@@ -400,7 +479,8 @@ def main() -> int:
     print(f"Matched scans: {matched_scans}")
     print(f"Unmatched filenames: {unmatched_filenames}")
     print(f"Updated pages: {updated_pages}")
-    print(f"Updated scans with inventory text offsets: {updated_scans}")
+    print(f"Updated scans with normalized text offsets: {updated_norm_scans}")
+    print(f"Updated scans with HTR text offsets: {updated_htr_scans}")
 
     return 0
 

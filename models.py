@@ -477,6 +477,8 @@ class Scan(Base):
 
     inventory_text_start_offset: Mapped[Optional[int]] = mapped_column(Integer)
     inventory_text_end_offset: Mapped[Optional[int]] = mapped_column(Integer)
+    inventory_htr_text_start_offset: Mapped[Optional[int]] = mapped_column(Integer)
+    inventory_htr_text_end_offset: Mapped[Optional[int]] = mapped_column(Integer)
 
     languages: Mapped[Optional[str]] = mapped_column(
         Text,
