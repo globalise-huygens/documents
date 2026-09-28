@@ -217,3 +217,11 @@ data/*.json
 # ignore database
 *.db
 objects/inventory/
+
+# Mac OS
+.DS_Store
+.localized
+__MACOSX/
+.AppleDouble
+.LSOverride
+Icon[]
