@@ -329,7 +329,10 @@ Finds, for every inventory, the best-scoring sequence of documents given all pre
 uv run python -m segmentation evaluate --cache /tmp/items.pkl   # cross-validated evaluation
 uv run python -m segmentation fit --cache /tmp/items.pkl        # fit on all ground truth → segmentation/model.json
 uv run python -m segmentation run 1120 1557 --out segments.csv   # segment inventories (add --no-toc to ignore the ToC)
+uv run python -m segmentation import segments.csv [--dry-run]    # store them as method "Segmentation model"
 ```
+
+`import` creates one document per segment (non-document runs are skipped): ToC documents take their title, dates and page range from the ToC entry and share its OBP_INDEX id, subdocuments get `part_of_id`, and all pages of the segment's scans are linked (source `SEGMENTATION_MODEL`, confidence `CANDIDATE`). Re-importing an inventory replaces its earlier "Segmentation model" documents. The results show up in the app like any other method, e.g. in the timeline on the inventory page.
 
 How it works:
 
