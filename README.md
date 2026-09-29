@@ -321,6 +321,29 @@ Combines three ToC sources (see `toc_sources.py`): the OBP CSV (its `ID` is the 
 - `toc_folio_start_side` / `toc_folio_end_side` – `Recto`/`Verso` when the index page range specifies it (e.g. `14v-16`)
 - `nt_index` – the entry's ID in NT_gecorrigeerd
 
+## Document Segmentation (`segmentation/`)
+
+Finds, for every inventory, the best-scoring sequence of documents given all predictors and the ToC (when there is one).
+
+```bash
+uv run python -m segmentation evaluate --cache /tmp/items.pkl   # cross-validated evaluation
+uv run python -m segmentation fit --cache /tmp/items.pkl        # fit on all ground truth → segmentation/model.json
+uv run python -m segmentation run 1120 1557 --out segments.csv   # segment inventories (add --no-toc to ignore the ToC)
+```
+
+How it works:
+
+1. **Predictors** (`predictors.py`) turn each scan into features: blank pages, text length, position in the inventory, signature marks (collation / signed / quire letter), page/folio numbers (cleaned, with numbering restarts = sections), page numbers the ToC mentions (an entry starts, ends, or one ends and the next starts on this number), running-header wording and header dates (`header_dates.py`, compared noise-aware), language changes, marginalia. A Double scan (two pages) is one unit; its pages share their metadata.
+2. **Scan models** (`model.py`): logistic regressions, using each scan's features and its neighbours', give per-scan log-odds that a document *starts* on the scan, that one *ends* on it, that a start is on the *same scan* where the previous document ends, and that the scan is a *non-document* page (cover, blank, table of contents, title page, …). Weights are fitted on the validated inventories; a length prior (empirical document lengths) completes the model.
+3. **ToC alignment** (`segmenter.py`): the ToC entries (in `toc_order`) are placed on start scans by a monotone dynamic program. Candidate positions come from exact page/folio matches or interpolation within a numbering run; the number-to-scan rate (pagination vs foliation, single vs double scans) is estimated from the observed numbers. The score adds the start log-odds, header-date agreement and the fit between the span implied by the numbers and the actual gap; entries can stay unplaced at a cost.
+4. **Segmentation**: a second dynamic program over all scans, with the placed ToC starts forced, decides every document's start and end and the type of every boundary: the next document starts on the *same scan* (letters copied one after another), on the *next scan*, or after a *gap* of non-document scans. Documents are labelled `toc`, `subdoc` (within the page range of the preceding ToC entry, e.g. enclosures or appendices) or `unindexed`; gaps are reported as `non-document`. Title pages are outside documents (as in the ToC and the validated inventories), whether they precede a document or follow it.
+
+The output of `run` has one row per segment: kind, boundary type, first / last scan, ToC id and title, parent ToC id, and the start/end log-odds.
+
+New predictors (e.g. the text-embedding first/last-page model) are added as a `Predictor` subclass; per-scan probabilities in a CSV/parquet file (`filename, p_first, p_last`) can be plugged in without code via `SEGMENTATION_EXTERNAL_SCORES=path`. Refit the model afterwards.
+
+Ground truth: the validated inventories are read from `data/<inv> - Document Segmentation.csv` (`ground_truth.py`: documents, subdocuments, same-scan boundaries and non-document page types; step 15's import mis-reads same-scan rows such as `END/START` with `id1/id2`, e.g. in 1388). The General Missives (from the database) are used for evaluation only: starts and missive interiors, since a missive's ToC entry may include appendices. Where their annotation starts on the missive's title page (55 of 924: a short scan, usually followed by a blank verso), the start is moved to the text. The model is fitted on the validated inventories only.
+
 ### Verify Database
 
 After running the import scripts, you should have a populated `globalise_documents.db` file.
