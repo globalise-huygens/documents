@@ -21,6 +21,7 @@ Re-importing an inventory first deletes that method's documents there.
 import datetime
 import json
 import logging
+import time
 import uuid
 from collections import defaultdict
 
@@ -112,8 +113,9 @@ def _toc_entries(conn, inv_id: str) -> tuple[pd.DataFrame, dict[int, list[str]]]
 
 
 def import_segments(csv_path: str, database_url: str, dry_run: bool = False):
-    seg = pd.read_csv(csv_path, dtype={"inventory": str, "toc_csv_ids": str})
+    seg = pd.read_csv(csv_path, dtype={"inventory": str, "toc_csv_ids": str}, low_memory=False)
     seg = seg[seg["kind"] != "non-document"]
+    t0, n_inv = time.time(), seg["inventory"].nunique()
     engine = create_engine(database_url)
     if not dry_run:
         Base.metadata.create_all(engine)  # document_evidence
@@ -199,8 +201,10 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False):
             totals["subdocuments"] += sum(1 for d in docs if d["part_of_id"])
             totals["page links"] += len(links)
             totals["index id links"] += len(ext_links)
-            logger.info("%s: %d documents (%d ToC, %d part of another), %d page links, %d index id links",
-                        inv_number, len(docs), len(doc_by_csv), sum(1 for d in docs if d["part_of_id"]), len(links), len(ext_links))
+            totals["inventories"] += 1
+            logger.info("%d/%d %s: %d documents (%d ToC, %d part of another), %d page links, %d index id links (%.0fs)",
+                        totals["inventories"], n_inv, inv_number, len(docs), len(doc_by_csv), sum(1 for d in docs if d["part_of_id"]),
+                        len(links), len(ext_links), time.time() - t0)
             if dry_run:
                 continue
             cols = list(docs[0].keys())
@@ -214,6 +218,7 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False):
                                      "VALUES (:id, :page_id, :document_id, :index, :source, :confidence)"), links)
             if ev_rows:
                 session.execute(text("INSERT INTO document_evidence (document_id, evidence) VALUES (:document_id, :evidence)"), ev_rows)
+            session.commit()  # per inventory: a large import can be interrupted and rerun
         if dry_run:
             session.rollback()
             logger.info("Dry run — nothing written. Would create %s", dict(totals))

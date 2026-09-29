@@ -5,8 +5,9 @@ Command line for the segmentation metric.
       cross-validated evaluation on the validated and General Missives inventories
   uv run python -m segmentation fit [--out segmentation/model.json]
       fit the model on all ground truth and save it
-  uv run python -m segmentation run 1120 1557 [--model FILE] [--out segments.csv] [--no-toc]
-      segment inventories and write one row per segment
+  uv run python -m segmentation run [1120 1557 ...] [--model FILE] [--out segments.csv] [--no-toc] [--resume]
+      segment inventories (all when none are given) and write one row per segment;
+      --resume continues an interrupted run, skipping inventories already in --out
   uv run python -m segmentation split-texts [data/normalized_texts.parquet]
       split the full-text dump into one file per inventory (data/texts/; one-time)
   SEGMENTATION_PAGEXML_DIR=/Volumes/HDE0090 uv run python -m segmentation cache-layout [inv ...]
@@ -75,10 +76,11 @@ def main():
     ft.add_argument("--out", default=DEFAULT_MODEL_PATH)
     ft.add_argument("--cache", default=None)
     rn = sub.add_parser("run")
-    rn.add_argument("inventories", nargs="+")
+    rn.add_argument("inventories", nargs="*", help="inventory numbers (default: all)")
     rn.add_argument("--model", default=DEFAULT_MODEL_PATH)
     rn.add_argument("--out", default=None)
     rn.add_argument("--no-toc", action="store_true")
+    rn.add_argument("--resume", action="store_true", help="skip inventories already in --out")
     st = sub.add_parser("split-texts")
     st.add_argument("source", nargs="?", default="data/normalized_texts.parquet")
     cl = sub.add_parser("cache-layout")
@@ -130,29 +132,50 @@ def main():
 
         import_segments(args.csv, DATABASE_URL, dry_run=args.dry_run)
     else:
-        model = SegmentationModel.load(args.model)
-        conn = connect()
-        rows = []
-        for n in args.inventories:
-            try:
-                inv = load_inventory(conn, n)
-            except KeyError:
-                logger.warning("%s: inventory not found in the database; skipped", n)
-                continue
-            try:
-                res = segment_inventory(inv, model, use_toc=not args.no_toc)
-            except Exception:
-                logger.exception("%s: segmentation failed; skipped", n)
-                continue
-            rows += result_rows(inv, res, model)
-            kinds = pd.Series([s.kind for s in res.segments]).value_counts().to_dict()
-            logger.info("%s: %d scans, %d ToC entries placed of %d, segments %s", n, inv.n, len(res.placements), len(inv.toc), kinds)
-        df = pd.DataFrame(rows)
+        run(args)
+
+
+def run(args):
+    """Segment inventories; with --out, append each inventory's rows to the CSV as it is done."""
+    model = SegmentationModel.load(args.model)
+    conn = connect()
+    numbers = args.inventories or [r[0] for r in conn.execute("SELECT inventory_number FROM inventory ORDER BY inventory_number")]
+    done = set()
+    if args.out and args.resume and os.path.exists(args.out):
+        done = set(pd.read_csv(args.out, usecols=["inventory"], dtype=str)["inventory"])
+        logger.info("Resuming: %d inventories already in %s", len(done), args.out)
+    elif args.out and os.path.exists(args.out):
+        os.remove(args.out)
+    todo = [n for n in numbers if n not in done]
+    scan_counts = dict(conn.execute("SELECT i.inventory_number, count(*) FROM scan s JOIN inventory i ON i.id = s.inventory_id GROUP BY 1").fetchall())
+    total_scans = sum(scan_counts.get(n, 0) for n in todo)
+    printed, t0, scans_done, n_segments = [], time.time(), 0, 0
+    for k, n in enumerate(todo, 1):
+        try:
+            inv = load_inventory(conn, n)
+        except KeyError:
+            logger.warning("%s: inventory not found in the database; skipped", n)
+            continue
+        try:
+            res = segment_inventory(inv, model, use_toc=not args.no_toc)
+            rows = result_rows(inv, res, model)
+        except Exception:
+            logger.exception("%s: segmentation failed; skipped", n)
+            continue
+        scans_done += inv.n
+        n_segments += len(rows)
         if args.out:
-            df.to_csv(args.out, index=False)
-            logger.info("Wrote %d segments to %s", len(df), args.out)
+            pd.DataFrame(rows).to_csv(args.out, mode="a", header=not os.path.exists(args.out), index=False)
         else:
-            print(df.to_string(max_colwidth=50))
+            printed += rows
+        kinds = pd.Series([s.kind for s in res.segments]).value_counts().to_dict()
+        eta = (time.time() - t0) / max(scans_done, 1) * (total_scans - scans_done) / 60
+        logger.info("%d/%d %s: %d scans, %d ToC entries placed of %d, segments %s (about %.0f min to go)",
+                    k, len(todo), n, inv.n, len(res.placements), len(inv.toc), kinds, eta)
+    if args.out:
+        logger.info("Wrote %d segments to %s", n_segments, args.out)
+    else:
+        print(pd.DataFrame(printed).to_string(max_colwidth=50))
 
 
 if __name__ == "__main__":
