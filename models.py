@@ -217,6 +217,11 @@ class SettlementLabel(Base):
         return self.label
 
 
+class RectoVerso(str, enum.Enum):
+    RECTO = "Recto"
+    VERSO = "Verso"
+
+
 class Document(Base):
     __tablename__ = "document"
 
@@ -252,6 +257,43 @@ class Document(Base):
     )
     method_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("document_identification_method.id"), index=True
+    )
+    toc_katern: Mapped[Optional[str]] = mapped_column(
+        Text,
+        comment=(
+            "Katern label in the TANAP index: settlement plus DEEL, e.g. 'Ternate 3'. "
+            "Not necessarily a physical section; see toc_folio_sequence"
+        ),
+    )
+    toc_deel: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        comment="DEEL (part number) of the katern in the TANAP index, if any",
+    )
+    toc_order: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        comment=(
+            "1-based position of the ToC entry within its inventory: physical order "
+            "from OBP NT_gecorrigeerd where available, else OBP index id order"
+        ),
+    )
+    toc_folio_sequence: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        comment=(
+            "1-based number of the foliation sequence (physical section) the entry "
+            "belongs to, derived from folio restarts in toc_order"
+        ),
+    )
+    nt_index: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        comment="ID of the entry in OBP NT_gecorrigeerd.xlsx (first row of the document)",
+    )
+    toc_folio_start_side: Mapped[Optional[RectoVerso]] = mapped_column(
+        SQLEnum(RectoVerso, values_callable=lambda obj: [e.value for e in obj]),
+        comment="Side of the start folio if the TANAP index specifies it (e.g. '14v')",
+    )
+    toc_folio_end_side: Mapped[Optional[RectoVerso]] = mapped_column(
+        SQLEnum(RectoVerso, values_callable=lambda obj: [e.value for e in obj]),
+        comment="Side of the end folio if the TANAP index specifies it (e.g. '16r')",
     )
 
     # Relationships
@@ -511,11 +553,6 @@ class Scan(Base):
 
     def __str__(self):
         return self.filename
-
-
-class RectoVerso(str, enum.Enum):
-    RECTO = "Recto"
-    VERSO = "Verso"
 
 
 class LinkConfidence(str, enum.Enum):

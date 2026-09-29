@@ -348,7 +348,7 @@ def prepare_timeline_data(db_session, inventory_id):
                             if doc.title
                             else f"Document ({len(page_indices)} pages)"
                         ),
-                        "title": f"{doc.method.name}: {doc.title if doc.title else 'Untitled'}<br>Pages: {start_idx+1}-{end_idx+1}",
+                        "title": f"{doc.method.name}: {doc.title if doc.title else 'Untitled'}<br>Pages: {start_idx + 1}-{end_idx + 1}",
                     }
                 )
 
@@ -1050,4 +1050,4 @@ def date_range_filter(doc):
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    app.run(debug=True, host="0.0.0.0", port=5001)

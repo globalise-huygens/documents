@@ -206,6 +206,14 @@ This script:
 - Creates a "TANAP Digitized Index" document identification method
 - Depends on steps 1–6 (requires inventories, document types, and settlements in the database)
 
+### Step 7.5: Fix OBP Inventory Numbers
+
+```bash
+uv run python 7.5_fix_obp_inventories.py [--dry-run]
+```
+
+The OBP CSV stores inventory numbers as integers, so documents of suffixed inventories (9014A, 1430A, …) end up under the base number: step 7 either skips them (base number not in the database) or puts them in the wrong inventory (e.g. 1430 instead of 1430A). This script uses the corrected inventory numbers in `data/OBP NT_gecorrigeerd.xlsx` to create the missing documents and move the misplaced ones (dropping their page links to pages of the old inventory). Page links for these documents are not recomputed.
+
 ### Step 8: Add General Missives documents
 
 ```bash
@@ -295,6 +303,23 @@ This script:
 - Looks at pages linked to each baseline document in sequential order (`page2document.index`)
 - Assigns the first non-empty `page.header` as the document title
 - By default, only fills missing titles (does not overwrite existing non-empty titles)
+
+### Step 18: Import ToC Structure
+
+```bash
+uv run python 18_import_toc_sections.py
+# inspect matching without writing:
+uv run python 18_import_toc_sections.py --dry-run
+```
+
+Combines three ToC sources (see `toc_sources.py`): the OBP CSV (its `ID` is the leading identifier, stored as `OBP_INDEX`), `data/TANAP VOC OBP Nationaal Archief.xlsx` and `data/OBP NT_gecorrigeerd.xlsx`. NT_gecorrigeerd lists the TANAP index in the physical order of the volumes but has its own numbering; its entries are matched to CSV ids by inventory, description and start folio (99.97% matched). For every document linked to an `OBP_INDEX` id it sets:
+
+- `toc_order` – position within the inventory: NT order where available, else CSV id order (e.g. typoscript inventories)
+- `toc_folio_sequence` – foliation sequence (physical section), numbered from folio restarts in `toc_order`
+- `toc_katern` – katern label (settlement + DEEL, e.g. `Ternate 3`); not necessarily a physical section
+- `toc_deel` – the CSV's `SECTION` (= DEEL)
+- `toc_folio_start_side` / `toc_folio_end_side` – `Recto`/`Verso` when the index page range specifies it (e.g. `14v-16`)
+- `nt_index` – the entry's ID in NT_gecorrigeerd
 
 ### Verify Database
 

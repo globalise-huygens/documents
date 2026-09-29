@@ -288,6 +288,113 @@ def bulk_insert(session: Session, table, rows: list[dict], label: str) -> int:
     return inserted
 
 
+def new_accumulator() -> dict:
+    """Containers that build_document_rows() appends to."""
+    return {
+        "doc_rows": [],
+        "doc_type_rows": [],
+        "ext_id_rows": [],
+        "doc_ext_id_rows": [],
+        "unknown_type_ids": set(),
+        "unmatched_settlements": set(),
+        "matched_settlement_count": 0,
+    }
+
+
+def build_document_rows(
+    row,
+    inv_id: str,
+    method_id: str,
+    known_type_ids: set[str],
+    settlement_labels: dict[str, str],
+    acc: dict,
+) -> str:
+    """
+    Append the document, document-type and external-ID rows for one CSV row
+    to *acc* and return the new document id.
+    """
+    # ── Settlement lookup ──────────────────────────────────────────────
+    settlement_id: Optional[str] = None
+    raw_settlement = row.get("SETTLEMENT")
+    if raw_settlement is not None and not (
+        isinstance(raw_settlement, float) and pd.isna(raw_settlement)
+    ):
+        settlement_label = str(raw_settlement).strip()
+        settlement_id = settlement_labels.get(settlement_label.lower())
+        if settlement_id:
+            acc["matched_settlement_count"] += 1
+        else:
+            acc["unmatched_settlements"].add(settlement_label)
+
+    doc_id = str(uuid.uuid4())
+
+    acc["doc_rows"].append(
+        {
+            "id": doc_id,
+            "inventory_id": inv_id,
+            "title": row.get("DESCRIPTION"),
+            "date_earliest_begin": parse_date(row.get("begin_of_begin")),
+            "date_latest_begin": parse_date(row.get("end_of_begin")),
+            "date_earliest_end": parse_date(row.get("begin_of_end")),
+            "date_latest_end": parse_date(row.get("end_of_end")),
+            "date_text": None,
+            "part_of_id": None,
+            "location_id": settlement_id,  # NULL when not found in settlement_label
+            "folio_start": int_field(
+                row.get("FOLIONUMBER (START OF DOCUMENT)")
+            ),
+            "folio_end": int_field(row.get("FOLIONUMBER (END OF DOCUMENT)")),
+            "method_id": method_id,
+        }
+    )
+
+    # Document types — collect UUIDs from both URI columns, deduplicate per doc
+    type_uuids_for_doc: set[str] = set()
+    for col in ("DOCUMENT TYPE URI (TANAP)", "DOCUMENT TYPE URI (GLOBALISE)"):
+        for type_uuid in parse_type_uris(row.get(col)):
+            if type_uuid not in known_type_ids:
+                acc["unknown_type_ids"].add(type_uuid)
+                continue
+            type_uuids_for_doc.add(type_uuid)
+
+    for type_uuid in type_uuids_for_doc:
+        acc["doc_type_rows"].append(
+            {
+                "id": str(uuid.uuid4()),
+                "document_id": doc_id,
+                "document_type_id": type_uuid,
+            }
+        )
+
+    # External IDs — one per non-null identifier column
+    for context, raw_value in (
+        ("OBP_INDEX", row.get("ID")),
+        ("TANAP", row.get("ID (TANAP)")),
+        ("DIGITIZED TYPOSCRIPTS", row.get("ID (DIGITIZED TYPOSCRIPTS)")),
+    ):
+        identifier = int_or_none(raw_value)
+        if identifier is None:
+            continue
+        ext_id = str(uuid.uuid4())
+        acc["ext_id_rows"].append(
+            {
+                "id": ext_id,
+                "identifier": identifier,
+                "context": context,
+                "URL": None,
+            }
+        )
+        acc["doc_ext_id_rows"].append(
+            {
+                "id": str(uuid.uuid4()),
+                "document_id": doc_id,
+                "external_id": ext_id,
+            }
+        )
+
+    return doc_id
+
+
 def main():
     csv_path, df = load_csv()
     print(f"Source : {os.path.basename(csv_path)}")
@@ -324,14 +431,7 @@ def main():
             )
 
         missing_inventories: set[str] = set()
-        unknown_type_ids: set[str] = set()
-        unmatched_settlements: set[str] = set()
-        matched_settlement_count = 0
-
-        doc_rows: list[dict] = []
-        doc_type_rows: list[dict] = []
-        ext_id_rows: list[dict] = []
-        doc_ext_id_rows: list[dict] = []
+        acc = new_accumulator()
 
         for _, row in df.iterrows():
             # Skip rows where the document type is a placeholder value
@@ -347,84 +447,17 @@ def main():
                 missing_inventories.add(inv_number)
                 continue
 
-            # ── Settlement lookup ──────────────────────────────────────────────
-            settlement_id: Optional[str] = None
-            raw_settlement = row.get("SETTLEMENT")
-            if raw_settlement is not None and not (
-                isinstance(raw_settlement, float) and pd.isna(raw_settlement)
-            ):
-                settlement_label = str(raw_settlement).strip()
-                settlement_id = settlement_labels.get(settlement_label.lower())
-                if settlement_id:
-                    matched_settlement_count += 1
-                else:
-                    unmatched_settlements.add(settlement_label)
-
-            doc_id = str(uuid.uuid4())
-
-            doc_rows.append(
-                {
-                    "id": doc_id,
-                    "inventory_id": inv_id,
-                    "title": row.get("DESCRIPTION"),
-                    "date_earliest_begin": parse_date(row.get("begin_of_begin")),
-                    "date_latest_begin": parse_date(row.get("end_of_begin")),
-                    "date_earliest_end": parse_date(row.get("begin_of_end")),
-                    "date_latest_end": parse_date(row.get("end_of_end")),
-                    "date_text": None,
-                    "part_of_id": None,
-                    "location_id": settlement_id,  # NULL when not found in settlement_label
-                    "folio_start": int_field(
-                        row.get("FOLIONUMBER (START OF DOCUMENT)")
-                    ),
-                    "folio_end": int_field(row.get("FOLIONUMBER (END OF DOCUMENT)")),
-                    "method_id": method_id,
-                }
+            build_document_rows(
+                row, inv_id, method_id, known_type_ids, settlement_labels, acc
             )
 
-            # Document types — collect UUIDs from both URI columns, deduplicate per doc
-            type_uuids_for_doc: set[str] = set()
-            for col in ("DOCUMENT TYPE URI (TANAP)", "DOCUMENT TYPE URI (GLOBALISE)"):
-                for type_uuid in parse_type_uris(row.get(col)):
-                    if type_uuid not in known_type_ids:
-                        unknown_type_ids.add(type_uuid)
-                        continue
-                    type_uuids_for_doc.add(type_uuid)
-
-            for type_uuid in type_uuids_for_doc:
-                doc_type_rows.append(
-                    {
-                        "id": str(uuid.uuid4()),
-                        "document_id": doc_id,
-                        "document_type_id": type_uuid,
-                    }
-                )
-
-            # External IDs — one per non-null identifier column
-            for context, raw_value in (
-                ("OBP_INDEX", row.get("ID")),
-                ("TANAP", row.get("ID (TANAP)")),
-                ("DIGITIZED TYPOSCRIPTS", row.get("ID (DIGITIZED TYPOSCRIPTS)")),
-            ):
-                identifier = int_or_none(raw_value)
-                if identifier is None:
-                    continue
-                ext_id = str(uuid.uuid4())
-                ext_id_rows.append(
-                    {
-                        "id": ext_id,
-                        "identifier": identifier,
-                        "context": context,
-                        "URL": None,
-                    }
-                )
-                doc_ext_id_rows.append(
-                    {
-                        "id": str(uuid.uuid4()),
-                        "document_id": doc_id,
-                        "external_id": ext_id,
-                    }
-                )
+        doc_rows = acc["doc_rows"]
+        doc_type_rows = acc["doc_type_rows"]
+        ext_id_rows = acc["ext_id_rows"]
+        doc_ext_id_rows = acc["doc_ext_id_rows"]
+        unknown_type_ids = acc["unknown_type_ids"]
+        unmatched_settlements = acc["unmatched_settlements"]
+        matched_settlement_count = acc["matched_settlement_count"]
 
         # ── Warnings ──────────────────────────────────────────────────────────
         if missing_inventories:
