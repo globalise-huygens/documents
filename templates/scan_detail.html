@@ -52,6 +52,43 @@ Documents{% endblock %} {% block content %}
   </div>
 </div>
 
+{% if evidence %}
+<div class="card">
+  <h2>What the segmentation model read on this scan</h2>
+  <div class="info-row"><strong>Text:</strong><span>{{ evidence.text_len }} characters{% if evidence.blank %} <span class="badge badge-warning">Blank</span>{% endif %}</span></div>
+  <div class="info-row"><strong>Page numbers:</strong><span>read: {{ evidence.numbers_read or '–' }}; used: {{ '%d' | format(evidence.number) if evidence.number is not none else '–' }} (numbering sequence {{ evidence.numbering_run }}{% if evidence.number_restart %}, <b>restarts here</b>{% endif %})</span></div>
+  <div class="info-row"><strong>Running header:</strong><span>{{ evidence.header or '(none)' }}</span></div>
+  <div class="info-row"><strong>Header date:</strong><span>{% if evidence.header_date %}{{ evidence.header_date }} <small class="text-muted">({{ evidence.header_date_precision }})</small>{% else %}–{% endif %}</span></div>
+  <div class="info-row"><strong>Header vs previous headers:</strong><span>
+    wording {{ '%.0f' | format((1 - evidence.header_change_vs_previous) * 100) }}% similar{% if evidence.header_date_vs_previous %}; date {{ evidence.header_date_vs_previous }}{% endif %}
+  </span></div>
+  <div class="info-row"><strong>Next header vs last header before:</strong><span>
+    wording {{ '%.0f' | format((1 - evidence.header_change_across) * 100) }}% similar{% if evidence.header_date_across %}; date {{ evidence.header_date_across }}{% endif %}
+    <small class="text-muted">(headers often start on a document's second page)</small>
+  </span></div>
+  <div class="info-row"><strong>Signature mark:</strong><span>{{ evidence.signature or '(none)' }}{% if evidence.signature_kind %} ({{ evidence.signature_kind }}){% endif %}</span></div>
+  <div class="info-row"><strong>Languages:</strong><span>{{ evidence.languages or '–' }}</span></div>
+  <div class="info-row"><strong>Text begins:</strong><span><i>{{ evidence.text_start or '(no text)' }}</i></span></div>
+  {% if evidence.text_end %}<div class="info-row"><strong>Text ends:</strong><span><i>…{{ evidence.text_end }}</i></span></div>{% endif %}
+  <div class="info-row"><strong>Formulas found:</strong><span>{{ evidence.formulas or '–' }}</span></div>
+  <div class="info-row"><strong>Best ToC match:</strong><span>{{ evidence.best_toc_match or '–' }}</span></div>
+  <table>
+    <thead><tr><th>Model</th><th>Probability</th><th>Main reasons</th></tr></thead>
+    <tbody>
+      {% for key, name, reasons in [('p_start', 'A document starts here', evidence.why_start), ('p_end', 'A document ends here', evidence.why_end), ('p_same_scan', 'If one starts here: on the last page of the previous one', evidence.why_shared), ('p_nondoc', 'Not part of any document', evidence.why_nondoc)] %}
+      <tr>
+        <td>{{ name }}</td>
+        <td>{{ '%.0f' | format(evidence[key] * 100) }}%</td>
+        <td>{% for label, c in reasons %}<span class="badge {{ 'badge-success' if c > 0 else 'badge-warning' }}">{{ label }} {{ '%+.1f' | format(c) }}</span> {% endfor %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p><small class="text-muted">Computed with the current model (segmentation/model.json). Reasons: log-odds contributions relative to a typical scan.
+  <a href="{{ base_url }}/inventory/{{ scan.inventory.inventory_number }}/evidence#{{ scan.filename }}">Scan-by-scan evidence for this inventory</a></small></p>
+</div>
+{% endif %}
+
 <div class="card">
   <h2>Image Preview</h2>
   <div style="text-align: center">

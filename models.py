@@ -624,6 +624,15 @@ class Page(Base):
         return f"Page {self.id}"
 
 
+class DocumentEvidence(Base):
+    """How the segmentation model arrived at a document (JSON), stored at import."""
+
+    __tablename__ = "document_evidence"
+
+    document_id: Mapped[str] = mapped_column(String(128), ForeignKey("document.id"), primary_key=True)
+    evidence: Mapped[str] = mapped_column(Text)
+
+
 class Page2Document(Base):
     __tablename__ = "page2document"
 

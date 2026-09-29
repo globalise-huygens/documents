@@ -56,6 +56,8 @@ class InventoryData:
     scans: pd.DataFrame  # one row per scan, index = position
     toc: pd.DataFrame  # one row per ToC entry, sorted by toc_order (NULL last)
     features: pd.DataFrame = field(default=None)  # filled by predictors
+    texts: pd.Series = field(default=None)  # full text per scan (texts.load_texts), loaded on demand
+    toc_text_sim: object = field(default=None)  # ToC entries × scans text similarity, filled by predictors
 
     @property
     def n(self) -> int:
@@ -117,6 +119,9 @@ def load_inventory(conn: sqlite3.Connection, inventory_number: str) -> Inventory
         params=(TANAP_METHOD, inv_id),
     )
     toc = toc.drop_duplicates("doc_id")
+    # an all-NULL column comes back as object/None; keep these numeric (NaN)
+    for c in ("csv_id", "folio_start", "folio_end", "toc_order", "folio_sequence"):
+        toc[c] = pd.to_numeric(toc[c], errors="coerce")
     for c in ("date_begin", "date_end"):
         toc[c] = pd.to_datetime(toc[c], errors="coerce").dt.date
     toc["end_eff"] = toc["folio_end"].where(toc["folio_end"] >= toc["folio_start"], toc["folio_start"])

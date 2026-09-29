@@ -225,3 +225,7 @@ __MACOSX/
 .AppleDouble
 .LSOverride
 Icon[]
+# full texts (large)
+data/*.parquet
+data/texts/
+data/layout/

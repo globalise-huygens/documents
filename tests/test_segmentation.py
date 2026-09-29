@@ -174,3 +174,36 @@ def test_segment_inventory_labels_segments():
     kinds = {sg.start: sg.kind for sg in res.segments}
     assert kinds[2] == kinds[8] == kinds[16] == "toc"
     assert res.segments[0].kind == "non-document" and res.segments[0].end == 1
+
+
+# ── texts ─────────────────────────────────────────────────────────────────────
+
+from segmentation.predictors import CLOSING_RE, GENRE_RE, SALUTATION_RE
+from segmentation.texts import TextIndex, normalize_tokens
+
+
+def test_formula_patterns():
+    assert GENRE_RE.search("Copia Missive van den gouverneur")
+    assert GENRE_RE.search("Translaet van een Javaanse brief")
+    assert SALUTATION_RE.search("Hoog Edle gestrenge groot agtb: Erntfeste heeren")
+    assert CLOSING_RE.search("(onderstont) U: hoog Edelhed:s nedrige dinaren (was getekent) W=m Bolton")
+    assert CLOSING_RE.search("Accordeert. H„k Geerling")
+    assert not CLOSING_RE.search("den 12 April 1694 is het schip vertrokken")
+
+
+def test_normalize_tokens_absorbs_spelling():
+    assert normalize_tokens("Missiven") == normalize_tokens("missive")
+    assert normalize_tokens("Batavia's") == ["batav"]
+
+
+def test_text_index_prefers_rare_words_and_best_passage():
+    passages = [
+        (0, "Copia missive van den gouverneur aan Batavia"),
+        (1, "Copia missive van den gouverneur uit Palembang over peper"),
+        (2, "rekening van de peper"),
+        (2, "Instructie voor den commandeur naar Palembang"),  # a passage after a closing formula
+    ]
+    idx = TextIndex(passages, 3)
+    s = idx.scores("Missive uit Palembang over peper")
+    assert s.argmax() == 1
+    assert idx.scores("Instructie voor den commandeur").argmax() == 2

@@ -6,13 +6,14 @@ Provides a web interface to browse inventories, documents, scans, and pages.
 from flask import Flask, render_template, request, abort, Response, redirect, url_for
 from flask_cors import CORS
 from datetime import datetime
-from sqlalchemy import create_engine, desc, func, event
+from sqlalchemy import create_engine, desc, func, event, text
 from sqlalchemy.orm import sessionmaker, scoped_session
 from models import (
     Base,
     Inventory,
     Document,
     Document2DocumentType,
+    DocumentEvidence,
     DocumentIdentificationMethod,
     DocumentType,
     Scan,
@@ -33,6 +34,7 @@ from export import (  # type: ignore[import-not-found]
 )
 import json
 import os
+from functools import lru_cache
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -92,6 +94,41 @@ Session = scoped_session(session_factory)
 def shutdown_session(exception=None):
     """Remove database session at the end of the request."""
     Session.remove()
+
+
+SEGMENTATION_METHOD = "Segmentation model"
+
+
+@lru_cache(maxsize=4)
+def _scan_evidence_cached(inventory_number, model_mtime):
+    """Per-scan evidence of the segmentation model (recomputed when model.json changes)."""
+    from segmentation.explain import scan_evidence
+    from segmentation.inventory import connect, load_inventory
+    from segmentation.model import SegmentationModel
+
+    inv = load_inventory(connect(app.config["SQLALCHEMY_DATABASE_URI"]), inventory_number)
+    return scan_evidence(inv, SegmentationModel.load())
+
+
+def scan_evidence_for(inventory_number):
+    """DataFrame of per-scan evidence, or None when there is no fitted model."""
+    from segmentation.model import DEFAULT_MODEL_PATH
+
+    if not os.path.exists(DEFAULT_MODEL_PATH):
+        return None
+    try:
+        return _scan_evidence_cached(inventory_number, os.path.getmtime(DEFAULT_MODEL_PATH))
+    except KeyError:
+        return None
+
+
+def evidence_record(ev, position):
+    """One scan's evidence as template-friendly values."""
+    row = ev.iloc[position].to_dict()
+    for k, v in row.items():
+        if isinstance(v, float) and v != v:  # NaN
+            row[k] = None
+    return row
 
 
 def get_or_404(query):
@@ -311,17 +348,25 @@ def prepare_timeline_data(db_session, inventory_id):
         .all()
     )
 
-    # Build groups (one per identification method)
+    # Build groups: one per identification method, plus a subrow for its
+    # documents that are part of another document (subdocuments)
     methods = {}
+    has_sub = set()
     for doc in documents:
-        if doc.method_id not in methods:
-            methods[doc.method_id] = {
-                "id": doc.method_id,
-                "content": doc.method.name,
-                "order": len(methods),
-            }
-
-    groups = list(methods.values())
+        methods.setdefault(doc.method_id, doc.method.name)
+        if doc.part_of_id:
+            has_sub.add(doc.method_id)
+    groups = []
+    for method_id, name in methods.items():
+        groups.append({"id": method_id, "content": name, "order": len(groups)})
+        if method_id in has_sub:
+            groups.append(
+                {
+                    "id": f"{method_id}:sub",
+                    "content": f"↳ {name}: subdocuments",
+                    "order": len(groups),
+                }
+            )
 
     # Build items (one per document)
     items = []
@@ -336,19 +381,20 @@ def prepare_timeline_data(db_session, inventory_id):
             if page_indices:
                 start_idx = min(page_indices)
                 end_idx = max(page_indices)
+                label = doc.title or (
+                    f"Subdocument ({len(page_indices)} pages)"
+                    if doc.part_of_id
+                    else f"Document ({len(page_indices)} pages)"
+                )
 
                 items.append(
                     {
                         "id": doc.id,
-                        "group": doc.method_id,
+                        "group": f"{doc.method_id}:sub" if doc.part_of_id else doc.method_id,
                         "start": start_idx + 1,  # Shift to 1-based for display
                         "end": end_idx + 2,  # vis.js uses exclusive end, +2 for 1-based
-                        "content": (
-                            doc.title
-                            if doc.title
-                            else f"Document ({len(page_indices)} pages)"
-                        ),
-                        "title": f"{doc.method.name}: {doc.title if doc.title else 'Untitled'}<br>Pages: {start_idx + 1}-{end_idx + 1}",
+                        "content": label,
+                        "title": f"{doc.method.name}: {label}<br>Pages: {start_idx + 1}-{end_idx + 1}",
                     }
                 )
 
@@ -445,6 +491,11 @@ def document_detail(document_id):
         if last_page and last_page.scan:
             last_scan_filename = last_page.scan.filename
 
+    evidence = None
+    row = db_session.query(DocumentEvidence).filter_by(document_id=document_id).first()
+    if row:
+        evidence = json.loads(row.evidence)
+
     return render_template(
         "document_detail.html",
         document=document,
@@ -452,6 +503,7 @@ def document_detail(document_id):
         sub_documents=sub_documents,
         first_scan_filename=first_scan_filename,
         last_scan_filename=last_scan_filename,
+        evidence=evidence,
     )
 
 
@@ -499,7 +551,46 @@ def scan_detail(filename):
     # Get pages for this scan
     pages = db_session.query(Page).filter_by(scan_id=scan.id).all()
 
-    return render_template("scan_detail.html", scan=scan, pages=pages)
+    # What the segmentation model read on this scan and how it scored it
+    evidence = None
+    ev = scan_evidence_for(scan.inventory.inventory_number)
+    if ev is not None:
+        hit = ev.index[ev["filename"] == scan.filename]
+        if len(hit):
+            evidence = evidence_record(ev, int(hit[0]))
+
+    return render_template("scan_detail.html", scan=scan, pages=pages, evidence=evidence)
+
+
+@app.route("/inventory/<inventory_number>/evidence")
+def inventory_evidence(inventory_number):
+    """Scan-by-scan evidence of the segmentation model for one inventory."""
+    db_session = Session()
+    inventory = get_or_404(db_session.query(Inventory).filter_by(inventory_number=inventory_number))
+    ev = scan_evidence_for(inventory_number)
+    if ev is None:
+        abort(404)
+
+    # starts/ends of the imported segmentation-model documents, by scan filename
+    marks = {}
+    rows = db_session.execute(
+        text(
+            "SELECT d.id, d.title, d.part_of_id, MIN(printf('%08d', s.scan_order) || '|' || s.filename), MAX(printf('%08d', s.scan_order) || '|' || s.filename) "
+            "FROM document d JOIN document_identification_method m ON m.id = d.method_id AND m.name = :m "
+            "JOIN page2document p2d ON p2d.document_id = d.id JOIN page p ON p.id = p2d.page_id JOIN scan s ON s.id = p.scan_id "
+            "WHERE d.inventory_id = :i GROUP BY d.id"
+        ),
+        {"m": SEGMENTATION_METHOD, "i": inventory.id},
+    ).all()
+    for doc_id, title, part_of, first, last in rows:
+        kind = "subdocument" if part_of else "document"
+        marks.setdefault(first.split("|", 1)[1], []).append(("start", kind, doc_id, title))
+        marks.setdefault(last.split("|", 1)[1], []).append(("end", kind, doc_id, title))
+
+    records = [evidence_record(ev, i) for i in range(len(ev))]
+    return render_template(
+        "inventory_evidence.html", inventory=inventory, records=records, marks=marks, imported=bool(rows)
+    )
 
 
 @app.route("/pages")

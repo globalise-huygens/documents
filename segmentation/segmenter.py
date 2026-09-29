@@ -7,9 +7,9 @@ Find the best segmentation of one inventory.
    folio numbers (exact matches, or interpolation within a numbering run);
    the score adds the start log-odds, header-date agreement, and the fit
    between the gap to the next entry and the span implied by the numbers.
-   Entries can be left unplaced at a cost. A second pass places entries
-   without a usable start number between their placed neighbours when the
-   scan evidence is strong enough.
+   Entries can be left out of this pass at a cost; a second pass then places
+   every remaining entry between its placed neighbours, in index order, on the
+   best start evidence, so every ToC entry is found.
 3. Fine segmentation: a semi-Markov dynamic program over scans that scores
    document starts, document ends, a length prior, the type of every boundary
    (next document on the same scan / on the next scan / after non-document
@@ -31,7 +31,7 @@ import pandas as pd
 from .header_dates import HeaderDate
 from .inventory import InventoryData
 from .model import AlignParams, SegmentationModel
-from .predictors import ToCNumberPredictor, compute_features
+from .predictors import ToCNumberPredictor, ToCTextPredictor, compute_features
 
 BIG = 1e6
 
@@ -150,18 +150,23 @@ class Placement:
     entry: int  # row in inv.toc
     scan: int
     score: float
-    how: str  # 'exact' | 'interpolated' | 'unnumbered'
+    how: str  # 'exact' | 'interpolated' (page numbers) | 'text' (description matches the text) | 'evidence' | 'forced' (placed between neighbours)
 
 
-def _candidates(entry, numbers: NumberIndex, number: np.ndarray, layout: np.ndarray, s, dterm: np.ndarray, p: AlignParams, n: int):
-    fs = entry.folio_start
-    if fs is None or pd.isna(fs):
-        return []
+def _candidates(entry, numbers: NumberIndex, number: np.ndarray, layout: np.ndarray, s, dterm: np.ndarray, sim: np.ndarray, p: AlignParams, n: int):
     cand: dict[int, tuple[float, str]] = {}
 
     def add(pos, score, how):
         if 0 <= pos < n and (pos not in cand or cand[pos][0] < score):
             cand[pos] = (score, how)
+
+    # scans whose opening words (or title page) match the entry's description
+    for j in np.argsort(-sim)[: p.text_candidates]:
+        if sim[j] >= p.text_min:
+            add(int(j), 0.0, "text")
+    fs = entry.folio_start
+    if fs is None or pd.isna(fs):
+        return _score_candidates(cand, s, dterm, p)
 
     verso = entry.start_side == "Verso"
     for i in np.flatnonzero(number == fs):
@@ -174,9 +179,11 @@ def _candidates(entry, numbers: NumberIndex, number: np.ndarray, layout: np.ndar
     for _, pos in numbers.positions(float(fs)):
         for c in range(int(round(pos)) - p.interp_window, int(round(pos)) + p.interp_window + 1):
             add(c, p.interp_base - p.interp_per_scan * abs(c - pos), "interpolated")
-    scored = [
-        (c, base + p.w_start * s[c] + dterm[c], how) for c, (base, how) in cand.items()
-    ]
+    return _score_candidates(cand, s, dterm, p)
+
+
+def _score_candidates(cand, s, dterm, p: AlignParams):
+    scored = [(c, base + p.w_start * s[c] + dterm[c], how) for c, (base, how) in cand.items()]
     scored.sort(key=lambda t: -t[1])
     return scored[: p.max_candidates]
 
@@ -190,11 +197,13 @@ def align_toc(inv: InventoryData, s: np.ndarray, p: AlignParams) -> list[Placeme
     numbers = NumberIndex(number, f["_run"].to_numpy(), inv.scans["layout"])
     sd = scan_dates(f["_header_date"])
     n = inv.n
-    dterms = [date_terms(e, sd, p) for e in toc.itertuples()]
+    sims = inv.toc_text_sim if inv.toc_text_sim is not None and len(inv.toc_text_sim) == len(toc) else np.zeros((len(toc), n))
+    # extra evidence per entry and scan: header date agreement + description matching the opening words
+    dterms = [date_terms(e, sd, p) + p.text_weight * np.clip(sims[k] - p.text_floor, 0, None) for k, e in enumerate(toc.itertuples())]
     fs_arr = toc["folio_start"].to_numpy(dtype=float)
 
     layout = inv.scans["layout"].to_numpy()
-    cands = [_candidates(e, numbers, number, layout, s, dterms[k], p, n) for k, e in enumerate(toc.itertuples())]
+    cands = [_candidates(e, numbers, number, layout, s, dterms[k], sims[k], p, n) for k, e in enumerate(toc.itertuples())]
     placeable = [k for k in range(len(toc)) if cands[k]]
 
     # DP over (placeable entry, candidate): best[t][c]
@@ -247,37 +256,46 @@ def _length_term(fs0: float, fs1: float, ppos: int, pos: int, numbers: NumberInd
 
 
 def _place_unnumbered(inv, toc, placed: list[Placement], s, dterms, p: AlignParams) -> list[Placement]:
-    """Place remaining entries between their placed neighbours on strong starts."""
+    """
+    Place every entry the number-based alignment left out, between its placed
+    neighbours in index order, on the scans with the best start evidence
+    (start log-odds + header-date agreement). Positions are non-decreasing;
+    sharing a scan with a neighbour is allowed at the same_start penalty (for
+    when there is no room). A placement is 'evidence' when its evidence clears
+    unnumbered_threshold, 'forced' otherwise.
+    """
     placed_rows = {pl.entry for pl in placed}
-    anchors = [(-1, -1)] + sorted((toc.index[toc["index"] == pl.entry][0], pl.scan) for pl in placed) + [(len(toc), inv.n)]
+    row_to_k = {int(r): k for k, r in enumerate(toc["index"])}
+    anchors = [(-1, -1)] + sorted((row_to_k[pl.entry], pl.scan) for pl in placed) + [(len(toc), inv.n)]
     out = []
     for (ka, ca), (kb, cb) in zip(anchors, anchors[1:]):
         todo = [k for k in range(ka + 1, kb) if int(toc.at[k, "index"]) not in placed_rows]
-        lo, hi = ca + 1, cb  # candidate scans lo..hi-1
-        if not todo or hi <= lo:
+        if not todo:
             continue
-        J = hi - lo
-        gain = np.array([p.w_start * s[lo:hi] + dterms[k][lo:hi] - p.unnumbered_threshold for k in todo])
-        # monotone assignment: best[u][j] over the first u entries and scans < lo+j
+        lo, hi = max(ca, 0), min(cb, inv.n - 1)  # inclusive; the ends share a scan with an anchor
+        J = hi - lo + 1
+        pos = np.arange(lo, hi + 1)
+        edge_penalty = np.where((pos == ca) | (pos == cb), p.same_start, 0.0)
+        gain = np.array([p.w_start * s[lo : hi + 1] + dterms[k][lo : hi + 1] + edge_penalty for k in todo])
         U = len(todo)
-        best = np.zeros((U + 1, J + 1))
-        choice = np.zeros((U + 1, J + 1), dtype=int)  # 0 skip entry, 1 skip scan, 2 place
-        best[1:, 0] = 0
-        for u in range(1, U + 1):
-            for j in range(1, J + 1):
-                opts = (best[u - 1][j], best[u][j - 1], best[u - 1][j - 1] + gain[u - 1][j - 1])
-                choice[u][j] = int(np.argmax(opts))
-                best[u][j] = opts[choice[u][j]]
-        u, j = U, J
-        while u > 0 and j > 0:
-            c = choice[u][j]
-            if c == 2:
-                out.append(Placement(int(toc.at[todo[u - 1], "index"]), lo + j - 1, float(gain[u - 1][j - 1] + p.unnumbered_threshold), "unnumbered"))
-                u, j = u - 1, j - 1
-            elif c == 1:
-                j -= 1
-            else:
-                u -= 1
+        best = np.full((U, J), -np.inf)
+        from_same = np.zeros((U, J), dtype=bool)  # True: previous entry on the same scan
+        best[0] = gain[0]
+        for u in range(1, U):
+            prefix = np.maximum.accumulate(best[u - 1])  # best previous position <= j
+            earlier = np.concatenate([[-np.inf], prefix[:-1]])  # previous position < j
+            same = best[u - 1] + p.same_start
+            from_same[u] = same > earlier
+            best[u] = gain[u] + np.maximum(earlier, same)
+        j = int(np.argmax(best[U - 1]))
+        for u in range(U - 1, -1, -1):
+            g = float(gain[u][j])
+            out.append(Placement(int(toc.at[todo[u], "index"]), lo + j, g, "evidence" if g >= p.unnumbered_threshold else "forced"))
+            if u == 0:
+                break
+            if from_same[u][j]:
+                continue
+            j = int(np.argmax(best[u - 1][:j]))
     return out
 
 
@@ -435,10 +453,12 @@ def _entry_spans(inv: InventoryData, placements: list[Placement]) -> list[tuple[
 
 
 def scan_scores(inv: InventoryData, model: SegmentationModel, use_toc: bool = True) -> ScanScores:
+    if inv.features is None:
+        compute_features(inv)
     f = inv.features
     if not use_toc:
         f = f.copy()
-        for c in ToCNumberPredictor.TOC_FEATURES:
+        for c in ToCNumberPredictor.TOC_FEATURES + ToCTextPredictor.TOC_FEATURES:
             if c in f:
                 f[c] = 0
     p_shared = 1 / (1 + np.exp(-model.shared.logit(f)))

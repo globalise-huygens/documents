@@ -176,7 +176,10 @@ def fit_model(train: list[Item], l2: float = 10.0, align: AlignParams | None = N
             y[k].append(lab[k].to_numpy()[m])
         flat = flat_segments(it.truth, it.inv.n)
         lengths.append((flat["end"] - flat["start"] + 1).to_numpy())
-    fitted = {k: Logistic.fit(pd.concat(X[k], ignore_index=True).fillna(0), np.concatenate(y[k]), l2) for k in SHIFTS}
+    fitted = {}
+    for k in SHIFTS:
+        Xk = pd.concat(X[k], ignore_index=True)
+        fitted[k] = Logistic.fit(Xk.fillna(Xk.mean()).fillna(0), np.concatenate(y[k]), l2)
     lengths = np.concatenate(lengths)
     return SegmentationModel(
         start=fitted["start"],

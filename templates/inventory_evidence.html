@@ -1,0 +1,57 @@
+{% extends "base.html" %} {% block title %}Segmentation evidence {{ inventory.inventory_number }} - GLOBALISE Documents{% endblock %} {% block content %}
+<h1>Segmentation evidence: inventory <a href="{{ base_url }}/inventory/{{ inventory.inventory_number }}">{{ inventory.inventory_number }}</a></h1>
+
+<div class="card">
+  <p>
+    One row per scan: what the predictors read and the probabilities the segmentation model gives
+    (current model, <code>segmentation/model.json</code>).
+    {% if imported %}Rows where an imported "Segmentation model" document starts are highlighted.{% else %}No "Segmentation model" documents have been imported for this inventory yet.{% endif %}
+    Hover over a probability for the main reasons.
+  </p>
+  <style>
+    .ev td { font-size: 0.85em; padding: 3px 6px; vertical-align: top; }
+    .ev tr.doc-start td { border-top: 2px solid #2b6cb0; background: #ebf4ff; }
+    .ev tr.sub-start td { border-top: 1px dashed #2b6cb0; }
+    .ev .p { text-align: right; white-space: nowrap; }
+    .ev .hi { font-weight: bold; }
+    .ev .hdr { max-width: 22em; }
+  </style>
+  <table class="ev">
+    <thead>
+      <tr>
+        <th>#</th><th>Scan</th><th>Text</th><th>Page no.<br /><small>read → used</small></th>
+        <th class="hdr">Running header</th><th>Header date</th><th>Date vs prev.</th><th>Date across</th><th>Wording change</th>
+        <th>Signature</th><th class="hdr">Text begins / formulas / ToC match</th><th>P(start)</th><th>P(same scan)</th><th>P(end)</th><th>P(non-doc)</th><th>Imported documents</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in records %}
+      {% set m = marks.get(r.filename, []) %}
+      {% set starts = m | selectattr(0, 'equalto', 'start') | list %}
+      <tr id="{{ r.filename }}" class="{% if starts | selectattr(1, 'equalto', 'document') | list %}doc-start{% elif starts %}sub-start{% endif %}">
+        <td>{{ r.position + 1 }}</td>
+        <td><a href="{{ base_url }}/scan/{{ r.filename }}">{{ r.filename.rsplit('_', 1)[-1] }}</a></td>
+        <td>{% if r.blank %}<span class="badge badge-warning">blank</span>{% else %}{{ r.text_len }}{% endif %}</td>
+        <td>{{ r.numbers_read or '' }}{% if r.number is not none %} → {{ '%d' | format(r.number) }}{% endif %}{% if r.number_restart %} <b>restart</b>{% endif %}</td>
+        <td class="hdr">{{ r.header | truncate(60) }}</td>
+        <td>{{ r.header_date }}{% if r.header_date and r.header_date_precision != 'day' %} <small>({{ r.header_date_precision }})</small>{% endif %}</td>
+        <td>{{ r.header_date_vs_previous }}</td>
+        <td>{{ r.header_date_across }}</td>
+        <td>{% if r.header_change_vs_previous or r.header_change_across %}{{ '%.0f' | format(r.header_change_vs_previous * 100) }}% / {{ '%.0f' | format(r.header_change_across * 100) }}%{% endif %}</td>
+        <td>{{ r.signature | truncate(25) }}{% if r.signature_kind %} <small>({{ r.signature_kind }})</small>{% endif %}</td>
+        <td class="hdr"><i>{{ r.text_start | truncate(70) }}</i>{% if r.formulas %}<br /><small>{{ r.formulas }}</small>{% endif %}{% if r.best_toc_match %}<br /><small>ToC {{ r.best_toc_match | truncate(60) }}</small>{% endif %}</td>
+        {% for key, why in [('p_start', r.why_start), ('p_same_scan', r.why_shared), ('p_end', r.why_end), ('p_nondoc', r.why_nondoc)] %}
+        <td class="p {% if r[key] >= 0.5 %}hi{% endif %}" title="{% for label, c in why %}{{ label }} {{ '%+.1f' | format(c) }}&#10;{% endfor %}">{{ '%.0f' | format(r[key] * 100) }}%</td>
+        {% endfor %}
+        <td>
+          {% for what, kind, doc_id, title in m %}
+          <a href="{{ base_url }}/document/{{ doc_id }}">{{ what }} {{ kind }}</a>{% if what == 'start' and title %}: {{ title | truncate(40) }}{% endif %}<br />
+          {% endfor %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p><small class="text-muted">Wording change: running header vs the previous headers / next header vs the last header before this scan (headers often start on a document's second page). Date across: the same comparison for header dates.</small></p>
+</div>
+{% endblock %}

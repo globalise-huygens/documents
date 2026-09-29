@@ -35,7 +35,7 @@ def shifted(features: pd.DataFrame, name: str) -> np.ndarray | None:
     if not k:
         return col
     k = int(k)
-    out = np.zeros_like(col)
+    out = np.full_like(col, np.nan)  # outside the inventory: missing
     if k > 0:
         out[:-k] = col[k:]
     else:
@@ -57,13 +57,15 @@ def design(features: pd.DataFrame, columns: list[str], shifts: tuple[int, ...]) 
 class Logistic:
     bias: float = 0.0
     weights: dict[str, float] = field(default_factory=dict)
+    means: dict[str, float] = field(default_factory=dict)  # training means, to explain predictions
 
     def logit(self, features: pd.DataFrame) -> np.ndarray:
         out = np.full(len(features), self.bias, dtype=float)
         for name, w in self.weights.items():
             col = shifted(features, name)
             if col is not None:
-                out += w * col
+                # missing values (e.g. no PageXML for this scan) are neutral: the training mean
+                out += w * np.where(np.isnan(col), self.means.get(name, 0.0), col)
         return out
 
     @classmethod
@@ -91,7 +93,7 @@ class Logistic:
                 break
         w = beta[1:] / sd
         b = beta[0] - (w * mu).sum()
-        return cls(float(b), {n: float(v) for n, v in zip(names, w)})
+        return cls(float(b), {n: float(v) for n, v in zip(names, w)}, {n: float(m) for n, m in zip(names, mu)})
 
 
 @dataclass
@@ -144,6 +146,10 @@ class AlignParams:
     max_skip: int = 8  # consecutive unplaced entries considered in one transition
     unnumbered_threshold: float = 0.5  # min score to place an entry without a start number
     max_candidates: int = 12
+    text_weight: float = 8.0  # × (similarity − text_floor) of the ToC description and the scan's opening words
+    text_floor: float = 0.25
+    text_candidates: int = 4  # best text matches added as candidate starts ...
+    text_min: float = 0.4  # ... when their similarity reaches this
 
 
 @dataclass

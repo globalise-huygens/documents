@@ -24,6 +24,7 @@ from rapidfuzz import fuzz
 
 from .header_dates import compare_dates, parse_header_date
 from .inventory import InventoryData
+from .texts import TextIndex, load_texts
 
 
 class Predictor(ABC):
@@ -193,6 +194,7 @@ class HeaderTextPredictor(Predictor):
 
     name = "header_text"
     LOOKBACK = 3
+    AHEAD, BEHIND = 2, 4
 
     def compute(self, inv):
         norm = inv.scans["header"].map(normalize_header)
@@ -208,12 +210,23 @@ class HeaderTextPredictor(Predictor):
                 continue
             sim = max(fuzz.token_set_ratio(norm.iat[i], p) for p in prev) / 100
             change[i] = 1 - sim
+        # Headers are often missing on a document's first page and appear from
+        # the second page on: compare the first header on scans i..i+AHEAD with
+        # the last header on scans i-BEHIND..i-1 ("across" a possible start).
+        across = np.zeros(inv.n)
+        heads = np.flatnonzero(present.to_numpy())
+        for i in range(inv.n):
+            after = heads[(heads >= i) & (heads <= i + self.AHEAD)]
+            before = heads[(heads < i) & (heads >= i - self.BEHIND)]
+            if len(after) and len(before):
+                across[i] = 1 - fuzz.token_set_ratio(norm.iat[after[0]], norm.iat[before[-1]]) / 100
         return pd.DataFrame(
             {
                 "_header_norm": norm,
                 "header_present": present,
                 "header_text_change": change,
                 "header_after_gap": first_after_gap,
+                "header_text_change_across": across,
             }
         )
 
@@ -227,6 +240,7 @@ class HeaderDatePredictor(Predictor):
 
     name = "header_date"
     LOOKBACK = 3
+    AHEAD, BEHIND = 2, 4
 
     def compute(self, inv):
         dates = inv.scans["header"].map(parse_header_date)
@@ -246,9 +260,22 @@ class HeaderDatePredictor(Predictor):
                 uncertain[i] = 1
             else:
                 changed[i] = 1
+        # across a possible start (headers often begin on a document's 2nd page)
+        across_changed = np.zeros(inv.n)
+        across_same = np.zeros(inv.n)
+        dated = np.flatnonzero(dates.notna().to_numpy())
+        for i in range(inv.n):
+            after = dated[(dated >= i) & (dated <= i + self.AHEAD)]
+            before = dated[(dated < i) & (dated >= i - self.BEHIND)]
+            if len(after) and len(before):
+                v = compare_dates(dates.iat[after[0]], dates.iat[before[-1]])
+                across_changed[i] = v == "changed"
+                across_same[i] = v == "same"
         return pd.DataFrame(
             {
                 "_header_date": dates,
+                "header_date_changed_across": across_changed,
+                "header_date_same_across": across_same,
                 "has_header_date": dates.notna().astype(int),
                 "header_date_changed": changed,
                 "header_date_uncertain": uncertain,
@@ -353,6 +380,157 @@ class ToCNumberPredictor(Predictor):
         )
 
 
+# ── full text: opening and closing formulas ───────────────────────────────────
+
+
+def scan_texts(inv: InventoryData) -> pd.Series:
+    if inv.texts is None:
+        inv.texts = load_texts(inv.inventory_number, inv.scans["filename"])
+    return inv.texts
+
+
+GENRE_RE = re.compile(
+    r"\b(cop(ia|ie|y)|extract|transla[ae]?t|register|missive|memorie|instructie|rapport|l[iy]st|notitie|resolutie|"
+    r"contract|rendement|e[iy]j?sch|factura|cognoiss?ement|journa[ae]?l|dagregister|verbaal|attestatie|verklaring|"
+    r"declaratie|request|brief(je)?|acte|obligatie|inventaris|reekening|rekening|staat|opgave|generaal|generale)\b",
+    re.I,
+)
+SALUTATION_RE = re.compile(
+    r"(hoog\s*ed|edele?\s*(groot|gestr|heer)|groot\s*a[cg]h?tb|gestreng|e[ea]rntfest|eerbaere|wel\s*edele|"
+    r"mijn\s*heer|edelheyd|edelhe[iy]j?t|seer\s*genereus|voorsienige|welwijse)",
+    re.I,
+)
+CLOSING_RE = re.compile(
+    r"(acc?[ck]ord|akkord|onderst(o|ae)n[dt]|was\s*get[ey]?[ck]ent|w[ae]s\s*geteek|getekent|geteekend|"
+    r"in\s*margine|dienaren|dienaer|dienaar|ter\s*zijden|ter\s*sijden|verblijven|blijven)",
+    re.I,
+)
+PLACE_DATE_RE = re.compile(r"(casteel|batavia|fort|comptoir|adij|den\s*\d{1,2}\W).{0,60}1[5-8]\d\d", re.I | re.S)
+LEADER_RE = re.compile(r"(\.\s){3,}|\.{4,}|(-\s){3,}|(„\s?){3,}")
+
+
+class TextFormulaPredictor(Predictor):
+    """
+    Opening and closing formulas in the full text of a scan. The top of a page
+    (after the running header) often opens a document with a genre word
+    (Copia, Extract, Register, Missive, ...) or a salutation (Hoog Edele Groot
+    Achtbare ...); its end often closes one (Accordeert, onderstond, was
+    geteekent, dienaren, place and date). A closing formula followed by an
+    opening on the same page marks a boundary within the scan.
+    """
+
+    name = "text_formula"
+    TOP, BOTTOM = 250, 300
+
+    def compute(self, inv):
+        texts = scan_texts(inv)
+        rows = []
+        for t in texts:
+            t = t or ""
+            top, bottom = t[: self.TOP], t[-self.BOTTOM :]
+            close_positions = [m.end() for m in CLOSING_RE.finditer(t)]
+            mid = 0.0
+            if close_positions and len(t) > 400:
+                after = t[close_positions[-1] :]
+                if len(after) > 200 and (GENRE_RE.search(after[:250]) or SALUTATION_RE.search(after[:300])):
+                    mid = 1.0
+            n = max(len(t), 1)
+            rows.append(
+                (
+                    int(bool(GENRE_RE.search(top))),
+                    int(bool(SALUTATION_RE.search(t[:400]))),
+                    int(bool(CLOSING_RE.search(bottom))),
+                    int(bool(PLACE_DATE_RE.search(bottom))),
+                    mid,
+                    len(LEADER_RE.findall(t)) / n * 1000,
+                    sum(c.isdigit() for c in t) / n,
+                    int(t.strip() == ""),
+                )
+            )
+        cols = ["open_genre", "open_salutation", "close_formula", "close_place_date", "close_then_open", "leaders_per_1000", "digit_share", "no_text"]
+        return pd.DataFrame(rows, columns=cols)
+
+
+class ToCTextPredictor(Predictor):
+    """
+    How well a scan's opening words match a ToC description (IDF-weighted
+    word overlap; texts.TextIndex). A short title page right before a scan
+    counts for that scan (title pages are outside documents). A scan matching
+    many entries is probably one of the volume's own table-of-contents pages;
+    its matches are discarded. All zero without a ToC. Also stores the entries
+    × scans similarity for the ToC alignment.
+    """
+
+    name = "toc_text"
+    TOC_FEATURES = ("toc_title_match", "toc_title_match_title_page", "toc_entries_matched")
+    OPENING_CHARS = 400
+    MATCH = 0.5  # similarity counted as a match when counting entries per scan
+    TOC_PAGE_ENTRIES = 3
+
+    def compute(self, inv):
+        n = inv.n
+        zeros = pd.DataFrame({c: np.zeros(n) for c in self.TOC_FEATURES})
+        toc = inv.toc[inv.toc["toc_order"].notna()]
+        texts = scan_texts(inv)
+        if toc.empty or not (texts.str.len() > 0).any():
+            inv.toc_text_sim = np.zeros((len(toc), n))
+            return zeros
+        passages = []
+        for i, t in enumerate(texts):
+            passages.append((i, t[: self.OPENING_CHARS]))
+            for m in CLOSING_RE.finditer(t):  # a next document may start after a closing formula
+                rest = t[m.end() :]
+                if len(rest) > 200:
+                    passages.append((i, rest[: self.OPENING_CHARS]))
+        index = TextIndex(passages, n)
+        sim = np.vstack([index.scores(str(d or "")) for d in toc["title"]])
+        n_matched = (sim >= self.MATCH).sum(axis=0)
+        toc_page = n_matched >= self.TOC_PAGE_ENTRIES
+        sim[:, toc_page] = 0
+        # A short page matching an entry is a title page: before the document
+        # (front title) or on its last page (docket, end title). It is never a
+        # start itself; it counts for the next scan only when that scan opens
+        # a document (genre word or salutation at the top).
+        tokens = texts.map(lambda t: len(t.split())).to_numpy()
+        title_like = (tokens > 0) & (tokens < 60)
+        opens = texts.map(lambda t: bool(GENRE_RE.search(t[:250]) or SALUTATION_RE.search(t[:400]))).to_numpy()
+        blank = inv.scans["is_blank"].to_numpy()
+        title_sim = sim[:, title_like].copy() if title_like.any() else None
+        via_title = np.zeros_like(sim)
+        title_pos = np.flatnonzero(title_like)
+        for m, i in enumerate(title_pos):
+            j = i + 1
+            if j < n and blank[j]:
+                j += 1  # blank verso after the title page
+            if j < n and opens[j] and not title_like[j]:
+                via_title[:, j] = np.maximum(via_title[:, j], title_sim[:, m])
+        sim[:, title_like] = 0
+        inv.toc_text_sim = np.maximum(sim, via_title)
+        return pd.DataFrame(
+            {
+                "toc_title_match": sim.max(axis=0),
+                "toc_title_match_title_page": via_title.max(axis=0),
+                "toc_entries_matched": np.minimum(n_matched, 10),
+            }
+        )
+
+
+# ── page layout (PageXML) ─────────────────────────────────────────────────────
+
+
+class LayoutPredictor(Predictor):
+    """Where text starts and stops on the page, gaps, closing/opening formulas
+    halfway down, centred headings and catch-words (pagexml.py). Zero without
+    PageXML."""
+
+    name = "layout"
+
+    def compute(self, inv):
+        from .pagexml import load_layout
+
+        return load_layout(inv.inventory_number, inv.scans["filename"]).reset_index(drop=True)
+
+
 # ── external per-scan scores (e.g. the text-embedding model) ─────────────────
 
 
@@ -410,6 +588,9 @@ def default_predictors() -> list[Predictor]:
         TextLengthPredictor(),
         PositionPredictor(),
         ToCNumberPredictor(),
+        TextFormulaPredictor(),
+        ToCTextPredictor(),
+        LayoutPredictor(),
     ]
     path = os.environ.get(EXTERNAL_SCORES_ENV)
     if path:

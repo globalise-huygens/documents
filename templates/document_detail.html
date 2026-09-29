@@ -99,6 +99,71 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}
   {% endif %}
 </div>
 
+{% if evidence %}
+<div class="card">
+  <h2>How the segmentation model found this document</h2>
+  <div class="info-row">
+    <strong>Kind:</strong>
+    <span>
+      {{ {'toc': 'ToC document', 'subdoc': 'subdocument', 'unindexed': 'document not in the ToC'}.get(evidence.kind, evidence.kind) }};
+      {{ {'first': 'first document of the inventory', 'shared': 'starts on the last page of the previous document', 'adjacent': 'starts on the scan after the previous document', 'gap': 'non-document pages (cover, blank, title or ToC page) before it'}.get(evidence.boundary, evidence.boundary) }}
+    </span>
+  </div>
+  {% if evidence.toc %}
+  <div class="info-row">
+    <strong>ToC placement:</strong>
+    <span>
+      {{ {'exact': 'page number in the ToC found on the scan', 'interpolated': 'position interpolated from nearby page numbers', 'text': 'the ToC description matches the text', 'evidence': 'placed between its neighbours in the ToC on strong start evidence', 'forced': 'placed between its neighbours in the ToC on weak evidence — check'}.get(evidence.toc.placed_by, evidence.toc.placed_by) }}
+      <small class="text-muted">(score {{ evidence.toc.placement_score }})</small>
+    </span>
+  </div>
+  <div class="info-row">
+    <strong>Page numbers:</strong>
+    <span>
+      ToC {{ evidence.toc.toc_start_number if evidence.toc.toc_start_number is not none else '–' }}{% if evidence.toc.toc_end_number is not none %}–{{ evidence.toc.toc_end_number }}{% endif %};
+      read on the scans around the start: {{ evidence.toc.numbers_around_start | map('default', '–', true) | join(', ') if evidence.toc.numbers_around_start else '–' }}
+    </span>
+  </div>
+  <div class="info-row">
+    <strong>Dates:</strong>
+    <span>ToC {{ evidence.toc.toc_date or '–' }}; header date near the start: {{ evidence.toc.header_date_near_start or '–' }}</span>
+  </div>
+  {% endif %}
+  <table>
+    <thead>
+      <tr><th></th><th>Scan</th><th>Probability</th><th>What the model saw</th><th>Main reasons</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Start</strong></td>
+        <td><a href="{{ base_url }}/scan/{{ evidence.start.filename }}">{{ evidence.start.filename }}</a></td>
+        <td>start {{ '%.0f' | format(evidence.start.p_start * 100) }}%<br /><small>same scan as previous end {{ '%.0f' | format(evidence.start.p_same_scan * 100) }}%</small></td>
+        <td>
+          header: {{ evidence.start.header or '(none)' }}<br />
+          header date: {{ evidence.start.header_date or '–' }}{% if evidence.start.header_date_across %}; date before vs after: {{ evidence.start.header_date_across }}{% endif %}<br />
+          page number: {{ evidence.start.number if evidence.start.number is not none else '–' }}
+          {% if evidence.start.text_start %}<br />text: <i>{{ evidence.start.text_start }}</i>{% endif %}
+          {% if evidence.start.formulas %}<br />formulas: {{ evidence.start.formulas }}{% endif %}
+          {% if evidence.start.best_toc_match %}<br />best ToC match: {{ evidence.start.best_toc_match }}{% endif %}
+        </td>
+        <td>{% for name, c in evidence.start.why_start %}<span class="badge {{ 'badge-success' if c > 0 else 'badge-warning' }}">{{ name }} {{ '%+.1f' | format(c) }}</span> {% endfor %}</td>
+      </tr>
+      <tr>
+        <td><strong>End</strong></td>
+        <td><a href="{{ base_url }}/scan/{{ evidence.end.filename }}">{{ evidence.end.filename }}</a></td>
+        <td>end {{ '%.0f' | format(evidence.end.p_end * 100) }}%</td>
+        <td>signature: {{ evidence.end.signature or '(none)' }}{% if evidence.end.signature_kind %} ({{ evidence.end.signature_kind }}){% endif %}
+          {% if evidence.end.text_end %}<br />text ends: <i>…{{ evidence.end.text_end }}</i>{% endif %}
+          {% if evidence.end.formulas %}<br />formulas: {{ evidence.end.formulas }}{% endif %}</td>
+        <td>{% for name, c in evidence.end.why_end %}<span class="badge {{ 'badge-success' if c > 0 else 'badge-warning' }}">{{ name }} {{ '%+.1f' | format(c) }}</span> {% endfor %}</td>
+      </tr>
+    </tbody>
+  </table>
+  <p><small class="text-muted">Reasons: log-odds contributions relative to a typical scan (green raises, orange lowers the probability).
+  <a href="{{ base_url }}/inventory/{{ document.inventory.inventory_number }}/evidence#{{ evidence.start.filename }}">Scan-by-scan evidence for this inventory</a></small></p>
+</div>
+{% endif %}
+
 {% if document.document_types_linked %}
 <div class="card">
   <h2>Document Types</h2>

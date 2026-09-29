@@ -210,7 +210,8 @@ GLOBALISE Documents{% endblock %}
   <h2>Document Identification Timeline</h2>
   <p>
     This visualization shows how different identification methods detected documents across <b>{{ timeline_data.total_pages - 1 }}</b> sequential pages in this inventory.
-    Each row represents a different identification method, and each bar represents a document.
+    Each row represents a different identification method, and each bar represents a document; documents that are part of another document are shown in the "↳ subdocuments" row below their method.
+    <a href="{{ base_url }}/inventory/{{ inventory.inventory_number }}/evidence">Scan-by-scan evidence of the segmentation model</a>
   </p>
   <div id="timeline-container"></div>
 </div>
@@ -227,6 +228,7 @@ GLOBALISE Documents{% endblock %}
   var options = {
     width: '100%',
     height: '400px',
+    groupOrder: 'order',
     stack: false,
     start: 1,  // Start at page 1
     end: timelineData.total_pages,
