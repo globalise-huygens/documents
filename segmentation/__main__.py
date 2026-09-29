@@ -7,6 +7,9 @@ Command line for the segmentation metric.
       fit the model on all ground truth and save it
   uv run python -m segmentation run 1120 1557 [--model FILE] [--out segments.csv] [--no-toc]
       segment inventories and write one row per segment
+  uv run python -m segmentation import segments.csv [--dry-run]
+      store the segments as documents of the method "Segmentation model"
+      (re-importing an inventory replaces its earlier segmentation documents)
 """
 
 import argparse
@@ -65,6 +68,9 @@ def main():
     rn.add_argument("--model", default=DEFAULT_MODEL_PATH)
     rn.add_argument("--out", default=None)
     rn.add_argument("--no-toc", action="store_true")
+    im = sub.add_parser("import")
+    im.add_argument("csv")
+    im.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
     if args.cmd == "evaluate":
@@ -81,6 +87,11 @@ def main():
         for name, w in sorted(model.start.weights.items(), key=lambda kv: -abs(kv[1])):
             print(f"  start  {name:<26} {w:+.2f}")
         print(f"  start  {'(bias)':<26} {model.start.bias:+.2f}")
+    elif args.cmd == "import":
+        from .db_import import import_segments
+        from .inventory import DATABASE_URL
+
+        import_segments(args.csv, DATABASE_URL, dry_run=args.dry_run)
     else:
         model = SegmentationModel.load(args.model)
         conn = connect()
