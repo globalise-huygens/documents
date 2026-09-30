@@ -3,6 +3,13 @@ Flask web application for inspecting GLOBALISE documents.
 Provides a web interface to browse inventories, documents, scans, and pages.
 """
 
+import os
+
+# pyarrow's default mimalloc pool segfaults when parquet files are read from
+# successive request threads; use the system allocator (must be set before
+# pyarrow is imported)
+os.environ.setdefault("ARROW_DEFAULT_MEMORY_POOL", "system")
+
 from flask import Flask, render_template, request, abort, Response, redirect, url_for
 from flask_cors import CORS
 from datetime import datetime
@@ -33,7 +40,6 @@ from export import (  # type: ignore[import-not-found]
     series_to_jsonld,
 )
 import json
-import os
 from functools import lru_cache
 
 # Initialize Flask app
