@@ -213,7 +213,7 @@ globalise_documents.db
 data/*.csv
 data/*.json
 !data/inventories.json
-segments.csv
+*.csv
 
 # ignore database
 *.db
