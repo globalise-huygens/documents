@@ -137,6 +137,33 @@ def evidence_record(ev, position):
     return row
 
 
+def refresh_document_reasons(evidence, inventory_number):
+    """
+    Replace the stored start/end reasons of a document's evidence with ones
+    computed by the current code, so changes to the explanations show without
+    re-running the segmentation. Only when the current model still gives the
+    stored probabilities: after a refit the live reasons would explain a
+    different model than the one that found the document, so the stored
+    reasons are kept.
+    """
+    ev = scan_evidence_for(inventory_number)
+    if ev is None:
+        return evidence
+    live = {}
+    for part, p, why in (("start", "p_start", "why_start"), ("end", "p_end", "why_end")):
+        stored = evidence.get(part) or {}
+        hit = ev.index[ev["filename"] == stored.get("filename")]
+        if not len(hit) or stored.get(p) is None:
+            return evidence
+        row = ev.loc[hit[0]]
+        if abs(row[p] - stored[p]) > 0.005:
+            return evidence
+        live[part] = (why, row[why])
+    for part, (why, reasons) in live.items():
+        evidence[part][why] = reasons
+    return evidence
+
+
 def get_or_404(query):
     """Helper function to get first result or abort with 404."""
     result = query.first()
@@ -500,7 +527,7 @@ def document_detail(document_id):
     evidence = None
     row = db_session.query(DocumentEvidence).filter_by(document_id=document_id).first()
     if row:
-        evidence = json.loads(row.evidence)
+        evidence = refresh_document_reasons(json.loads(row.evidence), document.inventory.inventory_number)
 
     return render_template(
         "document_detail.html",

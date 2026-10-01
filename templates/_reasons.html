@@ -1,0 +1,9 @@
+{# Reasons from segmentation.explain.contributions(): [label, contribution] or
+   [label, contribution, parts] for a group of features summed into one. #}
+{% macro badges(reasons) -%}
+{% for r in reasons or [] %}<span class="badge {{ 'badge-success' if r[1] > 0 else 'badge-warning' }}"{% if r | length > 2 %} title="{% for label, c in r[2] %}{{ label }} {{ '%+.1f' | format(c) }}&#10;{% endfor %}" style="cursor: help"{% endif %}>{{ r[0] }} {{ '%+.1f' | format(r[1]) }}</span> {% endfor %}
+{%- endmacro %}
+
+{% macro lines(reasons) -%}
+{% for r in reasons or [] %}{{ r[0] }} {{ '%+.1f' | format(r[1]) }}&#10;{% if r | length > 2 %}{% for label, c in r[2] %}    {{ label }} {{ '%+.1f' | format(c) }}&#10;{% endfor %}{% endif %}{% endfor %}
+{%- endmacro %}

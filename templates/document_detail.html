@@ -1,5 +1,5 @@
 {% extends "base.html" %} {% block title %}{{ document.title if document.title
-else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}
+else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}{% import "_reasons.html" as reasons_ui %}
 <h1>{{ document.title if document.title else 'Untitled Document' }}</h1>
 
 <div class="card">
@@ -146,7 +146,7 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}
           {% if evidence.start.formulas %}<br />formulas: {{ evidence.start.formulas }}{% endif %}
           {% if evidence.start.best_toc_match %}<br />best ToC match: {{ evidence.start.best_toc_match }}{% endif %}
         </td>
-        <td>{% for name, c in evidence.start.why_start %}<span class="badge {{ 'badge-success' if c > 0 else 'badge-warning' }}">{{ name }} {{ '%+.1f' | format(c) }}</span> {% endfor %}</td>
+        <td>{{ reasons_ui.badges(evidence.start.why_start) }}</td>
       </tr>
       <tr>
         <td><strong>End</strong></td>
@@ -155,7 +155,7 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}
         <td>signature: {{ evidence.end.signature or '(none)' }}{% if evidence.end.signature_kind %} ({{ evidence.end.signature_kind }}){% endif %}
           {% if evidence.end.text_end %}<br />text ends: <i>…{{ evidence.end.text_end }}</i>{% endif %}
           {% if evidence.end.formulas %}<br />formulas: {{ evidence.end.formulas }}{% endif %}</td>
-        <td>{% for name, c in evidence.end.why_end %}<span class="badge {{ 'badge-success' if c > 0 else 'badge-warning' }}">{{ name }} {{ '%+.1f' | format(c) }}</span> {% endfor %}</td>
+        <td>{{ reasons_ui.badges(evidence.end.why_end) }}</td>
       </tr>
     </tbody>
   </table>

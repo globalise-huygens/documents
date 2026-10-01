@@ -1,5 +1,5 @@
 {% extends "base.html" %} {% block title %}{{ scan.filename }} - GLOBALISE
-Documents{% endblock %} {% block content %}
+Documents{% endblock %} {% block content %}{% import "_reasons.html" as reasons_ui %}
 <h1>Scan: {{ scan.filename }}</h1>
 
 <div class="card">
@@ -79,7 +79,7 @@ Documents{% endblock %} {% block content %}
       <tr>
         <td>{{ name }}</td>
         <td>{{ '%.0f' | format(evidence[key] * 100) }}%</td>
-        <td>{% for label, c in reasons %}<span class="badge {{ 'badge-success' if c > 0 else 'badge-warning' }}">{{ label }} {{ '%+.1f' | format(c) }}</span> {% endfor %}</td>
+        <td>{{ reasons_ui.badges(reasons) }}</td>
       </tr>
       {% endfor %}
     </tbody>

@@ -90,10 +90,45 @@ def label(feature: str) -> str:
     return text
 
 
+# Features that all measure how much text a page has. They move together (an
+# empty page sets every one of them), and the fit splits that signal between
+# them, sometimes with opposite signs: a linear log-length term that
+# overshoots at zero text, corrected by the blank/no-text indicators. Shown
+# one by one they look contradictory, so they are summed per page.
+TEXT_AMOUNT = {"blank", "no_text", "short_text", "log_text_len", "rel_text_len", "text_top", "text_bottom", "n_paragraph_lines"}
+# These compare scan i with scan i−1; at shift 0 they are about the previous page.
+TEXT_TRANSITIONS = {"after_blank", "blank_run_before", "text_len_change_prev"}
+
+
+def _text_page(name: str) -> int | None:
+    """The page (shift relative to the scan) a text-amount feature is about, or None."""
+    base, _, k = name.partition("@")
+    k = int(k) if k else 0
+    if base in TEXT_AMOUNT:
+        return k
+    if base in TEXT_TRANSITIONS:
+        return k or -1
+    return None
+
+
+def _text_state(features: pd.DataFrame, page: int) -> list[str]:
+    """Per scan: the label for the amount of text on scan i+page."""
+    suffix = f"@{page:+d}" if page else ""
+
+    def on(base):
+        col = shifted(features, base + suffix)
+        return np.zeros(len(features), bool) if col is None else np.nan_to_num(col) > 0
+
+    state = np.where(on("blank"), "blank", np.where(on("no_text"), "no_text", np.where(on("short_text"), "short_text", "log_text_len")))
+    return [label(s + suffix) for s in state]
+
+
 def contributions(lg: Logistic, features: pd.DataFrame, top: int = 4) -> list[list]:
     """
     Per scan: the `top` features that move the log-odds most away from a
     typical scan, weight × (value − training mean), as [label, contribution].
+    The text-amount features of one page are summed into one reason,
+    [label, contribution, [[label, contribution], ...parts]].
     """
     names = list(lg.weights)
     if not names:
@@ -102,10 +137,26 @@ def contributions(lg: Logistic, features: pd.DataFrame, top: int = 4) -> list[li
     means = np.array([lg.means.get(n, 0.0) for n in names])
     cols = np.where(np.isnan(cols), means, cols)  # missing = neutral
     contrib = (cols - means) * np.array([lg.weights[n] for n in names])
+
+    pages = [_text_page(n) for n in names]
+    single = [i for i, p in enumerate(pages) if p is None]
+    groups = {p: [i for i, q in enumerate(pages) if q == p] for p in sorted({p for p in pages if p is not None})}
+    group_labels = {p: _text_state(features, p) for p in groups}
+    totals = np.column_stack([contrib[:, single]] + [contrib[:, idx].sum(axis=1, keepdims=True) for idx in groups.values()])
     out = []
-    for row in contrib:
-        idx = np.argsort(-np.abs(row))[:top]
-        out.append([[label(names[i]), round(float(row[i]), 2)] for i in idx if abs(row[i]) >= 0.05])
+    for r, row in enumerate(totals):
+        reasons = []
+        for j in np.argsort(-np.abs(row))[:top]:
+            if abs(row[j]) < 0.05:
+                continue
+            if j < len(single):
+                reasons.append([label(names[single[j]]), round(float(row[j]), 2)])
+                continue
+            p = list(groups)[j - len(single)]
+            idx = sorted(groups[p], key=lambda i: -abs(contrib[r, i]))
+            parts = [[label(names[i]), round(float(contrib[r, i]), 2)] for i in idx if abs(contrib[r, i]) >= 0.05]
+            reasons.append([group_labels[p][r], round(float(row[j]), 2), parts])
+        out.append(reasons)
     return out
 
 

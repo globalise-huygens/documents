@@ -1,4 +1,4 @@
-{% extends "base.html" %} {% block title %}Segmentation evidence {{ inventory.inventory_number }} - GLOBALISE Documents{% endblock %} {% block content %}
+{% extends "base.html" %} {% block title %}Segmentation evidence {{ inventory.inventory_number }} - GLOBALISE Documents{% endblock %} {% block content %}{% import "_reasons.html" as reasons_ui %}
 <h1>Segmentation evidence: inventory <a href="{{ base_url }}/inventory/{{ inventory.inventory_number }}">{{ inventory.inventory_number }}</a></h1>
 
 <div class="card">
@@ -41,7 +41,7 @@
         <td>{{ r.signature | truncate(25) }}{% if r.signature_kind %} <small>({{ r.signature_kind }})</small>{% endif %}</td>
         <td class="hdr"><i>{{ r.text_start | truncate(70) }}</i>{% if r.formulas %}<br /><small>{{ r.formulas }}</small>{% endif %}{% if r.best_toc_match %}<br /><small>ToC {{ r.best_toc_match | truncate(60) }}</small>{% endif %}</td>
         {% for key, why in [('p_start', r.why_start), ('p_same_scan', r.why_shared), ('p_end', r.why_end), ('p_nondoc', r.why_nondoc)] %}
-        <td class="p {% if r[key] >= 0.5 %}hi{% endif %}" title="{% for label, c in why %}{{ label }} {{ '%+.1f' | format(c) }}&#10;{% endfor %}">{{ '%.0f' | format(r[key] * 100) }}%</td>
+        <td class="p {% if r[key] >= 0.5 %}hi{% endif %}" title="{{ reasons_ui.lines(why) }}">{{ '%.0f' | format(r[key] * 100) }}%</td>
         {% endfor %}
         <td>
           {% for what, kind, doc_id, title in m %}
