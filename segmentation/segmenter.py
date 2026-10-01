@@ -398,6 +398,8 @@ class Segment:
     toc_rows: list[int] = field(default_factory=list)  # rows in inv.toc starting here
     parent_row: int | None = None  # ToC row this segment is a subdocument of
     align_score: float | None = None
+    court: dict | None = None  # court case from the EMDCCR dataset (court_records.py)
+    derived: dict | None = None  # ToC entry derived from another version of the text (versions.py)
 
 
 @dataclass

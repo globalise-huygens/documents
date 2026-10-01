@@ -9,13 +9,26 @@ as documents of the identification method "Segmentation model".
     entry and are linked to the entry's index ids: OBP_INDEX, TANAP and
     DIGITIZED TYPOSCRIPTS (the same ExternalID rows) and NT (the entry's id in
     OBP NT_gecorrigeerd.xlsx; ExternalID rows with context "NT").
+  - ToC entries derived from other versions of the text (entry_id;
+    versions.py) take title and dates from the CSV; their source and the
+    other versions are in their evidence (no index ids: those belong to the
+    other volume's ToC).
+  - Court cases (kind 'case', from the EMDCCR dataset; court_records.py) take
+    title, dates and place from the CSV and are linked to their case id
+    (ExternalID context "EMDCCR"); the ranges of individual accused are
+    subdocuments of their case.
   - Subdocuments and nested ToC entries get part_of_id = their parent's
     document; a parent's pages include those of all its descendants.
   - Page2Document rows for every page, in scan order (verso before recto on
     double scans), source SEGMENTATION_MODEL, confidence CANDIDATE.
   - The model's evidence per document goes into document_evidence (JSON).
 
-Re-importing an inventory first deletes that method's documents there.
+Re-importing an inventory first deletes that method's documents there. So
+importing a CSV whose court-record inventories were segmented without the
+court cases (e.g. a segments.csv written before court_records.py existed)
+replaces the court cases with model-only documents: the import warns about
+this; re-import the court segments (court_segments.csv) afterwards, or re-run
+`segmentation run` for those inventories.
 """
 
 import datetime
@@ -41,6 +54,7 @@ METHOD_DESCRIPTION = (
 )
 SOURCE = "SEGMENTATION_MODEL"
 NT_CONTEXT = "NT"
+COURT_CONTEXT = "EMDCCR"
 DOC_COLUMNS = (
     "folio_start", "folio_end", "date_earliest_begin", "date_latest_begin",
     "date_earliest_end", "date_latest_end", "location_id",
@@ -76,14 +90,24 @@ def _delete_previous(session: Session, method_id: str, inventory_id: str) -> int
 
 def _nt_external_ids(session: Session, nt_indexes: set[int], dry_run: bool) -> dict[int, str]:
     """ExternalID id per NT index, created where missing."""
+    ids = _external_ids(session, NT_CONTEXT, {str(i) for i in nt_indexes}, dry_run)
+    return {int(k): v for k, v in ids.items()}
+
+
+def _external_ids(session: Session, context: str, identifiers: set[str], dry_run: bool) -> dict[str, str]:
+    """ExternalID id per identifier in `context`, created where missing."""
     have = {}
-    for r in session.execute(text("SELECT identifier, id FROM external_id WHERE context = :c"), {"c": NT_CONTEXT}):
-        have[int(r[0])] = r[1]
-    new = [{"id": str(uuid.uuid4()), "identifier": str(i), "context": NT_CONTEXT} for i in nt_indexes if i not in have]
+    for r in session.execute(text("SELECT identifier, id FROM external_id WHERE context = :c"), {"c": context}):
+        have[str(r[0])] = r[1]
+    new = [{"id": str(uuid.uuid4()), "identifier": i, "context": context} for i in identifiers if i not in have]
     if new and not dry_run:
         session.execute(text('INSERT INTO external_id (id, "URL", identifier, context) VALUES (:id, NULL, :identifier, :context)'), new)
-    have.update({int(r["identifier"]): r["id"] for r in new})
+    have.update({r["identifier"]: r["id"] for r in new})
     return have
+
+
+def _settlements(session: Session) -> dict[str, str]:
+    return {r[0]: r[1] for r in session.execute(text("SELECT label, settlement_id FROM settlement_label"))}
 
 
 def _toc_entries(conn, inv_id: str) -> tuple[pd.DataFrame, dict[int, list[str]]]:
@@ -115,12 +139,22 @@ def _toc_entries(conn, inv_id: str) -> tuple[pd.DataFrame, dict[int, list[str]]]
 def import_segments(csv_path: str, database_url: str, dry_run: bool = False):
     seg = pd.read_csv(csv_path, dtype={"inventory": str, "toc_csv_ids": str}, low_memory=False)
     seg = seg[seg["kind"] != "non-document"]
+    extra = ("court_case", "parent_court_case", "title", "date_begin", "date_end", "place", "entry_id", "parent_entry_id")
+    for c in extra:
+        if c not in seg:
+            seg[c] = None  # CSVs written before court records / derived ToCs were added
+    seg = seg.astype({c: object for c in extra})
+    without_cases = _court_inventories_without_cases(seg)
+    if without_cases:
+        logger.warning(_court_warning(without_cases, csv_path))
     t0, n_inv = time.time(), seg["inventory"].nunique()
     engine = create_engine(database_url)
     if not dry_run:
         Base.metadata.create_all(engine)  # document_evidence
     with Session(engine) as session:
         method_id = _method_id(session)
+        settlements = _settlements(session)
+        court_ext = _external_ids(session, COURT_CONTEXT, {c for c in seg["court_case"].dropna()}, dry_run)
         totals = defaultdict(int)
         for inv_number, rows in seg.groupby("inventory", sort=False):
             inv_id = session.execute(text("SELECT id FROM inventory WHERE inventory_number = :n"), {"n": inv_number}).scalar()
@@ -143,6 +177,11 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False):
             parent_csv: dict[str, int] = {}
             doc_by_csv: dict[int, str] = {}
             evidence: dict[str, str] = {}
+            case_doc: dict[str, str] = {}  # court case id -> its (first) document
+            case_docs: list[tuple[str, str]] = []  # (court case id, document) of every court case document
+            parent_case: dict[str, str] = {}  # document -> court case id of its parent
+            entry_doc: dict[str, str] = {}  # derived ToC entry id -> its document
+            parent_entry: dict[str, str] = {}  # document -> derived entry id of its parent
             for r in rows.itertuples():
                 span = set(range(pos[r.start_scan], pos[r.end_scan] + 1))
                 csv_ids = [int(x) for x in str(r.toc_csv_ids).split(";") if x and x != "nan"]
@@ -164,9 +203,30 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False):
                         parent_csv[doc_id] = int(r.parent_csv_id)
                     if isinstance(r.evidence, str):
                         evidence[doc_id] = r.evidence
+                    if isinstance(r.entry_id, str):  # ToC entry derived from another version (versions.py)
+                        doc["title"] = r.title if isinstance(r.title, str) else None
+                        doc["date_earliest_begin"] = r.date_begin if isinstance(r.date_begin, str) else None
+                        doc["date_latest_end"] = r.date_end if isinstance(r.date_end, str) else None
+                        entry_doc[r.entry_id] = doc_id
+                    if isinstance(r.parent_entry_id, str):
+                        parent_entry[doc_id] = r.parent_entry_id
+                    if isinstance(r.court_case, str):
+                        doc["title"] = r.title if isinstance(r.title, str) else None
+                        doc["date_earliest_begin"] = r.date_begin if isinstance(r.date_begin, str) else None
+                        doc["date_latest_end"] = r.date_end if isinstance(r.date_end, str) else None
+                        doc["location_id"] = settlements.get(r.place) if isinstance(r.place, str) else None
+                        if r.kind == "case":
+                            case_doc.setdefault(r.court_case, doc_id)
+                            case_docs.append((r.court_case, doc_id))
+                        if isinstance(r.parent_court_case, str):
+                            parent_case[doc_id] = r.parent_court_case
             for d in docs:
                 if d["id"] in parent_csv:
                     d["part_of_id"] = doc_by_csv.get(parent_csv[d["id"]])
+                elif d["id"] in parent_case:
+                    d["part_of_id"] = case_doc.get(parent_case[d["id"]])
+                elif d["id"] in parent_entry:
+                    d["part_of_id"] = entry_doc.get(parent_entry[d["id"]])
             # a parent spans all its descendants
             children = defaultdict(list)
             for d in docs:
@@ -194,10 +254,14 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False):
                 nt = toc.at[cid, "nt_index"] if cid in toc.index else None
                 if nt is not None and not pd.isna(nt):
                     ext_links.append({"id": str(uuid.uuid4()), "document_id": doc_id, "external_id": nt_ext[int(nt)]})
+            for case_id, doc_id in case_docs:
+                ext_links.append({"id": str(uuid.uuid4()), "document_id": doc_id, "external_id": court_ext[case_id]})
             ev_rows = [{"document_id": k, "evidence": v} for k, v in evidence.items()]
 
             totals["documents"] += len(docs)
             totals["ToC documents"] += len(doc_by_csv)
+            totals["court case documents"] += len(case_docs)
+            totals["derived ToC documents"] += len(entry_doc)
             totals["subdocuments"] += sum(1 for d in docs if d["part_of_id"])
             totals["page links"] += len(links)
             totals["index id links"] += len(ext_links)
@@ -225,3 +289,23 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False):
         else:
             session.commit()
             logger.info("Imported %s", dict(totals))
+    if without_cases:
+        logger.warning(_court_warning(without_cases, csv_path))
+
+
+def _court_inventories_without_cases(seg: pd.DataFrame) -> list[str]:
+    """Inventories in the CSV that have court cases (data/EMDCCR*.xlsx) but
+    were segmented without them."""
+    from .court_records import load_court_cases
+
+    _, ranges = load_court_cases()
+    has_cases = set(seg.loc[seg["court_case"].notna(), "inventory"])
+    return sorted((set(seg["inventory"]) & set(ranges)) - has_cases, key=lambda n: (len(n), n))
+
+
+def _court_warning(inventories: list[str], csv_path: str) -> str:
+    shown = ", ".join(inventories[:10]) + (f" … ({len(inventories)} in all)" if len(inventories) > 10 else "")
+    return (f"{csv_path} has no court cases for {len(inventories)} inventories with court records ({shown}); "
+            "importing it replaces their court cases with model-only documents. Re-import the court segments "
+            "afterwards (uv run python -m segmentation import court_segments.csv) or re-run "
+            "`segmentation run` for these inventories.")

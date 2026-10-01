@@ -105,7 +105,7 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}{% imp
   <div class="info-row">
     <strong>Kind:</strong>
     <span>
-      {{ {'toc': 'ToC document', 'subdoc': 'subdocument', 'unindexed': 'document not in the ToC'}.get(evidence.kind, evidence.kind) }};
+      {{ {'toc': ('ToC entry of another version of this text' if evidence.derived_entry else 'ToC document'), 'case': 'court case (EMDCCR dataset)', 'subdoc': 'subdocument', 'unindexed': 'document not in the ToC'}.get(evidence.kind, evidence.kind) }};
       {{ {'first': 'first document of the inventory', 'shared': 'starts on the last page of the previous document', 'adjacent': 'starts on the scan after the previous document', 'gap': 'non-document pages (cover, blank, title or ToC page) before it'}.get(evidence.boundary, evidence.boundary) }}
     </span>
   </div>
@@ -127,6 +127,41 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}{% imp
   <div class="info-row">
     <strong>Dates:</strong>
     <span>ToC {{ evidence.toc.toc_date or '–' }}; header date near the start: {{ evidence.toc.header_date_near_start or '–' }}</span>
+  </div>
+  {% endif %}
+  {% if evidence.derived_entry %}
+  <div class="info-row">
+    <strong>From version:</strong>
+    <span>
+      inventory <a href="{{ base_url }}/inventory/{{ evidence.derived_entry.source.inventory }}">{{ evidence.derived_entry.source.inventory }}</a>
+      ({{ evidence.derived_entry.source.index_ids or 'no index id' }}), scans {{ evidence.derived_entry.source.scans | join('–') }} there;
+      same text matched over a block of score {{ evidence.derived_entry.block_score }}{% if evidence.derived_entry.moved %}; start moved {{ evidence.derived_entry.moved }} scan(s) on the start evidence{% endif %}
+    </span>
+  </div>
+  {% if evidence.derived_entry.versions %}
+  <div class="info-row">
+    <strong>Other versions:</strong>
+    <span>{% for v in evidence.derived_entry.versions %}{% set inv, ids = v.split(':', 1) %}<a href="{{ base_url }}/inventory/{{ inv }}">{{ inv }}</a> ({{ ids }}){% if not loop.last %}; {% endif %}{% endfor %}</span>
+  </div>
+  {% endif %}
+  {% endif %}
+  {% if evidence.court_case %}
+  <div class="info-row">
+    <strong>Court case:</strong>
+    <span>
+      {{ evidence.court_case.case_id }}{% if evidence.court_case.parent_case %} (range of some of the accused){% endif %}:
+      {{ evidence.court_case.accused }} accused{% if evidence.court_case.charges %}, {{ evidence.court_case.charges | join('; ') }}{% endif %}
+    </span>
+  </div>
+  <div class="info-row">
+    <strong>Scans:</strong>
+    <span>
+      {{ {'excel': 'start and end from the dataset', "excel (accused's own range)": 'start and end from the dataset (range of some of the accused)', 'start from excel, end before the next case': 'start from the dataset, ends before the next case', 'start from excel, continues in the next inventory': 'start from the dataset, continues in the next inventory', 'start from excel, end from the model': 'start from the dataset, end found by the model', 'end from excel, began in the previous inventory': 'end from the dataset, began in the previous inventory', 'end from excel, start after the previous case': 'end from the dataset, starts after the previous case', 'end from excel (start scan after the end)': 'end from the dataset (its start scan lies after the end)'}.get(evidence.court_case.how, evidence.court_case.how) }};
+      dataset: start {{ evidence.court_case.excel_scans.Begin_Zaak_Scannummer | join(', ') or '–' }},
+      end {{ evidence.court_case.excel_scans.Eind_Zaak_Scannummer | join(', ') or '–' }},
+      eis {{ evidence.court_case.excel_scans.Eis_Scannummer | join(', ') or '–' }},
+      vonnis {{ evidence.court_case.excel_scans.Vonnis_Scannummer | join(', ') or '–' }}
+    </span>
   </div>
   {% endif %}
   <table>

@@ -207,3 +207,104 @@ def test_text_index_prefers_rare_words_and_best_passage():
     s = idx.scores("Missive uit Palembang over peper")
     assert s.argmax() == 1
     assert idx.scores("Instructie voor den commandeur").argmax() == 2
+
+
+# ── court records ─────────────────────────────────────────────────────────────
+
+from segmentation.court_records import Case, _scan_ref, case_title, person_name  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [(99, ("9350", 99)), ("99 [9353]", ("9353", 99)), ("656 (9354)", ("9354", 656)), (np.nan, None), ("P", None)],
+)
+def test_scan_ref(value, expected):
+    assert _scan_ref(value, "9350") == expected
+
+
+def test_person_name():
+    assert person_name({"Voornaam": "David Julius", "Tussenvoegsel": "van", "Achternaam": "Titsma"}) == "David Julius van Titsma"
+    assert person_name({"Voornaam": "Tamboe", "Herkomst": "Madagascar"}) == "Tamboe van Madagascar"
+    assert person_name({"Voornaam": "Gerrit Schaagen", "Herkomst": "Hoorn"}) == "Gerrit Schaagen"
+    assert person_name({"Voornaam": "anoniem"}) == ""
+
+
+def _case(persons, civil=False, place="Batavia"):
+    return Case("BR-1", "Raad van Justitie", place, persons, datetime.date(1734, 10, 20), datetime.date(1734, 10, 20),
+                "20 oktober 1734", ["Geweld"], civil, {})
+
+
+def test_case_title():
+    persons = [{"Voornaam": n, "Achternaam": "X", "Aanklacht_Datum": "1734-10-20", "Aanklacht_Standaard": "Geweld"} for n in "ABCDE"]
+    assert case_title(_case(persons[:2]), persons[:2], "Adrianus Bergsma") == (
+        "Advocaat-fiscaal van India mr. Adrianus Bergsma contra A X en B X; Raad van Justitie, Batavia, 20 oktober 1734 (geweld)"
+    )
+    assert "contra A X, B X, C X en 2 anderen;" in case_title(_case(persons), persons, None)
+    assert case_title(_case(persons[:1], civil=True), persons[:1], None).startswith("Onbekende eiser contra A X;")
+    # the prosecutor entered as an accused without a charge is not a defendant
+    fiscal = {"Voornaam": "Adrianus", "Achternaam": "Bergsma"}
+    assert "contra A X;" in case_title(_case(persons[:1]), persons[:1] + [fiscal], None, ["Adrianus Bergsma"])
+
+
+# ── versions ──────────────────────────────────────────────────────────────────
+
+from segmentation.versions import derive_toc, version_blocks  # noqa: E402
+
+
+def _fn(inv, k):
+    return f"NL-HaNA_1.04.02_{inv}_{k:04d}"
+
+
+def test_version_blocks_chain():
+    # target scans 0..9 match other scans 100..109 in order; one stray match elsewhere
+    rows = [(_fn("1", t), _fn("2", 100 + t), 0.6, 0.6) for t in range(10)] + [(_fn("1", 5), _fn("3", 7), 0.2, 0.2)]
+    m = pd.DataFrame(rows, columns=["scan", "other_scan", "containment", "other_containment"])
+    pos = {f: int(f[-4:]) for f in set(m["scan"]) | set(m["other_scan"])}
+    b = version_blocks(m, pos)
+    assert len(b) == 1
+    r = b.iloc[0]
+    assert (r.other_inventory, r.start, r.end, r.other_start, r.other_end, r.n_matches) == ("2", 0, 9, 100, 109, 10)
+
+
+def _block(inv, pairs, score):
+    return {"other_inventory": inv, "start": pairs[0][0], "end": pairs[-1][0], "other_start": pairs[0][1], "other_end": pairs[-1][1],
+            "n_matches": len(pairs), "score": score, "pairs": pairs}
+
+
+def _docs(rows):
+    return pd.DataFrame([{"doc_id": d, "title": t, "part_of_id": None, "date_earliest_begin": None, "date_latest_end": None,
+                          "index_ids": f"OBP_INDEX:{d}", "start": s, "end": e} for d, t, s, e in rows])
+
+
+def test_derive_toc_maps_and_merges_versions():
+    blocks = pd.DataFrame([_block("A", [(t, 50 + t) for t in range(20)], 15.0), _block("B", [(t, 200 + t) for t in range(20)], 10.0)])
+    others = {
+        "A": _docs([("a1", "Een dito dato 5 Meij 1705.", 50, 59), ("a2", "Register.", 60, 69), ("a3", "Bijlage", 60, 62)]),
+        "B": _docs([("b1", "Missive van Colombo dato 5 Meij 1705", 201, 209)]),
+    }
+    toc = derive_toc(blocks, others, n_scans=20)
+    first = toc[toc["start"] <= 1].iloc[0]
+    # the same letter in A and B: one entry, the title that does not lean on the entry before, the other as version
+    assert first["title"] == "Missive van Colombo dato 5 Meij 1705" and first["n_versions"] == 2 and first["versions"] == "A:OBP_INDEX:a1"
+    # two entries of one volume on the same scan stay separate
+    assert set(toc[toc["start"] == 10]["title"]) == {"Register.", "Bijlage"}
+
+
+def test_match_inventory_leaves_cache_intact(tmp_path, monkeypatch):
+    from scipy import sparse
+
+    from segmentation import versions as v
+
+    def shingles(rows):
+        indptr = np.concatenate([[0], np.cumsum([len(r) for r in rows])])
+        return v.InventoryShingles(np.array([_fn("9", k) for k in range(len(rows))], dtype=object),
+                                   sparse.csr_matrix((np.ones(indptr[-1], dtype=np.float32), np.concatenate(rows), indptr), shape=(len(rows), v.HASH_SPACE)))
+
+    common = list(range(1000, 1200))  # in every scan of the pool: formulas, dropped
+    target = shingles([np.array(sorted(set(range(20)) | set(common[:150])))] * 2)
+    others = {str(k): shingles([np.array(sorted(set(range(20)) | set(common)))]) for k in range(v.MAX_DF + 1)}
+    cache = v.ShingleCache()
+    cache.items.update({"T": target, **others})
+    before = (target.matrix.indptr.copy(), target.matrix.indices.copy())
+    v.match_inventory("T", list(others), cache)
+    assert np.array_equal(target.matrix.indptr, before[0]) and np.array_equal(target.matrix.indices, before[1])

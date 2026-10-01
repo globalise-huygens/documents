@@ -246,6 +246,10 @@ def document_evidence(inv: InventoryData, result: Result, segment: Segment, ev: 
         "start": {k: _plain(ev.at[a, k]) for k in ("filename", "p_start", "p_same_scan", "header", "header_date", "header_date_across", "number", "text_start", "formulas", "best_toc_match", "why_start")},
         "end": {k: _plain(ev.at[e, k]) for k in ("filename", "p_end", "signature", "signature_kind", "text_end", "formulas", "why_end")},
     }
+    if segment.court:
+        out["court_case"] = segment.court
+    if segment.derived and segment.derived.get("entry_id"):
+        out["derived_entry"] = segment.derived
     placements = [pl for pl in result.placements if pl.entry in segment.toc_rows]
     if placements:
         pl = placements[0]

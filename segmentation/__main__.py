@@ -5,14 +5,25 @@ Command line for the segmentation metric.
       cross-validated evaluation on the validated and General Missives inventories
   uv run python -m segmentation fit [--out segmentation/model.json]
       fit the model on all ground truth and save it
-  uv run python -m segmentation run [1120 1557 ...] [--model FILE] [--out segments.csv] [--no-toc] [--resume]
+  uv run python -m segmentation run [1120 1557 ...] [--model FILE] [--out segments.csv] [--no-toc] [--no-court]
+          [--derived derived_toc.csv] [--resume]
       segment inventories (all when none are given) and write one row per segment;
+      inventories without a ToC that have court cases in data/EMDCCR*.xlsx are
+      segmented on those cases (court_records.py; --no-court to ignore them); inventories
+      with neither use the ToC entries derived from other versions of their text, when
+      --derived (default derived_toc.csv) has them (versions.py; --derived "" to ignore);
       --resume continues an interrupted run, skipping inventories already in --out
   uv run python -m segmentation split-texts [data/normalized_texts.parquet]
       split the full-text dump into one file per inventory (data/texts/; one-time)
   SEGMENTATION_PAGEXML_DIR=/Volumes/HDE0090 uv run python -m segmentation cache-layout [inv ...]
       read the PageXML zips once and cache the page layout per inventory (data/layout/;
       all inventories when none are given; already cached ones are skipped)
+  uv run python -m segmentation match-versions [inv ...] [--window 2]
+      find the same text elsewhere in the archive for every scan of the inventories
+      without ToC entries or court cases (all such when none are given; versions.py);
+      one parquet per inventory in data/versions/, resumable
+  uv run python -m segmentation derive-tocs [inv ...] [--out derived_toc.csv] [--blocks version_blocks.csv]
+      version blocks and the ToC entries derived from the other versions' ToCs
   uv run python -m segmentation import segments.csv [--dry-run]
       store the segments as documents of the method "Segmentation model"
       (re-importing an inventory replaces its earlier segmentation documents)
@@ -29,6 +40,7 @@ import pandas as pd
 from .evaluation import cross_validate, fit_model, format_counts, load_items
 from .inventory import connect, load_inventory
 from .model import DEFAULT_MODEL_PATH, SegmentationModel
+from .court_records import load_court_cases, segment_court_inventory
 from .explain import document_evidence, scan_evidence
 from .segmenter import segment_inventory
 
@@ -60,6 +72,14 @@ def result_rows(inv, result, model) -> list[dict]:
                 "align_score": None if sg.align_score is None else round(sg.align_score, 3),
                 "placed_by": ";".join(pl.how for pl in result.placements if pl.entry in sg.toc_rows),
                 "evidence": json.dumps(document_evidence(inv, result, sg, ev), ensure_ascii=False) if sg.kind != "non-document" else None,
+                "court_case": sg.court["case_id"] if sg.court else None,
+                "parent_court_case": sg.court.get("parent_case") if sg.court else None,
+                "title": (sg.court or sg.derived or {}).get("title"),
+                "date_begin": (sg.court or sg.derived or {}).get("date_begin"),
+                "date_end": (sg.court or sg.derived or {}).get("date_end"),
+                "place": sg.court["place"] if sg.court else None,
+                "entry_id": sg.derived.get("entry_id") if sg.derived else None,
+                "parent_entry_id": sg.derived.get("parent_entry_id") if sg.derived else None,
             }
         )
     return rows
@@ -80,11 +100,20 @@ def main():
     rn.add_argument("--model", default=DEFAULT_MODEL_PATH)
     rn.add_argument("--out", default=None)
     rn.add_argument("--no-toc", action="store_true")
+    rn.add_argument("--no-court", action="store_true", help="ignore the court cases of data/EMDCCR*.xlsx")
+    rn.add_argument("--derived", default="derived_toc.csv", help="ToC entries derived from other versions (derive-tocs)")
     rn.add_argument("--resume", action="store_true", help="skip inventories already in --out")
     st = sub.add_parser("split-texts")
     st.add_argument("source", nargs="?", default="data/normalized_texts.parquet")
     cl = sub.add_parser("cache-layout")
     cl.add_argument("inventories", nargs="*")
+    mv = sub.add_parser("match-versions")
+    mv.add_argument("inventories", nargs="*")
+    mv.add_argument("--window", type=int, default=2)
+    dt = sub.add_parser("derive-tocs")
+    dt.add_argument("inventories", nargs="*")
+    dt.add_argument("--out", default="derived_toc.csv")
+    dt.add_argument("--blocks", default="version_blocks.csv")
     im = sub.add_parser("import")
     im.add_argument("csv")
     im.add_argument("--dry-run", action="store_true")
@@ -126,6 +155,15 @@ def main():
             layout = load_layout(n, files)
             logger.info("%d/%d %s: %d of %d scans with layout (%.1fs)", k, len(numbers), n, int(layout["has_layout"].sum()), len(files), time.time() - t)
         logger.info("Done; %d inventories were already cached", skipped)
+    elif args.cmd in ("match-versions", "derive-tocs"):
+        from . import versions
+
+        conn = connect()
+        targets = args.inventories or versions.untitled_inventories(conn)
+        if args.cmd == "match-versions":
+            versions.match_all(targets, conn, window=args.window)
+        else:
+            versions.derive_all([t for t in targets if os.path.exists(os.path.join(versions.MATCH_DIR, f"{t}.parquet"))], conn, args.out, args.blocks)
     elif args.cmd == "import":
         from .db_import import import_segments
         from .inventory import DATABASE_URL
@@ -139,6 +177,14 @@ def run(args):
     """Segment inventories; with --out, append each inventory's rows to the CSV as it is done."""
     model = SegmentationModel.load(args.model)
     conn = connect()
+    cases, court_ranges = ({}, {}) if args.no_court else load_court_cases()
+    if court_ranges:
+        logger.info("Court records: %d cases in %d inventories", len(cases), len(court_ranges))
+    from .versions import load_derived_toc, segment_with_derived
+
+    derived = load_derived_toc(args.derived)
+    if derived:
+        logger.info("Derived ToC entries for %d inventories (%s)", len(derived), args.derived)
     numbers = args.inventories or [r[0] for r in conn.execute("SELECT inventory_number FROM inventory ORDER BY inventory_number")]
     done = set()
     if args.out and args.resume and os.path.exists(args.out):
@@ -157,7 +203,12 @@ def run(args):
             logger.warning("%s: inventory not found in the database; skipped", n)
             continue
         try:
-            res = segment_inventory(inv, model, use_toc=not args.no_toc)
+            if court_ranges.get(n) and inv.toc.empty:
+                res = segment_court_inventory(inv, model, cases, court_ranges[n])
+            elif n in derived and inv.toc.empty and not args.no_toc:
+                res = segment_with_derived(inv, model, derived[n])
+            else:
+                res = segment_inventory(inv, model, use_toc=not args.no_toc)
             rows = result_rows(inv, res, model)
         except Exception:
             logger.exception("%s: segmentation failed; skipped", n)
