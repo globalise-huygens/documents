@@ -366,6 +366,20 @@ uv run python -m segmentation load-versions version_blocks_all.csv      # → ta
 - `version-blocks` and `load-versions` fill the `text_version` table for the whole collection (after `match-versions --all`). Each row records two runs of scans, in two inventories, that hold the same text. Rows are keyed on inventory and scan numbers, the archive's own identifiers, so they survive re-segmentation and re-import. Each pair is stored once, the lower inventory number as *a*, without treating either version as the original. The app shows a document's versions (the matching scans and documents in the other inventories) and an inventory's shared text per other inventory.
 - `run` uses the derived entries as forced starts. A verified start stays put; an unverified one is moved by at most one scan to the best start evidence. Documents found inside an entry become its subdocuments. `import` stores the titles and dates, and keeps the source and other versions in the document's evidence.
 
+**Handwritten registers** (`registers.py`, `rows.py`): many volumes without an index of their own begin with one or more handwritten registers, such as "Register der brieven en papieren …" or "Brieven & Papieren van … per 't schip …".
+
+```bash
+uv run python -m segmentation register-features   # text counts + PageXML layout per scan (SEGMENTATION_PAGEXML_DIR, default /Volumes/HDE0090)
+uv run python -m segmentation register-fit        # page classifier, trained on the validated inventories (+ reviewed scans)
+uv run python -m segmentation register-ranges     # → register_ranges.csv (score per range) and data/registers/scores.parquet
+uv run python -m segmentation register-sample     # stratified sample to label at /review/registers in the app
+uv run python -m segmentation register-entries    # → register_entries.csv: entries of the ranges scoring >= 0.9
+```
+
+- **Training data:** the classifier learns from the "Table of contents" pages of the validated inventories and the pages of validated documents whose OBP title is a register of papers. Scans reviewed at `/review/registers` are added to it.
+- **Row reconstruction:** `register-entries` rebuilds each register's rows from the PageXML line geometry. The HTR splits rows into fragments wherever the writing leaves wide gaps (dittos), and two columns of entries are read left, then right.
+- **Fields:** for each entry it extracts the folio range or item number, packet marks and "ingenaaijt" / "niet ontfangen", the date, and a title with the dittos filled in from the entry above.
+
 The output of `run` has one row per segment: kind, boundary type, first / last scan, ToC id and title, parent ToC id, and the start/end log-odds.
 
 New predictors (e.g. the text-embedding first/last-page model) are added as a `Predictor` subclass; per-scan probabilities in a CSV/parquet file (`filename, p_first, p_last`) can be plugged in without code via `SEGMENTATION_EXTERNAL_SCORES=path`. Refit the model afterwards.

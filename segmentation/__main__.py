@@ -29,6 +29,16 @@ Command line for the segmentation metric.
       version blocks of every matched inventory (all when none are given), no ToC entries
   uv run python -m segmentation load-versions version_blocks_all.csv
       (re)fill the text_version table: runs of scans with the same text in two inventories
+  uv run python -m segmentation register-features [inv ...]
+      text counts and PageXML layout per scan for the register classifier (registers.py; data/registers/features)
+  uv run python -m segmentation register-fit
+      train the register-page classifier on the validated inventories (+ reviewed scans)
+  uv run python -m segmentation register-ranges [inv ...] [--threshold 0.5] [--out register_ranges.csv]
+      score every scan and write the ranges of register pages
+  uv run python -m segmentation register-entries [--min-score 0.9] [--out register_entries.csv]
+      rebuild the rows of the register ranges into entries: folio range / item number, date, title (rows.py)
+  uv run python -m segmentation register-sample [--n 200]
+      draw a stratified sample of scans to label at /review/registers in the app
   uv run python -m segmentation import segments.csv [--dry-run] [--resume]
       store the segments as documents of the method "Segmentation model"
       (re-importing an inventory replaces its earlier segmentation documents);
@@ -126,6 +136,20 @@ def main():
     vb.add_argument("--out", default="version_blocks_all.csv")
     lv = sub.add_parser("load-versions")
     lv.add_argument("csv", nargs="+")
+    rf = sub.add_parser("register-features")
+    rf.add_argument("inventories", nargs="*")
+    sub.add_parser("register-fit")
+    rr = sub.add_parser("register-ranges")
+    rr.add_argument("inventories", nargs="*")
+    rr.add_argument("--threshold", type=float, default=0.5)
+    rr.add_argument("--out", default="register_ranges.csv")
+    re_ = sub.add_parser("register-entries")
+    re_.add_argument("--ranges", default="register_ranges.csv")
+    re_.add_argument("--min-score", type=float, default=0.9)
+    re_.add_argument("--out", default="register_entries.csv")
+    rs = sub.add_parser("register-sample")
+    rs.add_argument("--n", type=int, default=200)
+    rs.add_argument("--scores", default="data/registers/scores.parquet")
     im = sub.add_parser("import")
     im.add_argument("csv")
     im.add_argument("--dry-run", action="store_true")
@@ -168,6 +192,44 @@ def main():
             layout = load_layout(n, files)
             logger.info("%d/%d %s: %d of %d scans with layout (%.1fs)", k, len(numbers), n, int(layout["has_layout"].sum()), len(files), time.time() - t)
         logger.info("Done; %d inventories were already cached", skipped)
+    elif args.cmd.startswith("register-"):
+        from . import registers
+        from .versions import unindexed_inventories
+
+        conn = connect()
+        targets = getattr(args, "inventories", None) or unindexed_inventories(conn)
+        if args.cmd == "register-features":
+            registers.cache_features(targets)
+        elif args.cmd == "register-fit":
+            registers.fit(conn)
+        elif args.cmd == "register-entries":
+            from .rows import entries_for_ranges
+
+            e = entries_for_ranges(pd.read_csv(args.ranges, dtype={"inventory": str}), args.min_score)
+            e.to_csv(args.out, index=False)
+            logger.info("Wrote %d register entries (%d ranges) to %s", len(e), e["register_first_scan"].nunique() if len(e) else 0, args.out)
+        elif args.cmd == "register-ranges":
+            scores = registers.score(targets)
+            os.makedirs(os.path.dirname(registers.MODEL_PATH), exist_ok=True)
+            scores.to_parquet(os.path.join(os.path.dirname(registers.MODEL_PATH), "scores.parquet"), index=False)
+            r = registers.ranges(scores, args.threshold)
+            r.to_csv(args.out, index=False)
+            logger.info("Wrote %d register ranges (%d scans, %d inventories) to %s", len(r), r["n_scans"].sum(), r["inventory"].nunique(), args.out)
+        else:
+            from sqlalchemy import create_engine
+
+            from models import Base
+            from .inventory import DATABASE_URL
+
+            sample = registers.review_sample(pd.read_parquet(args.scores), args.n)
+            engine = create_engine(DATABASE_URL)
+            Base.metadata.create_all(engine, tables=[Base.metadata.tables["register_review"]])
+            have = set(pd.read_sql("SELECT filename FROM register_review", engine)["filename"])
+            start = int(pd.read_sql("SELECT coalesce(max(position), -1) AS m FROM register_review", engine)["m"].iat[0]) + 1
+            new = sample[~sample["filename"].isin(have)].copy()
+            new["position"] = range(start, start + len(new))
+            new.to_sql("register_review", engine, if_exists="append", index=False)
+            logger.info("register_review: %d scans added (%d already there); label them at /review/registers", len(new), len(sample) - len(new))
     elif args.cmd == "load-versions":
         from .inventory import DATABASE_URL
         from .versions import load_text_versions

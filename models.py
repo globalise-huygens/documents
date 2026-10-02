@@ -657,6 +657,26 @@ class TextVersion(Base):
     method: Mapped[str] = mapped_column(String(64))
 
 
+class RegisterReview(Base):
+    """
+    Scans labelled by hand as handwritten register (ToC) pages or not
+    (/review/registers in the app; sample drawn by `segmentation register-sample`).
+    label: start (first page of a register) | continuation | not | unsure; NULL = to do.
+    """
+
+    __tablename__ = "register_review"
+
+    filename: Mapped[str] = mapped_column(String(255), primary_key=True)
+    inventory: Mapped[str] = mapped_column(String(10), index=True)
+    score: Mapped[Optional[float]] = mapped_column(Float)
+    stratum: Mapped[Optional[str]] = mapped_column(String(64))
+    stratum_size: Mapped[Optional[int]] = mapped_column(Integer)
+    position: Mapped[int] = mapped_column(Integer)  # order of presentation
+    label: Mapped[Optional[str]] = mapped_column(String(16))
+    note: Mapped[Optional[str]] = mapped_column(Text)
+    labelled_at: Mapped[Optional[str]] = mapped_column(String(32))
+
+
 class Page2Document(Base):
     __tablename__ = "page2document"
 

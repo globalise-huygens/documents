@@ -186,6 +186,19 @@ def untitled_inventories(conn: sqlite3.Connection) -> list[str]:
     return sorted((r[0] for r in rows), key=lambda n: (len(n), n))
 
 
+def unindexed_inventories(conn: sqlite3.Connection) -> list[str]:
+    """Inventories without an index of their own: no OBP/TANAP ToC entries and no court
+    cases (EMDCCR). Unlike untitled_inventories, this does not change when derived ToC
+    entries are imported."""
+    rows = conn.execute(
+        "SELECT i.inventory_number FROM inventory i WHERE NOT EXISTS (SELECT 1 FROM document d "
+        "JOIN document_identification_method m ON m.id = d.method_id AND m.name = 'TANAP Digitized Index' WHERE d.inventory_id = i.id) "
+        "AND NOT EXISTS (SELECT 1 FROM document d JOIN document2external_id de ON de.document_id = d.id "
+        "JOIN external_id e ON e.id = de.external_id AND e.context = 'EMDCCR' WHERE d.inventory_id = i.id)"
+    ).fetchall()
+    return sorted((r[0] for r in rows), key=lambda n: (len(n), n))
+
+
 def _cache_one(inv: str) -> int:
     return len(load_shingles(inv).filenames)
 

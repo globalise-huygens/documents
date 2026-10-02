@@ -1,0 +1,67 @@
+{% extends "base.html" %} {% block title %}Review registers - GLOBALISE Documents{% endblock %} {% block content %}
+<style>
+  .review-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; align-items: start; }
+  .review-grid img { max-width: 100%; height: auto; border: 1px solid #ccc; }
+  .neighbours { display: flex; gap: 8px; margin-top: 8px; }
+  .neighbours figure { margin: 0; flex: 1; }
+  .neighbours figcaption { font-size: 0.8em; color: #666; }
+  .label-buttons button { margin: 4px 4px 4px 0; padding: 8px 12px; font-size: 1em; cursor: pointer; }
+  .label-buttons button.current { outline: 3px solid #2a7; }
+  .transcription { white-space: pre-wrap; font-size: 0.85em; max-height: 420px; overflow-y: auto; background: #f7f7f4; padding: 8px; border: 1px solid #ddd; }
+  @media (max-width: 900px) { .review-grid { grid-template-columns: 1fr; } }
+</style>
+
+<h1>Review: handwritten registers</h1>
+{% if message %}<div class="card"><p>{{ message }}</p></div>{% endif %}
+{% if item %}
+<div class="card">
+  <p>
+    <strong>{{ done }} / {{ total }}</strong> labelled.
+    Is this scan part of a handwritten register (a list of the letters and papers in a shipment or volume)?
+    Keys: <kbd>1</kbd> first page · <kbd>2</kbd> continued · <kbd>3</kbd> not · <kbd>4</kbd> unsure · <kbd>←</kbd>/<kbd>→</kbd> previous/next.
+  </p>
+  <form method="post" class="label-buttons" id="label-form">
+    <input type="hidden" name="filename" value="{{ item.filename }}" />
+    <input type="hidden" name="position" value="{{ item.position }}" />
+    {% for key, name in labels.items() %}
+    <button type="submit" name="label" value="{{ key }}" class="{{ 'current' if item.label == key else '' }}" data-key="{{ loop.index }}">{{ loop.index }} · {{ name }}</button>
+    {% endfor %}
+    <input type="text" name="note" placeholder="note (optional)" value="{{ item.note or '' }}" style="width: 40%" />
+    <a href="{{ base_url }}/review/registers?i={{ item.position - 1 }}" id="prev">← previous</a> ·
+    <a href="{{ base_url }}/review/registers?i={{ item.position + 1 }}" id="next">next →</a>
+  </form>
+</div>
+
+<div class="review-grid">
+  <div class="card">
+    <h2><a href="{{ base_url }}/scan/{{ item.filename }}">{{ item.filename }}</a></h2>
+    {% for c in context if c.offset == 0 %}{% if c.image %}<img src="{{ c.image }}" alt="{{ c.filename }}" />{% endif %}{% endfor %}
+    <div class="neighbours">
+      {% for c in context if c.offset != 0 %}
+      <figure>{% if c.image %}<a href="{{ base_url }}/scan/{{ c.filename }}"><img src="{{ c.image }}" alt="{{ c.filename }}" /></a>{% endif %}
+        <figcaption>{{ 'previous' if c.offset < 0 else 'next' }} scan</figcaption></figure>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="card">
+    <h2>Transcription</h2>
+    <div class="transcription">{{ text or '(no text)' }}</div>
+    <p><small class="text-muted">Model score {{ '%.2f' | format(item.score or 0) }} · sample stratum: {{ item.stratum }}</small></p>
+    <h2>Progress per stratum</h2>
+    <table>
+      <thead><tr><th>Stratum</th><th>Labelled</th><th>Registers</th></tr></thead>
+      <tbody>{% for c in counts %}<tr><td>{{ c.stratum }}</td><td>{{ c.done }} / {{ c.n }}</td><td>{{ c.registers or 0 }}</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+</div>
+<script>
+  document.addEventListener('keydown', function (e) {
+    if (e.target.tagName === 'INPUT') return;
+    var b = document.querySelector('.label-buttons button[data-key="' + e.key + '"]');
+    if (b) { b.click(); }
+    else if (e.key === 'ArrowLeft') { document.getElementById('prev').click(); }
+    else if (e.key === 'ArrowRight') { document.getElementById('next').click(); }
+  });
+</script>
+{% endif %}
+{% endblock %}

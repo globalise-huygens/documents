@@ -323,3 +323,41 @@ def test_text_version_rows_symmetric():
     assert len(r) == 2
     first = r.iloc[0]
     assert (first.inventory_a, first.scan_start_a, first.scan_end_a, first.inventory_b, first.scan_start_b, first.scan_end_b) == ("4319", 233, 262, "10668", 7, 68)
+
+
+# ── register rows ─────────────────────────────────────────────────────────────
+
+
+def _line(x0, x1, y, text):
+    return {"x0": x0, "x1": x1, "y": y, "y0": y - 0.006, "y1": y + 0.004, "text": text, "region": "paragraph"}
+
+
+def test_register_entries_rows_and_dittos():
+    from segmentation.rows import register_entries
+
+    lines = [
+        _line(0.20, 0.60, 0.05, "Brieven & Papieren van Bengaalen"),
+        _line(0.10, 0.69, 0.10, "fo. 69. a 112 Een brief door den Direct & Raad Aan de 17e: in dato 10 Jan 1775."),
+        # one row split into three fragments, out of order
+        _line(0.42, 0.65, 0.122, "„„ „ „ 26 Maert 1771"),
+        _line(0.11, 0.31, 0.120, "123 „ 124. „ „"),
+        _line(0.34, 0.42, 0.121, "„ _o"),
+        _line(0.12, 0.18, 0.140, "129"),
+    ]
+    heading, entries = register_entries(lines)
+    assert [r.text for r in heading] == ["Brieven & Papieren van Bengaalen"]
+    assert [(e.folio_start, e.folio_end) for e in entries] == [(69, 112), (123, 124), (129, 129)]
+    assert entries[0].resolved == "Een brief door den Direct & Raad Aan de 17e: in dato 10 Jan 1775"
+    assert entries[1].resolved == "Een brief door den Direct & Raad Aan de 17e: in dato 26 Maert 1771"
+
+
+def test_register_two_columns():
+    from segmentation.rows import split_columns
+
+    left = [_line(0.15, 0.52, 0.1 + 0.04 * k, f"{k + 1}. Copia missive van als boven nummer {k}") for k in range(6)]
+    right = [_line(0.56, 0.90, 0.1 + 0.04 * k, f"{k + 7}. Copia resolutien genomen in rade {k}") for k in range(6)]
+    cols = split_columns(left + right)
+    assert len(cols) == 2 and {l["x0"] for l in cols[0]} == {0.15} and {l["x0"] for l in cols[1]} == {0.56}
+    single = [_line(0.10, 0.70, 0.1 + 0.04 * k, f"{k} „ {k + 3} Een brief aan de 17e dito dito") for k in range(6)] + \
+             [_line(0.75, 0.92, 0.1 + 0.04 * k, f"in dato {k + 1} Maart 1771") for k in range(6)]
+    assert len(split_columns(single)) == 1  # a date column is not a second column of entries

@@ -637,6 +637,66 @@ def document_detail(document_id):
     )
 
 
+REVIEW_LABELS = {"start": "Register: first page", "continuation": "Register: continued", "not": "Not a register", "unsure": "Unsure"}
+
+
+def _iiif(db_session, filename, width):
+    info = db_session.execute(text("SELECT iiif_image_info FROM scan WHERE filename = :f"), {"f": filename}).scalar()
+    return f"{info.rsplit('/info.json', 1)[0]}/full/{width},/0/default.jpg" if info else None
+
+
+@app.route("/review/registers", methods=["GET", "POST"])
+def review_registers():
+    """Label sampled scans as handwritten register pages or not (table register_review)."""
+    db_session = Session()
+    try:
+        total = db_session.execute(text("SELECT count(*) FROM register_review")).scalar()
+    except Exception:
+        db_session.rollback()
+        return render_template("review_registers.html", item=None, total=0, message="No sample yet: run `uv run python -m segmentation register-sample`.")
+    if request.method == "POST":
+        label = request.form.get("label")
+        if label in REVIEW_LABELS:
+            db_session.execute(
+                text("UPDATE register_review SET label = :l, note = :n, labelled_at = :t WHERE filename = :f"),
+                {"l": label, "n": request.form.get("note") or None, "t": datetime.now().isoformat(timespec="seconds"), "f": request.form["filename"]},
+            )
+            db_session.commit()
+        nxt = db_session.execute(
+            text("SELECT position FROM register_review WHERE label IS NULL AND position > :p ORDER BY position LIMIT 1"), {"p": int(request.form["position"])}
+        ).scalar()
+        return redirect(url_for("review_registers", i=nxt if nxt is not None else request.form["position"]))
+    i = request.args.get("i", type=int)
+    if i is None:
+        i = db_session.execute(text("SELECT min(position) FROM register_review WHERE label IS NULL")).scalar()
+        if i is None:
+            i = db_session.execute(text("SELECT max(position) FROM register_review")).scalar()
+    item = db_session.execute(text("SELECT * FROM register_review WHERE position = :i"), {"i": i}).mappings().first()
+    done = db_session.execute(text("SELECT count(*) FROM register_review WHERE label IS NOT NULL")).scalar()
+    counts = db_session.execute(
+        text("SELECT stratum, count(*) AS n, sum(label IS NOT NULL) AS done, sum(label IN ('start', 'continuation')) AS registers "
+             "FROM register_review GROUP BY stratum ORDER BY stratum")
+    ).mappings().all()
+    context = []
+    if item:
+        number = _scan_number(item["filename"])
+        prefix = item["filename"].rsplit("_", 1)[0]
+        for k in (-1, 0, 1):
+            fn = f"{prefix}_{number + k:04d}"
+            context.append({"filename": fn, "offset": k, "image": _iiif(db_session, fn, 1100 if k == 0 else 420)})
+    text_row = None
+    if item:
+        folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "texts", f"inv={item['inventory']}")
+        if os.path.isdir(folder):
+            import pandas as pd
+
+            t = pd.read_parquet(folder, columns=["filename", "text"])
+            hit = t[t["filename"] == item["filename"]]
+            text_row = hit["text"].iat[0] if len(hit) else None
+    return render_template("review_registers.html", item=item, total=total, done=done, counts=counts, context=context,
+                           text=text_row, labels=REVIEW_LABELS, message=None)
+
+
 @app.route("/scans")
 def scans():
     """List all scans."""
