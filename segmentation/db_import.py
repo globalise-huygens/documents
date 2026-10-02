@@ -23,6 +23,9 @@ as documents of the identification method "Segmentation model".
     double scans), source SEGMENTATION_MODEL, confidence CANDIDATE.
   - The model's evidence per document goes into document_evidence (JSON).
 
+Every committed inventory is appended to <csv>.imported; `import --resume`
+skips those, so an interrupted import continues where it stopped.
+
 Re-importing an inventory first deletes that method's documents there. So
 importing a CSV whose court-record inventories were segmented without the
 court cases (e.g. a segments.csv written before court_records.py existed)
@@ -33,6 +36,7 @@ this; re-import the court segments (court_segments.csv) afterwards, or re-run
 
 import datetime
 import json
+import os
 import logging
 import time
 import uuid
@@ -55,6 +59,7 @@ METHOD_DESCRIPTION = (
 SOURCE = "SEGMENTATION_MODEL"
 NT_CONTEXT = "NT"
 COURT_CONTEXT = "EMDCCR"
+DERIVED_TOC = "derived_toc.csv"  # entries derived from other versions (versions.py)
 DOC_COLUMNS = (
     "folio_start", "folio_end", "date_earliest_begin", "date_latest_begin",
     "date_earliest_end", "date_latest_end", "location_id",
@@ -136,7 +141,9 @@ def _toc_entries(conn, inv_id: str) -> tuple[pd.DataFrame, dict[int, list[str]]]
     return toc, {cid: by_doc.get(r.toc_doc_id, []) for cid, r in toc.iterrows()}
 
 
-def import_segments(csv_path: str, database_url: str, dry_run: bool = False):
+def import_segments(csv_path: str, database_url: str, dry_run: bool = False, resume: bool = False):
+    """Import the segments; every committed inventory is recorded in <csv>.imported,
+    and with resume=True the inventories listed there are skipped."""
     seg = pd.read_csv(csv_path, dtype={"inventory": str, "toc_csv_ids": str}, low_memory=False)
     seg = seg[seg["kind"] != "non-document"]
     extra = ("court_case", "parent_court_case", "title", "date_begin", "date_end", "place", "entry_id", "parent_entry_id")
@@ -144,9 +151,18 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False):
         if c not in seg:
             seg[c] = None  # CSVs written before court records / derived ToCs were added
     seg = seg.astype({c: object for c in extra})
-    without_cases = _court_inventories_without_cases(seg)
-    if without_cases:
-        logger.warning(_court_warning(without_cases, csv_path))
+    warnings = _stale_warnings(seg, csv_path)
+    for w in warnings:
+        logger.warning(w)
+    progress_path = csv_path + ".imported"
+    done = set()
+    if resume and os.path.exists(progress_path):
+        with open(progress_path) as f:
+            done = {line.strip() for line in f if line.strip()}
+        logger.info("Resuming: %d inventories already imported (%s)", len(done), progress_path)
+    elif not dry_run and os.path.exists(progress_path):
+        os.remove(progress_path)  # a new import of this CSV
+    seg = seg[~seg["inventory"].isin(done)]
     t0, n_inv = time.time(), seg["inventory"].nunique()
     engine = create_engine(database_url)
     if not dry_run:
@@ -282,15 +298,36 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False):
                                      "VALUES (:id, :page_id, :document_id, :index, :source, :confidence)"), links)
             if ev_rows:
                 session.execute(text("INSERT INTO document_evidence (document_id, evidence) VALUES (:document_id, :evidence)"), ev_rows)
-            session.commit()  # per inventory: a large import can be interrupted and rerun
+            session.commit()  # per inventory: a large import can be interrupted and resumed
+            with open(progress_path, "a") as f:
+                f.write(inv_number + "\n")
         if dry_run:
             session.rollback()
             logger.info("Dry run — nothing written. Would create %s", dict(totals))
         else:
             session.commit()
             logger.info("Imported %s", dict(totals))
+    for w in warnings:
+        logger.warning(w)
+
+
+def _stale_warnings(seg: pd.DataFrame, csv_path: str) -> list[str]:
+    """Warnings for inventories whose court cases or derived ToC entries this CSV would replace."""
+    out = []
+    without_cases = _court_inventories_without_cases(seg)
     if without_cases:
-        logger.warning(_court_warning(without_cases, csv_path))
+        out.append(_court_warning(without_cases, csv_path))
+    if os.path.exists(DERIVED_TOC) and os.path.abspath(csv_path) != os.path.abspath(DERIVED_TOC):
+        derived = set(pd.read_csv(DERIVED_TOC, usecols=["inventory"], dtype=str)["inventory"])
+        has = set(seg.loc[seg["entry_id"].notna() | seg["court_case"].notna(), "inventory"])  # court cases take precedence
+        missing = sorted((set(seg["inventory"]) & derived) - has, key=lambda n: (len(n), n))
+        if missing:
+            shown = ", ".join(missing[:10]) + (f" … ({len(missing)} in all)" if len(missing) > 10 else "")
+            out.append(f"{csv_path} has no derived ToC entries for {len(missing)} inventories that have them in {DERIVED_TOC} ({shown}); "
+                       "importing it replaces their derived ToC documents with model-only documents. Re-import the derived "
+                       "segments afterwards (uv run python -m segmentation import derived_segments.csv) or re-run "
+                       "`segmentation run` for these inventories.")
+    return out
 
 
 def _court_inventories_without_cases(seg: pd.DataFrame) -> list[str]:

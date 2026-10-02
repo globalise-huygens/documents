@@ -354,11 +354,17 @@ How it works:
 uv run python -m segmentation match-versions          # same text elsewhere, for every inventory without ToC entries or court cases (~2.5 h, resumable)
 uv run python -m segmentation derive-tocs             # → version_blocks.csv and derived_toc.csv
 uv run python -m segmentation run <inv ...> --out derived_segments.csv   # uses derived_toc.csv for those inventories
+uv run python -m segmentation import derived_segments.csv [--resume]     # resumable: <csv>.imported lists the imported inventories
+uv run python -m segmentation match-versions --all                      # every inventory (~2–3 h more, resumable)
+uv run python -m segmentation version-blocks                            # → version_blocks_all.csv
+uv run python -m segmentation load-versions version_blocks_all.csv      # → table text_version
 ```
 
 - `match-versions` compares every scan with every scan of the inventories within ±2 years. The measure is containment: the share of its word 3-grams found in the other scan, with formulaic 3-grams that occur in more than 100 scans ignored. A containment ≥ 0.3 means the same text. The shingles of each inventory are cached in `data/shingles/` and the matches are written to `data/versions/<inv>.parquet`.
 - `derive-tocs` chains the matches into version blocks: runs of the same text in both volumes, in the same order. It then maps the titled documents of the other volume through each block, keeping titles verbatim. These are ToC entries from OBP/NT/typoscripts, or court cases. The same document found in several versions becomes one entry, and the others are listed as its versions.
-- `run` uses the derived entries as forced starts, each moved by at most one scan to the best start evidence. Documents found inside an entry become its subdocuments. `import` stores the titles and dates, and keeps the source and other versions in the document's evidence.
+- `derive-tocs` anchors each entry's start on the scan, within ±3 of the mapped start, that holds most of the text of the source document's start scan. These entries are marked `verified`; partial entries are verified by their block.
+- `version-blocks` and `load-versions` fill the `text_version` table for the whole collection (after `match-versions --all`). Each row records two runs of scans, in two inventories, that hold the same text. Rows are keyed on inventory and scan numbers, the archive's own identifiers, so they survive re-segmentation and re-import. Each pair is stored once, the lower inventory number as *a*, without treating either version as the original. The app shows a document's versions (the matching scans and documents in the other inventories) and an inventory's shared text per other inventory.
+- `run` uses the derived entries as forced starts. A verified start stays put; an unverified one is moved by at most one scan to the best start evidence. Documents found inside an entry become its subdocuments. `import` stores the titles and dates, and keeps the source and other versions in the document's evidence.
 
 The output of `run` has one row per segment: kind, boundary type, first / last scan, ToC id and title, parent ToC id, and the start/end log-odds.
 

@@ -205,6 +205,22 @@ GLOBALISE Documents{% endblock %}
   </div>
 </div>
 
+{% if versions %}
+<div class="card">
+  <h2>Versions ({{ versions|length }} other {{ 'inventory' if versions|length == 1 else 'inventories' }})</h2>
+  <p><small class="text-muted">Inventories with the same text as (parts of) this one; a document's page shows the matching scans and documents.</small></p>
+  <table>
+    <thead><tr><th>Inventory</th><th>Shared scans here</th><th>Runs of shared text</th></tr></thead>
+    <tbody>
+      {% for v in versions[:30] %}
+      <tr><td><a href="{{ base_url }}/inventory/{{ v.other }}">{{ v.other }}</a></td><td>{{ v.scans }}</td><td>{{ v.blocks }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if versions|length > 30 %}<p><small class="text-muted">… and {{ versions|length - 30 }} more inventories with a few shared scans.</small></p>{% endif %}
+</div>
+{% endif %}
+
 {% if timeline_data and timeline_data.items %}
 <div class="card">
   <h2>Document Identification Timeline</h2>

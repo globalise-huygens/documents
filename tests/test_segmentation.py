@@ -308,3 +308,18 @@ def test_match_inventory_leaves_cache_intact(tmp_path, monkeypatch):
     before = (target.matrix.indptr.copy(), target.matrix.indices.copy())
     v.match_inventory("T", list(others), cache)
     assert np.array_equal(target.matrix.indptr, before[0]) and np.array_equal(target.matrix.indices, before[1])
+
+
+def test_text_version_rows_symmetric():
+    from segmentation.versions import text_version_rows
+
+    def blk(i, o, s, e, os_, oe, score):
+        return {"inventory": i, "other_inventory": o, "start": 0, "end": 0, "other_start": 0, "other_end": 0, "n_matches": 3,
+                "score": score, "start_scan": _fn(i, s), "end_scan": _fn(i, e), "other_start_scan": _fn(o, os_), "other_end_scan": _fn(o, oe)}
+
+    # the same run found from both sides, and a separate run
+    b = pd.DataFrame([blk("10668", "4319", 7, 68, 233, 262, 33.4), blk("4319", "10668", 233, 260, 7, 66, 30.0), blk("10668", "4319", 85, 95, 268, 280, 5.0)])
+    r = text_version_rows(b)
+    assert len(r) == 2
+    first = r.iloc[0]
+    assert (first.inventory_a, first.scan_start_a, first.scan_end_a, first.inventory_b, first.scan_start_b, first.scan_end_b) == ("4319", 233, 262, "10668", 7, 68)

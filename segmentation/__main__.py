@@ -18,15 +18,21 @@ Command line for the segmentation metric.
   SEGMENTATION_PAGEXML_DIR=/Volumes/HDE0090 uv run python -m segmentation cache-layout [inv ...]
       read the PageXML zips once and cache the page layout per inventory (data/layout/;
       all inventories when none are given; already cached ones are skipped)
-  uv run python -m segmentation match-versions [inv ...] [--window 2]
+  uv run python -m segmentation match-versions [inv ...] [--window 2] [--all]
       find the same text elsewhere in the archive for every scan of the inventories
-      without ToC entries or court cases (all such when none are given; versions.py);
+      without ToC entries or court cases (all such when none are given, every inventory
+      with --all; versions.py);
       one parquet per inventory in data/versions/, resumable
   uv run python -m segmentation derive-tocs [inv ...] [--out derived_toc.csv] [--blocks version_blocks.csv]
       version blocks and the ToC entries derived from the other versions' ToCs
-  uv run python -m segmentation import segments.csv [--dry-run]
+  uv run python -m segmentation version-blocks [inv ...] [--out version_blocks_all.csv]
+      version blocks of every matched inventory (all when none are given), no ToC entries
+  uv run python -m segmentation load-versions version_blocks_all.csv
+      (re)fill the text_version table: runs of scans with the same text in two inventories
+  uv run python -m segmentation import segments.csv [--dry-run] [--resume]
       store the segments as documents of the method "Segmentation model"
-      (re-importing an inventory replaces its earlier segmentation documents)
+      (re-importing an inventory replaces its earlier segmentation documents);
+      --resume skips the inventories already imported from this CSV (<csv>.imported)
 """
 
 import argparse
@@ -110,13 +116,20 @@ def main():
     mv = sub.add_parser("match-versions")
     mv.add_argument("inventories", nargs="*")
     mv.add_argument("--window", type=int, default=2)
+    mv.add_argument("--all", action="store_true", help="all inventories, not only those without ToC entries or court cases")
     dt = sub.add_parser("derive-tocs")
     dt.add_argument("inventories", nargs="*")
     dt.add_argument("--out", default="derived_toc.csv")
     dt.add_argument("--blocks", default="version_blocks.csv")
+    vb = sub.add_parser("version-blocks")
+    vb.add_argument("inventories", nargs="*")
+    vb.add_argument("--out", default="version_blocks_all.csv")
+    lv = sub.add_parser("load-versions")
+    lv.add_argument("csv", nargs="+")
     im = sub.add_parser("import")
     im.add_argument("csv")
     im.add_argument("--dry-run", action="store_true")
+    im.add_argument("--resume", action="store_true", help="skip the inventories listed in <csv>.imported")
     args = ap.parse_args()
 
     if args.cmd == "evaluate":
@@ -155,20 +168,34 @@ def main():
             layout = load_layout(n, files)
             logger.info("%d/%d %s: %d of %d scans with layout (%.1fs)", k, len(numbers), n, int(layout["has_layout"].sum()), len(files), time.time() - t)
         logger.info("Done; %d inventories were already cached", skipped)
-    elif args.cmd in ("match-versions", "derive-tocs"):
+    elif args.cmd == "load-versions":
+        from .inventory import DATABASE_URL
+        from .versions import load_text_versions
+
+        load_text_versions(args.csv, DATABASE_URL)
+    elif args.cmd in ("match-versions", "derive-tocs", "version-blocks"):
         from . import versions
 
         conn = connect()
-        targets = args.inventories or versions.untitled_inventories(conn)
+        if args.inventories:
+            targets = args.inventories
+        elif getattr(args, "all", False):
+            targets = [r[0] for r in conn.execute("SELECT inventory_number FROM inventory ORDER BY inventory_number")]
+        else:
+            targets = versions.untitled_inventories(conn)
         if args.cmd == "match-versions":
             versions.match_all(targets, conn, window=args.window)
+        elif args.cmd == "version-blocks":
+            if not args.inventories:
+                targets = [r[0] for r in conn.execute("SELECT inventory_number FROM inventory ORDER BY inventory_number")]
+            versions.derive_all([t for t in targets if os.path.exists(os.path.join(versions.MATCH_DIR, f"{t}.parquet"))], conn, None, args.out)
         else:
             versions.derive_all([t for t in targets if os.path.exists(os.path.join(versions.MATCH_DIR, f"{t}.parquet"))], conn, args.out, args.blocks)
     elif args.cmd == "import":
         from .db_import import import_segments
         from .inventory import DATABASE_URL
 
-        import_segments(args.csv, DATABASE_URL, dry_run=args.dry_run)
+        import_segments(args.csv, DATABASE_URL, dry_run=args.dry_run, resume=args.resume)
     else:
         run(args)
 

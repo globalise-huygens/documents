@@ -164,6 +164,96 @@ def refresh_document_reasons(evidence, inventory_number):
     return evidence
 
 
+SCAN_PREFIX = "NL-HaNA_1.04.02_"
+MAX_VERSION_INVENTORIES = 25
+MAX_VERSION_DOCUMENTS = 8
+
+
+def _scan_number(filename):
+    try:
+        return int(str(filename).rsplit("_", 1)[1])
+    except (IndexError, ValueError, TypeError):
+        return None
+
+
+def text_versions(db_session, inventory_number, scan_lo, scan_hi):
+    """
+    Other inventories holding the same text as scans scan_lo..scan_hi of this
+    inventory (text_version table), with the matching scan range there and the
+    segmentation documents in that range. One entry per other inventory, most
+    shared scans first.
+    """
+    if scan_lo is None or scan_hi is None:
+        return []
+    try:
+        rows = db_session.execute(
+            text(
+                "SELECT inventory_a, scan_start_a, scan_end_a, inventory_b, scan_start_b, scan_end_b, score FROM text_version "
+                "WHERE (inventory_a = :inv AND scan_start_a <= :hi AND scan_end_a >= :lo) "
+                "   OR (inventory_b = :inv AND scan_start_b <= :hi AND scan_end_b >= :lo)"
+            ),
+            {"inv": inventory_number, "lo": scan_lo, "hi": scan_hi},
+        ).fetchall()
+    except Exception:  # no text_version table yet
+        db_session.rollback()
+        return []
+    by_inv = {}
+    for r in rows:
+        if r.inventory_a == inventory_number:
+            a1, a2, other, b1, b2 = r.scan_start_a, r.scan_end_a, r.inventory_b, r.scan_start_b, r.scan_end_b
+        else:
+            a1, a2, other, b1, b2 = r.scan_start_b, r.scan_end_b, r.inventory_a, r.scan_start_a, r.scan_end_a
+        lo, hi = max(scan_lo, a1), min(scan_hi, a2)
+        rate = (b2 - b1) / (a2 - a1) if a2 > a1 else 0
+        o_lo, o_hi = round(b1 + (lo - a1) * rate), round(b1 + (hi - a1) * rate)
+        v = by_inv.setdefault(other, {"inventory": other, "shared": 0, "ranges": [], "score": 0.0})
+        v["shared"] += hi - lo + 1
+        v["score"] += r.score
+        v["ranges"].append((min(o_lo, o_hi), max(o_lo, o_hi)))
+    versions = sorted(by_inv.values(), key=lambda v: (-v["shared"], -v["score"]))[:MAX_VERSION_INVENTORIES]
+    for v in versions:
+        v["ranges"] = sorted(v["ranges"])
+        o_lo, o_hi = v["ranges"][0][0], max(h for _, h in v["ranges"])
+        v["first_scan"], v["last_scan"] = f"{SCAN_PREFIX}{v['inventory']}_{o_lo:04d}", f"{SCAN_PREFIX}{v['inventory']}_{o_hi:04d}"
+        docs = db_session.execute(
+            text(
+                "SELECT d.id, d.title, d.part_of_id, min(s.filename) AS first_scan, max(s.filename) AS last_scan "
+                "FROM scan s JOIN inventory i ON i.id = s.inventory_id AND i.inventory_number = :inv "
+                "JOIN page p ON p.scan_id = s.id JOIN page2document p2d ON p2d.page_id = p.id "
+                "JOIN document d ON d.id = p2d.document_id "
+                "JOIN document_identification_method m ON m.id = d.method_id AND m.name = 'Segmentation model' "
+                "WHERE s.filename BETWEEN :f1 AND :f2 GROUP BY d.id ORDER BY min(s.filename), d.part_of_id IS NOT NULL"
+            ),
+            {"inv": v["inventory"], "f1": v["first_scan"], "f2": v["last_scan"]},
+        ).fetchall()
+        v["n_documents"] = len(docs)
+        v["documents"] = [dict(d._mapping) for d in docs[:MAX_VERSION_DOCUMENTS]]
+        title = db_session.execute(
+            text("SELECT t.title FROM inventory_title t JOIN inventory i ON i.id = t.inventory_id WHERE i.inventory_number = :inv LIMIT 1"),
+            {"inv": v["inventory"]},
+        ).scalar()
+        v["inventory_title"] = title
+    return versions
+
+
+def inventory_versions(db_session, inventory_number):
+    """Per other inventory: blocks and scans of this inventory with the same text there."""
+    try:
+        rows = db_session.execute(
+            text(
+                "SELECT CASE WHEN inventory_a = :inv THEN inventory_b ELSE inventory_a END AS other, count(*) AS blocks, "
+                "       sum(CASE WHEN inventory_a = :inv THEN scan_end_a - scan_start_a + 1 ELSE scan_end_b - scan_start_b + 1 END) AS scans, "
+                "       round(sum(score), 1) AS score "
+                "FROM text_version WHERE inventory_a = :inv OR inventory_b = :inv GROUP BY other ORDER BY scans DESC"
+            ),
+            {"inv": inventory_number},
+        ).fetchall()
+    except Exception:
+        db_session.rollback()
+        return []
+    return [dict(r._mapping) for r in rows]
+
+
 def get_or_404(query):
     """Helper function to get first result or abort with 404."""
     result = query.first()
@@ -337,9 +427,11 @@ def inventory_detail(inventory_number):
 
     # Prepare timeline data for document identification visualization
     timeline_data = prepare_timeline_data(db_session, inventory.id)
+    versions = inventory_versions(db_session, inventory.inventory_number)
 
     return render_template(
         "inventory_detail.html",
+        versions=versions,
         inventory=inventory,
         documents=documents,
         scans=scans,
@@ -529,8 +621,13 @@ def document_detail(document_id):
     if row:
         evidence = refresh_document_reasons(json.loads(row.evidence), document.inventory.inventory_number)
 
+    versions = text_versions(
+        db_session, document.inventory.inventory_number, _scan_number(first_scan_filename), _scan_number(last_scan_filename)
+    )
+
     return render_template(
         "document_detail.html",
+        versions=versions,
         document=document,
         page_docs=page_docs,
         sub_documents=sub_documents,

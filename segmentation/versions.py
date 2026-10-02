@@ -248,13 +248,18 @@ MAX_PARTIAL_GAP = 10  # pieces of one document further apart stay separate entri
 MIN_BLOCK_SCORE = 0.6  # summed containment of a block's matches
 
 
+_positions: dict[str, dict[str, int]] = {}
+
+
 def scan_positions(conn: sqlite3.Connection, inventories: list[str]) -> dict[str, int]:
-    """Position (0..n-1 in scan order) of every scan of these inventories."""
+    """Position (0..n-1 in scan order) of every scan of these inventories (cached per inventory)."""
     out = {}
     for inv in inventories:
-        fns = [r[0] for r in conn.execute(
-            "SELECT s.filename FROM scan s JOIN inventory i ON i.id = s.inventory_id WHERE i.inventory_number = ? ORDER BY s.scan_order, s.filename", (inv,))]
-        out.update({f: k for k, f in enumerate(fns)})
+        if inv not in _positions:
+            fns = [r[0] for r in conn.execute(
+                "SELECT s.filename FROM scan s JOIN inventory i ON i.id = s.inventory_id WHERE i.inventory_number = ? ORDER BY s.scan_order, s.filename", (inv,))]
+            _positions[inv] = {f: k for k, f in enumerate(fns)}
+        out.update(_positions[inv])
     return out
 
 
@@ -445,8 +450,54 @@ def _merge_versions(toc: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(out).sort_values(["start", "end"], ascending=[True, False]).reset_index(drop=True)
 
 
-def derive_all(targets: list[str], conn: sqlite3.Connection, out: str, blocks_out: str):
-    """Version blocks and derived ToC entries of every matched target, with progress."""
+ANCHOR_WINDOW = 3  # scans around the mapped start searched for the source's start text
+ANCHOR_MIN = 0.2  # containment of the source's start scan that counts as found
+
+
+def anchor_starts(toc: pd.DataFrame, target: str, fn_of: dict, n_scans: int) -> pd.DataFrame:
+    """
+    Put each (non-partial) entry's start on the target scan, within ANCHOR_WINDOW
+    of the mapped start, that holds most of the text of the source document's
+    start scan (containment of its shingles; formulas are rare enough not to
+    decide this, the whole scan is compared). verified: that text was found
+    (containment >= ANCHOR_MIN). Partial entries start where the shared text
+    starts and are verified by their block.
+    """
+    if toc.empty:
+        return toc
+    rows: dict[str, dict] = {}
+
+    def shingles(inv: str) -> dict:
+        if inv not in rows:
+            x = load_shingles(inv)
+            rows[inv] = {f: x.matrix[k].indices for k, f in enumerate(x.filenames)}
+        return rows[inv]
+
+    toc = toc.copy()
+    toc["anchor"], toc["verified"] = np.nan, toc["partial"].astype(bool)
+    tgt = shingles(target)
+    for i, r in toc[~toc["partial"].astype(bool)].iterrows():
+        src = shingles(r["source_inventory"]).get(fn_of.get((r["source_inventory"], int(r["source_start"]))))
+        if src is None or len(src) < MIN_SHINGLES:
+            continue
+        best, best_k = 0.0, None
+        for k in range(max(0, r["start"] - ANCHOR_WINDOW), min(n_scans, r["start"] + ANCHOR_WINDOW + 1)):
+            t = tgt.get(fn_of.get((target, k)))
+            if t is not None:
+                c = len(np.intersect1d(src, t, assume_unique=True)) / len(src)
+                if c > best or (c == best and best_k is not None and abs(k - r["start"]) < abs(best_k - r["start"])):
+                    best, best_k = c, k
+        toc.at[i, "anchor"] = round(best, 3)
+        if best >= ANCHOR_MIN:
+            toc.at[i, "verified"] = True
+            shift = best_k - r["start"]
+            toc.at[i, "start"] = best_k
+            toc.at[i, "end"] = max(best_k, r["end"] + shift if r["end"] + shift < n_scans else r["end"])
+    return toc.sort_values(["start", "end"], ascending=[True, False]).reset_index(drop=True)
+
+
+def derive_all(targets: list[str], conn: sqlite3.Connection, out: str | None, blocks_out: str):
+    """Version blocks and (unless out is None) derived ToC entries of every matched target, with progress."""
     t0, all_toc, all_blocks = time.time(), [], []
     titled_cache: dict[str, pd.DataFrame] = {}
     for k, target in enumerate(targets, 1):
@@ -458,10 +509,14 @@ def derive_all(targets: list[str], conn: sqlite3.Connection, out: str, blocks_ou
             fn_of[(_inv(f), p)] = f
         n = sum(1 for f in pos if _inv(f) == target)
         b = version_blocks(m, pos)
-        for o in b["other_inventory"].unique():
-            if o not in titled_cache:
-                titled_cache[o] = titled_documents(conn, o, pos)
-        toc = derive_toc(b, titled_cache, n)
+        if out is None:
+            toc = pd.DataFrame()
+        else:
+            for o in b["other_inventory"].unique():
+                if o not in titled_cache:
+                    titled_cache[o] = titled_documents(conn, o, pos)
+            toc = derive_toc(b, titled_cache, n)
+            toc = anchor_starts(toc, target, {(_inv(f), p): f for f, p in pos.items()}, n)
         if len(b):
             bb = b.drop(columns="pairs").copy()
             bb.insert(0, "inventory", target)
@@ -479,7 +534,7 @@ def derive_all(targets: list[str], conn: sqlite3.Connection, out: str, blocks_ou
         if k % 25 == 0 or k == len(targets):
             logger.info("%d/%d %s: %d blocks covering %d of %d scans, %d derived entries (%.0fs; about %.0f min to go)",
                         k, len(targets), target, len(b), len(covered), n, len(toc), time.time() - t0, (time.time() - t0) / k * (len(targets) - k) / 60)
-    if all_toc:
+    if all_toc and out:
         pd.concat(all_toc).to_csv(out, index=False)
     if all_blocks:
         pd.concat(all_blocks).to_csv(blocks_out, index=False)
@@ -517,8 +572,10 @@ def segment_with_derived(inv, model, entries: pd.DataFrame):
     e["s"] = e["start_scan"].map(pos)
     e["e"] = e["end_scan"].map(pos)
     e = e.dropna(subset=["s", "e"]).astype({"s": int, "e": int})
-    # refine each start within one scan on the start evidence (staying put is preferred)
-    e["placed"] = [max(range(max(0, s - 1), min(inv.n, s + 2)), key=lambda c: sc.start[c] + (0.5 if c == s else 0)) for s in e["s"]]
+    # an unverified start (its text not found in this volume) moves at most one scan to the best start evidence
+    verified = e["verified"].astype(str).str.lower().eq("true") if "verified" in e else pd.Series(False, index=e.index)
+    e["placed"] = [s if v else max(range(max(0, s - 1), min(inv.n, s + 2)), key=lambda c: sc.start[c] + (0.5 if c == s else 0))
+                   for s, v in zip(e["s"], verified)]
     e = e.sort_values(["placed", "e"], ascending=[True, False]).reset_index(drop=True)
     forced = set(e["placed"])
     use_prior = np.ones(inv.n, dtype=bool)
@@ -572,4 +629,80 @@ def _derived_info(r, entry_id: str, parent: str | None) -> dict:
         "source": {"inventory": r.source_inventory, "index_ids": val(r.source_index_ids), "scans": [int(r.source_start), int(r.source_end)]},
         "versions": [v for v in str(val(r.versions) or "").split(";") if v],
         "block_score": float(r.block_score),
+        "verified": str(getattr(r, "verified", "")).lower() == "true",
+        "anchor": None if pd.isna(getattr(r, "anchor", np.nan)) else float(r.anchor),
     }
+
+
+# ── the text_version table ────────────────────────────────────────────────────
+
+
+METHOD = f"shingle-containment-v1 ({SHINGLE}-grams, containment >= {MIN_CONTAINMENT}, max df {MAX_DF})"
+
+
+def _scan_number(filename) -> int | None:
+    try:
+        return int(str(filename).rsplit("_", 1)[1])
+    except (IndexError, ValueError):
+        return None
+
+
+def _inv_key(n: str):
+    import re
+
+    m = re.match(r"(\d+)(.*)", n)
+    return (int(m.group(1)), m.group(2)) if m else (10**9, n)
+
+
+def text_version_rows(blocks: pd.DataFrame) -> pd.DataFrame:
+    """
+    Blocks (version_blocks.csv) as text_version rows: scan numbers, the lower
+    inventory as a, and one row where the same run was found from both sides
+    (when both volumes were targets): a row is dropped when a stronger row of
+    the same pair overlaps it on both sides.
+    """
+    b = blocks.copy()
+    for c in ("start_scan", "end_scan", "other_start_scan", "other_end_scan"):
+        b[c] = b[c].map(_scan_number)
+    b = b.dropna(subset=["start_scan", "end_scan", "other_start_scan", "other_end_scan"])
+    swap = [_inv_key(str(i)) > _inv_key(str(o)) for i, o in zip(b["inventory"], b["other_inventory"])]
+    swap = pd.Series(swap, index=b.index)
+    r = pd.DataFrame({
+        "inventory_a": np.where(swap, b["other_inventory"], b["inventory"]).astype(str),
+        "scan_start_a": np.where(swap, b["other_start_scan"], b["start_scan"]).astype(int),
+        "scan_end_a": np.where(swap, b["other_end_scan"], b["end_scan"]).astype(int),
+        "inventory_b": np.where(swap, b["inventory"], b["other_inventory"]).astype(str),
+        "scan_start_b": np.where(swap, b["start_scan"], b["other_start_scan"]).astype(int),
+        "scan_end_b": np.where(swap, b["end_scan"], b["other_end_scan"]).astype(int),
+        "n_matches": b["n_matches"].astype(int),
+        "score": b["score"].astype(float).round(3),
+    })
+    keep = []
+    for _, g in r.sort_values("score", ascending=False).groupby(["inventory_a", "inventory_b"], sort=False):
+        kept = []
+        for row in g.itertuples():
+            if any(row.scan_start_a <= k.scan_end_a and k.scan_start_a <= row.scan_end_a and
+                   row.scan_start_b <= k.scan_end_b and k.scan_start_b <= row.scan_end_b for k in kept):
+                continue
+            kept.append(row)
+        keep += [k.Index for k in kept]
+    r = r.loc[keep].sort_values(["inventory_a", "scan_start_a"]).reset_index(drop=True)
+    r["method"] = METHOD
+    return r
+
+
+def load_text_versions(csv_paths: list[str], database_url: str):
+    """Replace the text_version rows of this method with the blocks in csv_paths."""
+    from sqlalchemy import create_engine, text
+
+    from models import Base
+
+    blocks = pd.concat([pd.read_csv(p, dtype={"inventory": str, "other_inventory": str}) for p in csv_paths])
+    rows = text_version_rows(blocks)
+    engine = create_engine(database_url)
+    Base.metadata.create_all(engine, tables=[Base.metadata.tables["text_version"]])
+    with engine.begin() as con:
+        removed = con.execute(text("DELETE FROM text_version WHERE method = :m"), {"m": METHOD}).rowcount
+        rows.to_sql("text_version", con, if_exists="append", index=False, chunksize=5000)
+    logger.info("text_version: %d rows from %d blocks (%d replaced), %d inventory pairs",
+                len(rows), len(blocks), removed, rows.groupby(["inventory_a", "inventory_b"]).ngroups)

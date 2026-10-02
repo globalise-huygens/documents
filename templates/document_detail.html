@@ -199,6 +199,33 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}{% imp
 </div>
 {% endif %}
 
+{% if versions %}
+<div class="card">
+  <h2>Versions ({{ versions|length }} other {{ 'inventory' if versions|length == 1 else 'inventories' }})</h2>
+  <p><small class="text-muted">The same text in other inventories (matched scan by scan; no version is taken to be the original).
+  Scans: where this document's text is there; documents: those of the segmentation model in that range.</small></p>
+  <table>
+    <thead><tr><th>Inventory</th><th>Scans there</th><th>Shared scans here</th><th>Documents there</th></tr></thead>
+    <tbody>
+      {% for v in versions %}
+      <tr>
+        <td><a href="{{ base_url }}/inventory/{{ v.inventory }}">{{ v.inventory }}</a>{% if v.inventory_title %}<br /><small class="text-muted">{{ v.inventory_title|truncate(80) }}</small>{% endif %}</td>
+        <td><a href="{{ base_url }}/scan/{{ v.first_scan }}">{{ v.first_scan.rsplit('_', 1)[1] }}</a>–<a href="{{ base_url }}/scan/{{ v.last_scan }}">{{ v.last_scan.rsplit('_', 1)[1] }}</a></td>
+        <td>{{ v.shared }}</td>
+        <td>
+          {% for d in v.documents %}
+          <div>{% if d.part_of_id %}↳ {% endif %}<a href="{{ base_url }}/document/{{ d.id }}">{{ (d.title or '(untitled)')|truncate(110) }}</a>
+            <small class="text-muted">({{ d.first_scan.rsplit('_', 1)[1] }}–{{ d.last_scan.rsplit('_', 1)[1] }})</small></div>
+          {% endfor %}
+          {% if v.n_documents > v.documents|length %}<small class="text-muted">… and {{ v.n_documents - v.documents|length }} more</small>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
 {% if document.document_types_linked %}
 <div class="card">
   <h2>Document Types</h2>

@@ -13,6 +13,7 @@ from datetime import date as Date
 from sqlalchemy import (
     String,
     Integer,
+    Float,
     Boolean,
     Text,
     Date as DateType,
@@ -631,6 +632,29 @@ class DocumentEvidence(Base):
 
     document_id: Mapped[str] = mapped_column(String(128), ForeignKey("document.id"), primary_key=True)
     evidence: Mapped[str] = mapped_column(Text)
+
+
+class TextVersion(Base):
+    """
+    Two runs of scans, in two inventories, that hold the same text (versions of
+    a document: neither is taken to be the copy). Keyed on the archive's own
+    identifiers: inventory number and scan number (the NN in
+    NL-HaNA_1.04.02_<inventory>_<NNNN>), so links survive re-segmentation.
+    Stored once per pair, the lower inventory number as a (see versions.py).
+    """
+
+    __tablename__ = "text_version"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    inventory_a: Mapped[str] = mapped_column(String(10), index=True)
+    scan_start_a: Mapped[int] = mapped_column(Integer)
+    scan_end_a: Mapped[int] = mapped_column(Integer)
+    inventory_b: Mapped[str] = mapped_column(String(10), index=True)
+    scan_start_b: Mapped[int] = mapped_column(Integer)
+    scan_end_b: Mapped[int] = mapped_column(Integer)
+    n_matches: Mapped[int] = mapped_column(Integer)
+    score: Mapped[float] = mapped_column(Float)
+    method: Mapped[str] = mapped_column(String(64))
 
 
 class Page2Document(Base):
