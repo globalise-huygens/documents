@@ -1,0 +1,69 @@
+{% extends "base.html" %} {% block title %}Review register links - GLOBALISE Documents{% endblock %} {% block content %}
+<style>
+  .entry-crop { width: 100%; height: auto; border: 1px solid #ccc; }
+  .candidates { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .candidate img { width: 100%; height: auto; border: 1px solid #ccc; }
+  .candidate { border: 2px solid #ddd; padding: 6px; }
+  .candidate.current { border-color: #2a7; }
+  .candidate button { width: 100%; padding: 8px; font-size: 1em; cursor: pointer; margin-bottom: 6px; }
+  .why { font-size: 0.8em; color: #555; }
+  .entry { font-size: 1.05em; background: #f7f7f4; padding: 8px; border: 1px solid #ddd; }
+  @media (max-width: 900px) { .candidates { grid-template-columns: 1fr; } }
+</style>
+<h1>Review: where does this register entry start?</h1>
+{% if message %}<div class="card"><p>{{ message }}</p></div>{% endif %}
+{% if item %}
+<form method="post" id="link-form">
+  <input type="hidden" name="entry_key" value="{{ item.entry_key }}" />
+  <input type="hidden" name="position" value="{{ item.position }}" />
+  <input type="hidden" name="inventory" value="{{ item.inventory }}" />
+  <div class="card">
+    <p><strong>{{ done }} / {{ total }}</strong> done.
+      Keys: <kbd>1</kbd>–<kbd>{{ candidates|length }}</kbd> this candidate is the first scan of the document ·
+      <kbd>0</kbd> none of these · <kbd>s</kbd> skip · <kbd>←</kbd>/<kbd>→</kbd> previous/next.
+      If you know the right scan, type its number below and press <em>Save other</em>.</p>
+    <div class="entry">
+      <strong>Entry:</strong> {{ item.title }}
+      {% if item.folio %}<br /><strong>Folio:</strong> {{ item.folio }}{% endif %}
+      {% if item.date %} · <strong>Date:</strong> {{ item.date }}{% endif %}
+      <br /><small class="text-muted">inventory {{ item.inventory }} · stratum: {{ item.stratum }}{% if item.choice %} · current answer: {{ item.choice if item.choice != 'none' else 'none' }}{% if item.other_scan %} ({{ item.other_scan }}){% endif %}{% endif %}</small>
+    </div>
+    <p style="margin-top: 8px">
+      <input type="text" name="other" placeholder="other scan number, e.g. 123" style="width: 180px" />
+      <button type="submit" name="choice" value="none" id="save-other">Save other</button>
+      <button type="submit" name="choice" value="none" data-key="0">0 · None of these</button>
+      <button type="submit" name="choice" value="skip" data-key="s">Skip</button>
+      <input type="text" name="note" placeholder="note (optional)" value="{{ item.note or '' }}" style="width: 30%" />
+      <a href="{{ base_url }}/review/register-links?i={{ item.position - 1 }}" id="prev">← previous</a> ·
+      <a href="{{ base_url }}/review/register-links?i={{ item.position + 1 }}" id="next">next →</a>
+    </p>
+  </div>
+  <div class="card">
+    <h2>The entry on its register page <small class="text-muted">(<a href="{{ base_url }}/scan/{{ item.register_scan }}" target="_blank">{{ item.register_scan }}</a> ·
+      <a href="{{ page_image }}" target="_blank">whole page</a>)</small></h2>
+    {% if entry_crop %}<img src="{{ entry_crop }}" alt="entry" class="entry-crop" />{% elif page_image %}<img src="{{ page_image }}" alt="register page" class="entry-crop" />{% endif %}
+  </div>
+  <div class="card">
+    <h2>Candidate first scans (after the register)</h2>
+    <div class="candidates">
+      {% for c in candidates %}
+      <div class="candidate {{ 'current' if item.choice == c.scan else '' }}">
+        <button type="submit" name="choice" value="{{ c.scan }}" data-key="{{ c.key }}">{{ c.key }} · scan {{ c.number }}</button>
+        <a href="{{ base_url }}/scan/{{ c.scan }}" target="_blank">{% if c.image %}<img src="{{ c.image }}" alt="{{ c.scan }}" />{% endif %}</a>
+        <div class="why">score {{ c.score }}{% if c.why %} · {{ c.why }}{% endif %}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</form>
+<script>
+  document.addEventListener('keydown', function (e) {
+    if (e.target.tagName === 'INPUT') return;
+    var b = document.querySelector('#link-form button[data-key="' + e.key + '"]');
+    if (b) { b.click(); }
+    else if (e.key === 'ArrowLeft') { document.getElementById('prev').click(); }
+    else if (e.key === 'ArrowRight') { document.getElementById('next').click(); }
+  });
+</script>
+{% endif %}
+{% endblock %}

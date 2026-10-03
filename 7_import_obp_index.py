@@ -9,7 +9,11 @@ that Inventory, DocumentType, and Settlement records already exist in the databa
 Column mapping
 ──────────────
 Mapped:
-  DESCRIPTION                          → Document.title
+  DESCRIPTION                          → Document.title, taken from the
+                                          "- no linebreaks.xlsx" version of the
+                                          spreadsheet (same IDs), whose
+                                          descriptions have their line breaks
+                                          and hyphenation removed
   INVENTORY NUMBER                     → FK to existing Inventory (by inventory_number)
     begin_of_begin                       → Document.date_earliest_begin
     end_of_begin                         → Document.date_latest_begin
@@ -79,6 +83,11 @@ CSV_PATH_CANDIDATES = [
     os.path.join(SCRIPT_DIR, "data", "globalise_digitized_indexes_enriched.csv"),
     os.path.join(SCRIPT_DIR, "data", "globalise_digitized_indexes.csv"),
 ]
+TITLES_XLSX = os.path.join(
+    SCRIPT_DIR,
+    "data",
+    "GLOBALISE - Digitized Indexes of the Dutch East India Company OBP (1602-1799) - no linebreaks.xlsx",
+)
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -272,6 +281,18 @@ def load_csv() -> tuple[str, pd.DataFrame]:
 
     df = pd.read_csv(csv_path)
     logger.info(f"Loaded {len(df)} rows from CSV ({os.path.basename(csv_path)})")
+
+    # The CSV's descriptions contain the typoscript's line breaks; take the
+    # cleaned ones from the xlsx instead.
+    if not os.path.exists(TITLES_XLSX):
+        logger.error("Titles spreadsheet not found: %s", TITLES_XLSX)
+        sys.exit(1)
+    titles = pd.read_excel(TITLES_XLSX, usecols=["ID", "DESCRIPTION"]).set_index("ID")["DESCRIPTION"]
+    missing = ~df["ID"].isin(titles.index)
+    if missing.any():
+        logger.warning(f"{missing.sum():,} CSV IDs not in {os.path.basename(TITLES_XLSX)}; keeping their CSV description")
+    df["DESCRIPTION"] = df["ID"].map(titles).fillna(df["DESCRIPTION"])
+    logger.info(f"Loaded {len(titles):,} titles from {os.path.basename(TITLES_XLSX)}")
     return csv_path, df
 
 

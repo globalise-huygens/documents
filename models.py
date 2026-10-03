@@ -677,6 +677,32 @@ class RegisterReview(Base):
     labelled_at: Mapped[Optional[str]] = mapped_column(String(32))
 
 
+class RegisterLinkReview(Base):
+    """
+    Register entries linked by hand to the scan where their document starts
+    (/review/register-links; candidates from `segmentation register-match`).
+    choice: a candidate's scan filename, 'none' (not in the candidates; other_scan when known), 'skip'.
+    """
+
+    __tablename__ = "register_link_review"
+
+    entry_key: Mapped[str] = mapped_column(String(255), primary_key=True)  # <register first scan>:<entry>
+    inventory: Mapped[str] = mapped_column(String(10), index=True)
+    position: Mapped[int] = mapped_column(Integer)
+    stratum: Mapped[Optional[str]] = mapped_column(String(64))
+    stratum_size: Mapped[Optional[int]] = mapped_column(Integer)
+    register_scan: Mapped[str] = mapped_column(String(255))
+    title: Mapped[Optional[str]] = mapped_column(Text)
+    date: Mapped[Optional[str]] = mapped_column(String(64))
+    folio: Mapped[Optional[str]] = mapped_column(String(32))
+    entry_box: Mapped[Optional[str]] = mapped_column(String(128))  # JSON [x0, y0, x1, y1] of the entry on its register page
+    candidates: Mapped[str] = mapped_column(Text)  # JSON: [{scan, score, why}]
+    choice: Mapped[Optional[str]] = mapped_column(String(255))
+    other_scan: Mapped[Optional[str]] = mapped_column(String(255))
+    note: Mapped[Optional[str]] = mapped_column(Text)
+    labelled_at: Mapped[Optional[str]] = mapped_column(String(32))
+
+
 class Page2Document(Base):
     __tablename__ = "page2document"
 

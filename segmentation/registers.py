@@ -196,8 +196,20 @@ REGISTER_TITLE = re.compile(r"(?i)^\s*(register\s*\.?\s*$|register\s+(der|van)\s
                             r"(brieven|papieren|stukken|missiven|pacquetten|bijlagen|documenten|diverse|boeken))")
 
 
-def training_labels(conn: sqlite3.Connection) -> pd.DataFrame:
-    """filename, inventory, label (1 register, 0 not) of the validated inventories, plus reviewed scans."""
+def review_labels(conn: sqlite3.Connection) -> pd.DataFrame:
+    """Reviewed scans: filename, inventory, label (1 register page, 0 not), stratum, weight (stratum size / labelled in it)."""
+    try:
+        rev = pd.read_sql("SELECT filename, inventory, label AS review, stratum, stratum_size FROM register_review WHERE label IN ('start', 'continuation', 'not')", conn)
+    except Exception:
+        return pd.DataFrame(columns=["filename", "inventory", "label", "stratum", "weight"])
+    rev["label"] = rev["review"].isin(["start", "continuation"]).astype(int)
+    rev["weight"] = rev["stratum_size"] / rev.groupby("stratum")["filename"].transform("size")
+    return rev[["filename", "inventory", "label", "stratum", "weight"]]
+
+
+def training_labels(conn: sqlite3.Connection, use_review: bool = True, exclude_inventories=()) -> pd.DataFrame:
+    """filename, inventory, label (1 register, 0 not) of the validated inventories, plus reviewed scans
+    (except those of exclude_inventories)."""
     rows = []
     for path in glob.glob(os.path.join(DATA_DIR, "* - Document Segmentation.csv")):
         inv = os.path.basename(path).split(" ")[0]
@@ -210,23 +222,19 @@ def training_labels(conn: sqlite3.Connection) -> pd.DataFrame:
                     "JOIN document d ON d.id = p2d.document_id WHERE p2d.source = 'SEGMENTATION' AND d.title IS NOT NULL", conn)
     register_pages = set(t[t["title"].map(lambda x: bool(REGISTER_TITLE.match(x)))]["filename"])
     lab.loc[lab["filename"].isin(register_pages), "label"] = 1
-    try:
-        rev = pd.read_sql("SELECT filename, label FROM register_review WHERE label IN ('start', 'continuation', 'not')", conn)
-        rev = pd.DataFrame({"filename": rev["filename"], "inventory": rev["filename"].str.split("_").str[2],
-                            "label": rev["label"].isin(["start", "continuation"]).astype(int)})
-        lab = pd.concat([lab[~lab["filename"].isin(rev["filename"])], rev], ignore_index=True)
-        logger.info("Training labels: %d reviewed scans added", len(rev))
-    except Exception:
-        pass
+    if use_review:
+        rev = review_labels(conn)
+        rev = rev[~rev["inventory"].isin(set(exclude_inventories))]
+        lab = pd.concat([lab[~lab["filename"].isin(rev["filename"])], rev[["filename", "inventory", "label"]]], ignore_index=True)
     return lab
 
 
-def fit(conn: sqlite3.Connection, path: str = MODEL_PATH):
+def train(lab: pd.DataFrame) -> dict:
+    """The classifier, trained on labelled scans (filename, inventory, label)."""
     from scipy import sparse
     from sklearn.feature_extraction.text import TfidfVectorizer
     from sklearn.linear_model import LogisticRegression
 
-    lab = training_labels(conn)
     X = load_features(sorted(lab["inventory"].unique())).merge(lab[["filename", "label"]], on="filename")
     X = X[X["words"] > 0]
     vec = TfidfVectorizer(ngram_range=(1, 2), min_df=3, sublinear_tf=True, max_features=50000)
@@ -234,18 +242,25 @@ def fit(conn: sqlite3.Connection, path: str = MODEL_PATH):
     mu, sd = N.mean(0), N.std(0) + 1e-9
     model = LogisticRegression(C=1, class_weight="balanced", max_iter=3000)
     model.fit(sparse.hstack([vec.fit_transform(X["tokens"]), (N - mu) / sd]).tocsr(), X["label"])
+    return {"vectorizer": vec, "mu": mu, "sd": sd, "model": model, "n": len(X), "positives": int(X["label"].sum())}
+
+
+def fit(conn: sqlite3.Connection, path: str = MODEL_PATH):
+    m = train(training_labels(conn))
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as f:
-        pickle.dump({"vectorizer": vec, "mu": mu, "sd": sd, "model": model}, f)
-    logger.info("Register model: %d scans (%d registers) → %s", len(X), int(X["label"].sum()), path)
+        pickle.dump(m, f)
+    logger.info("Register model: %d scans (%d registers) → %s", m["n"], m["positives"], path)
 
 
-def score(inventories: list[str], path: str = MODEL_PATH) -> pd.DataFrame:
+def score(inventories: list[str], path: str = MODEL_PATH, model: dict | None = None) -> pd.DataFrame:
     """Register probability per scan (0 for scans without text)."""
     from scipy import sparse
 
-    with open(path, "rb") as f:
-        m = pickle.load(f)
+    if model is None:
+        with open(path, "rb") as f:
+            model = pickle.load(f)
+    m = model
     out = []
     for k in range(0, len(inventories), 100):
         X = load_features(inventories[k : k + 100])
@@ -256,19 +271,32 @@ def score(inventories: list[str], path: str = MODEL_PATH) -> pd.DataFrame:
     return pd.concat(out, ignore_index=True)
 
 
-def ranges(scores: pd.DataFrame, threshold: float = 0.5) -> pd.DataFrame:
-    """Consecutive scans scoring >= threshold (a blank scan in between does not break a range)."""
+CONTINUE_THRESHOLD = 0.3  # register-evaluate (2026-10): threshold 0.9 + continuation 0.3 → precision ~0.95, recall ~0.59
+BACK = False
+
+
+def ranges(scores: pd.DataFrame, threshold: float = 0.5, continue_threshold: float | None = CONTINUE_THRESHOLD, back: bool = BACK) -> pd.DataFrame:
+    """
+    Consecutive scans scoring >= threshold (a blank scan in between does not
+    break a range). With continue_threshold, a range runs on into the following
+    scans while they score >= continue_threshold (register continuation pages
+    look less like registers than first pages); with back, also one scan back.
+    """
     out = []
+    low = threshold if continue_threshold is None else continue_threshold
     for inv, g in scores.sort_values(["inventory", "filename"]).groupby("inventory", sort=False):
-        on, blank, fns, sc, n = (g["score"].to_numpy() >= threshold), (g["words"].to_numpy() == 0), g["filename"].to_numpy(), g["score"].to_numpy(), len(g)
+        sc = g["score"].to_numpy()
+        on, cont, blank, fns, n = sc >= threshold, sc >= low, (g["words"].to_numpy() == 0), g["filename"].to_numpy(), len(g)
         i = 0
         while i < n:
             if not on[i]:
                 i += 1
                 continue
             j = i
-            while j + 1 < n and (on[j + 1] or (blank[j + 1] and j + 2 < n and on[j + 2])):
+            while j + 1 < n and (cont[j + 1] or (blank[j + 1] and j + 2 < n and cont[j + 2])):
                 j += 1
+            if back and i > 0 and cont[i - 1] and (not out or out[-1]["inventory"] != inv or out[-1]["last_scan"] < fns[i - 1]):
+                i -= 1
             out.append({"inventory": inv, "first_scan": fns[i], "last_scan": fns[j], "n_scans": j - i + 1,
                         "max_score": round(float(sc[i : j + 1].max()), 3), "mean_score": round(float(sc[i : j + 1].mean()), 3),
                         "position": round(i / n, 3)})
@@ -306,3 +334,50 @@ def review_sample(scores: pd.DataFrame, n: int = 200, seed: int = 1) -> pd.DataF
         parts.append(take.assign(stratum=name, stratum_size=int(mask.sum())))
     out = pd.concat(parts).sample(frac=1, random_state=seed)
     return out[["filename", "inventory", "score", "stratum", "stratum_size"]].reset_index(drop=True)
+
+
+# ── evaluation on the reviewed scans ──────────────────────────────────────────
+
+
+def _in_ranges(rng: pd.DataFrame, filenames: pd.Series) -> np.ndarray:
+    spans = {}
+    for r in rng.itertuples():
+        spans.setdefault(r.inventory, []).append((r.first_scan, r.last_scan))
+    return np.array([any(a <= f <= b for a, b in spans.get(f.split("_")[2], [])) for f in filenames])
+
+
+def evaluate(conn: sqlite3.Connection, folds: int = 5, thresholds=(0.5, 0.7, 0.9), continue_thresholds=(None, 0.3, 0.2, 0.1, 0.05)) -> pd.DataFrame:
+    """
+    Precision and recall of register ranges for all scans of the inventories
+    without an index, estimated from the reviewed scans (weighted by stratum
+    size). The reviewed inventories are split into folds; each fold is scored by
+    a model trained on the validated inventories plus the reviewed scans of the
+    other folds ('with review') or without any reviewed scans ('without review').
+    """
+    rev = review_labels(conn)
+    invs = sorted(rev["inventory"].unique())
+    fold_of = {inv: k % folds for k, inv in enumerate(np.random.default_rng(0).permutation(invs))}
+    base = train(training_labels(conn, use_review=False))
+    scored = {"without review": [], "with review": []}
+    for k in range(folds):
+        fold_invs = [i for i in invs if fold_of[i] == k]
+        model = train(training_labels(conn, use_review=True, exclude_inventories=fold_invs))
+        scored["with review"].append(score(fold_invs, model=model))
+        scored["without review"].append(score(fold_invs, model=base))
+        logger.info("  fold %d/%d: %d inventories", k + 1, folds, len(fold_invs))
+    rows = []
+    for variant, parts in scored.items():
+        sc = pd.concat(parts, ignore_index=True)
+        for thr in thresholds:
+            for ct in continue_thresholds:
+                for back in (False, True):
+                    if ct is None and back:
+                        continue
+                    pred = _in_ranges(ranges(sc, thr, ct, back), rev["filename"])
+                    y, w = rev["label"].to_numpy() == 1, rev["weight"].to_numpy()
+                    tp, fp, fn = (w * (pred & y)).sum(), (w * (pred & ~y)).sum(), (w * (~pred & y)).sum()
+                    rows.append({"model": variant, "threshold": thr, "continue": ct, "back": back,
+                                 "precision": round(tp / max(tp + fp, 1e-9), 2), "recall": round(tp / max(tp + fn, 1e-9), 2),
+                                 "est_register_scans": int(tp + fn), "est_predicted_scans": int(tp + fp),
+                                 "sample_tp": int((pred & y).sum()), "sample_fp": int((pred & ~y).sum()), "sample_fn": int((~pred & y).sum())})
+    return pd.DataFrame(rows)

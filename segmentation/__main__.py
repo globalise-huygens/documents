@@ -33,10 +33,16 @@ Command line for the segmentation metric.
       text counts and PageXML layout per scan for the register classifier (registers.py; data/registers/features)
   uv run python -m segmentation register-fit
       train the register-page classifier on the validated inventories (+ reviewed scans)
-  uv run python -m segmentation register-ranges [inv ...] [--threshold 0.5] [--out register_ranges.csv]
+  uv run python -m segmentation register-ranges [inv ...] [--threshold 0.9] [--continue-threshold 0.3] [--out register_ranges.csv]
       score every scan and write the ranges of register pages
   uv run python -m segmentation register-entries [--min-score 0.9] [--out register_entries.csv]
       rebuild the rows of the register ranges into entries: folio range / item number, date, title (rows.py)
+  uv run python -m segmentation register-evaluate
+      precision / recall of register ranges, estimated from the reviewed scans (cross-validated over inventories)
+  uv run python -m segmentation register-match [inv ...] [--out register_candidates.csv]
+      candidate start scans per register entry, by folio, date and title words (register_match.py)
+  uv run python -m segmentation register-link-sample [--n 80]
+      a stratified sample of entries to link at /review/register-links in the app
   uv run python -m segmentation register-sample [--n 200]
       draw a stratified sample of scans to label at /review/registers in the app
   uv run python -m segmentation import segments.csv [--dry-run] [--resume]
@@ -141,12 +147,20 @@ def main():
     sub.add_parser("register-fit")
     rr = sub.add_parser("register-ranges")
     rr.add_argument("inventories", nargs="*")
-    rr.add_argument("--threshold", type=float, default=0.5)
+    rr.add_argument("--threshold", type=float, default=0.9)
+    rr.add_argument("--continue-threshold", type=float, default=0.3)
     rr.add_argument("--out", default="register_ranges.csv")
     re_ = sub.add_parser("register-entries")
     re_.add_argument("--ranges", default="register_ranges.csv")
     re_.add_argument("--min-score", type=float, default=0.9)
     re_.add_argument("--out", default="register_entries.csv")
+    sub.add_parser("register-evaluate")
+    rm = sub.add_parser("register-match")
+    rm.add_argument("inventories", nargs="*")
+    rm.add_argument("--out", default="register_candidates.csv")
+    rls = sub.add_parser("register-link-sample")
+    rls.add_argument("--n", type=int, default=80)
+    rls.add_argument("--candidates", default="register_candidates.csv")
     rs = sub.add_parser("register-sample")
     rs.add_argument("--n", type=int, default=200)
     rs.add_argument("--scores", default="data/registers/scores.parquet")
@@ -202,6 +216,32 @@ def main():
             registers.cache_features(targets)
         elif args.cmd == "register-fit":
             registers.fit(conn)
+        elif args.cmd == "register-match":
+            from .register_match import match_all
+            from .register_toc import load_register_entries
+
+            res = match_all(targets, load_register_entries(), args.out)
+            logger.info("Wrote %d candidates for %d entries to %s", len(res), res.groupby(["register_first_scan", "entry"]).ngroups, args.out)
+        elif args.cmd == "register-link-sample":
+            from sqlalchemy import create_engine
+
+            from models import Base
+            from .inventory import DATABASE_URL
+            from .register_match import link_sample
+
+            sample = link_sample(pd.read_csv(args.candidates, dtype={"inventory": str, "item": str}), args.n)
+            engine = create_engine(DATABASE_URL)
+            Base.metadata.create_all(engine, tables=[Base.metadata.tables["register_link_review"]])
+            have = set(pd.read_sql("SELECT entry_key FROM register_link_review", engine)["entry_key"])
+            start = int(pd.read_sql("SELECT coalesce(max(position), -1) AS m FROM register_link_review", engine)["m"].iat[0]) + 1
+            new = sample[~sample["entry_key"].isin(have)].copy()
+            new["position"] = range(start, start + len(new))
+            new.to_sql("register_link_review", engine, if_exists="append", index=False)
+            logger.info("register_link_review: %d entries added; review them at /review/register-links", len(new))
+        elif args.cmd == "register-evaluate":
+            res = registers.evaluate(conn)
+            res.to_csv("register_evaluation.csv", index=False)
+            print(res.to_string(index=False))
         elif args.cmd == "register-entries":
             from .rows import entries_for_ranges
 
@@ -212,7 +252,7 @@ def main():
             scores = registers.score(targets)
             os.makedirs(os.path.dirname(registers.MODEL_PATH), exist_ok=True)
             scores.to_parquet(os.path.join(os.path.dirname(registers.MODEL_PATH), "scores.parquet"), index=False)
-            r = registers.ranges(scores, args.threshold)
+            r = registers.ranges(scores, args.threshold, args.continue_threshold)
             r.to_csv(args.out, index=False)
             logger.info("Wrote %d register ranges (%d scans, %d inventories) to %s", len(r), r["n_scans"].sum(), r["inventory"].nunique(), args.out)
         else:

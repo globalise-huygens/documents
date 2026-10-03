@@ -361,3 +361,11 @@ def test_register_two_columns():
     single = [_line(0.10, 0.70, 0.1 + 0.04 * k, f"{k} „ {k + 3} Een brief aan de 17e dito dito") for k in range(6)] + \
              [_line(0.75, 0.92, 0.1 + 0.04 * k, f"in dato {k + 1} Maart 1771") for k in range(6)]
     assert len(split_columns(single)) == 1  # a date column is not a second column of entries
+
+
+def test_monotone_assignment():
+    from segmentation.register_match import _monotone
+
+    # entry 0 fits document 2 best, entry 1 document 1 (out of order) or 3 (a bit less): order wins
+    scores = np.array([[0, 0, 5, 0], [0, 6, 0, 4], [0, 0, 0, 0]], dtype=float)
+    assert _monotone(scores, [0, 1, 2]) == {0: 2, 1: 3}

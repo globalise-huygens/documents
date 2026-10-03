@@ -697,6 +697,58 @@ def review_registers():
                            text=text_row, labels=REVIEW_LABELS, message=None)
 
 
+@app.route("/review/register-links", methods=["GET", "POST"])
+def review_register_links():
+    """Link sampled register entries to the scan where their document starts (table register_link_review)."""
+    db_session = Session()
+    try:
+        total = db_session.execute(text("SELECT count(*) FROM register_link_review")).scalar()
+    except Exception:
+        db_session.rollback()
+        return render_template("review_register_links.html", item=None, message="No sample yet: run `uv run python -m segmentation register-link-sample`.")
+    if request.method == "POST":
+        choice, other = request.form.get("choice"), (request.form.get("other") or "").strip()
+        if other:
+            prefix = request.form["inventory"]
+            choice, other = "none", (other if other.startswith("NL-") else f"NL-HaNA_1.04.02_{prefix}_{int(other):04d}")
+        if choice:
+            db_session.execute(
+                text("UPDATE register_link_review SET choice = :c, other_scan = :o, note = :n, labelled_at = :t WHERE entry_key = :k"),
+                {"c": choice, "o": other or None, "n": request.form.get("note") or None, "t": datetime.now().isoformat(timespec="seconds"), "k": request.form["entry_key"]},
+            )
+            db_session.commit()
+        nxt = db_session.execute(
+            text("SELECT position FROM register_link_review WHERE choice IS NULL AND position > :p ORDER BY position LIMIT 1"), {"p": int(request.form["position"])}
+        ).scalar()
+        return redirect(url_for("review_register_links", i=nxt if nxt is not None else request.form["position"]))
+    i = request.args.get("i", type=int)
+    if i is None:
+        i = db_session.execute(text("SELECT min(position) FROM register_link_review WHERE choice IS NULL")).scalar()
+        if i is None:
+            i = db_session.execute(text("SELECT max(position) FROM register_link_review")).scalar()
+    item = db_session.execute(text("SELECT * FROM register_link_review WHERE position = :i"), {"i": i}).mappings().first()
+    done = db_session.execute(text("SELECT count(*) FROM register_link_review WHERE choice IS NOT NULL")).scalar()
+    candidates = []
+    if item:
+        for k, c in enumerate(json.loads(item["candidates"]), 1):
+            candidates.append({**c, "key": k, "number": c["scan"].rsplit("_", 1)[1], "image": _iiif(db_session, c["scan"], 1000)})
+    entry_crop = page_image = None
+    if item:
+        info = db_session.execute(text("SELECT iiif_image_info FROM scan WHERE filename = :f"), {"f": item["register_scan"]}).scalar()
+        if info:
+            base = info.rsplit("/info.json", 1)[0]
+            page_image = f"{base}/full/1400,/0/default.jpg"
+            if item["entry_box"]:
+                x0, y0, x1, y1 = json.loads(item["entry_box"])
+                x0, x1 = max(0.0, x0 - 0.04), min(1.0, x1 + 0.04)
+                y0, y1 = max(0.0, y0 - 0.07), min(1.0, y1 + 0.07)  # some rows above and below for context
+                entry_crop = f"{base}/pct:{x0 * 100:.2f},{y0 * 100:.2f},{(x1 - x0) * 100:.2f},{(y1 - y0) * 100:.2f}/1600,/0/default.jpg"
+    return render_template(
+        "review_register_links.html", item=item, total=total, done=done, candidates=candidates, message=None,
+        entry_crop=entry_crop, page_image=page_image,
+    )
+
+
 @app.route("/scans")
 def scans():
     """List all scans."""

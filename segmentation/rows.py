@@ -253,6 +253,9 @@ def _range_entries(args) -> list[dict]:
                 "inventory": inventory, "register_first_scan": first, "register_last_scan": last, "register_score": score,
                 "register_heading": " / ".join(heading), "scan": fn, "entry": k, "folio_start": e.folio_start, "folio_end": e.folio_end,
                 "item": e.item, "packet": e.packet, "sewn": e.sewn, "date": e.date, "dittos": e.dittos, "title": e.resolved, "raw": e.raw,
+                # where the entry is on its register page (shares of the image), for the review page
+                "x0": round(min(c["x0"] for r in e.rows for c in r.cells), 4), "y0": round(min(c["y0"] for r in e.rows for c in r.cells), 4),
+                "x1": round(max(c["x1"] for r in e.rows for c in r.cells), 4), "y1": round(max(c["y1"] for r in e.rows for c in r.cells), 4),
             })
             k += 1
     _items_or_folios(out)
