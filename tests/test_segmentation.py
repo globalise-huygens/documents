@@ -158,6 +158,20 @@ def _toy_inventory():
     return InventoryData("toy", "toy", scans, toc)
 
 
+def test_drop_missing_toc_entries():
+    from segmentation.inventory import drop_missing
+
+    toc = pd.DataFrame({"title": [
+        "Drie secreete resolutien de datis 27 en 31 Augusti 1739 [ontbreekt].",
+        "Translaet missive [ontbreekt maar geinsereert bij resolutie van 3 November 1739].",
+        "Rapport [Ontbreekt; zie VOC 08068 Ternate 1692, pagina's 1 - 36].",
+        "Missive van 1643 [folio 603 en 604 ontbreken].",
+        "Brief [laatste deel van de brief ontbreekt; zie fl. 51].",
+        None,
+    ]})
+    assert list(drop_missing(toc).index) == [3, 4, 5]
+
+
 def test_align_toc_places_entries_on_numbered_scans():
     inv = _toy_inventory()
     compute_features(inv)
@@ -169,11 +183,83 @@ def test_segment_inventory_labels_segments():
     inv = _toy_inventory()
     model = SegmentationModel()
     model.start.bias = -5.0
-    model.nondoc.bias = -1.0  # the two unnumbered scans before the first entry become a non-document run
+    inv.scans.loc[[0, 1], "is_blank"] = True  # the two blank scans before the first entry become a non-document run
     res = segment_inventory(inv, model)
     kinds = {sg.start: sg.kind for sg in res.segments}
     assert kinds[2] == kinds[8] == kinds[16] == "toc"
     assert res.segments[0].kind == "non-document" and res.segments[0].end == 1
+
+
+def test_segment_scans_hard_rules():
+    # scan 3 is blank with strong start evidence; scans 5-6 have text but look like non-document pages
+    blank = np.array([False, False, False, True, False, False, False, False])
+    start = np.array([0, -5, -5, 6, -5, -5, -5, -5], dtype=float)
+    nondoc = np.array([-5, -5, -5, -5, -5, 6, 6, -5], dtype=float)
+    segs, _ = segment_scans(_scores(start, nondoc=nondoc), LengthPrior(), 100, blank=blank)
+    assert all(not blank[a] for a, _, _ in segs)
+    covered = {i for a, e, _ in segs for i in range(a, e + 1)}
+    assert {i for i in range(8) if not blank[i]} <= covered
+
+
+def test_segment_scans_all_blank_is_empty():
+    segs, _ = segment_scans(_scores([0, 0, 0], nondoc=[1, 1, 1]), LengthPrior(), 100, blank=np.ones(3, dtype=bool))
+    assert segs == []
+
+
+def test_segment_scans_no_start_inside():
+    start = np.array([0, -5, -5, 4, -5, -5, -5, -5], dtype=float)
+    no_start = np.zeros(8, dtype=bool)
+    no_start[3:6] = True
+    segs, _ = segment_scans(_scores(start), LengthPrior(), 100, forced={2}, no_start=no_start)
+    assert not any(no_start[a] for a, _, _ in segs) and any(a == 2 for a, _, _ in segs)
+
+
+def test_align_toc_moves_starts_off_blank_scans():
+    inv = _toy_inventory()
+    inv.scans.loc[8, "is_blank"] = True  # entry B (folio 4) is numbered on scan 8
+    compute_features(inv)
+    placements = align_toc(inv, np.zeros(inv.n), AlignParams())
+    assert all(not inv.scans.at[p.scan, "is_blank"] for p in placements)
+
+
+def _gm(start, end, csv_id, title="Generale missive"):
+    return pd.DataFrame({"gm_id": ["g"], "start": [start], "end": [end], "csv_id": [csv_id], "title": [title],
+                         "date_begin": ["1620-01-01"], "date_end": ["1620-01-01"]})
+
+
+def test_segment_inventory_general_missive_overrides_toc():
+    inv = _toy_inventory()
+    model = SegmentationModel()
+    model.start.bias = -5.0
+    # entry B identified by hand on scan 5..14: placed there, nothing else starts inside
+    res = segment_inventory(inv, model, gm=_gm(5, 14, 2, "Hand title"))
+    sg = next(s for s in res.segments if s.start == 5)
+    assert sg.kind == "toc" and inv.toc.at[sg.toc_rows[0], "csv_id"] == 2
+    assert sg.gm[0]["title"] == "Hand title" and sg.end >= 14
+    assert not any(5 < s.start <= 14 and s.parent_gm is None for s in res.documents())
+
+
+def test_segment_inventory_general_missive_keeps_subdocuments():
+    inv = _toy_inventory()
+    model = SegmentationModel()
+    model.start.bias = -5.0
+    compute_features(inv)
+    model.start_offset = np.where(np.arange(inv.n) == 10, 12.0, 0.0)  # strong start evidence on scan 10, inside the missive
+    res = segment_inventory(inv, model, gm=_gm(5, 14, 2))
+    inside = [s for s in res.documents() if 5 < s.start <= 14]
+    assert inside and all(s.kind == "subdoc" and s.parent_gm == "g" for s in inside)
+    assert any(s.start == 10 for s in inside)
+    assert next(s for s in res.segments if s.start == 5).end >= 14  # the missive itself still spans its hand range
+
+
+def test_segment_inventory_general_missive_without_toc_entry():
+    inv = _toy_inventory()
+    model = SegmentationModel()
+    model.start.bias = -5.0
+    inv.scans.loc[19, "is_blank"] = True  # a blank start moves to the next scan with text
+    res = segment_inventory(inv, model, gm=_gm(19, 21, None))
+    sg = next(s for s in res.segments if s.gm)
+    assert sg.kind == "gm" and sg.start == 20
 
 
 # ── texts ─────────────────────────────────────────────────────────────────────

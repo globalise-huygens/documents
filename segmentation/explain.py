@@ -250,6 +250,9 @@ def document_evidence(inv: InventoryData, result: Result, segment: Segment, ev: 
         out["court_case"] = segment.court
     if segment.derived and segment.derived.get("entry_id"):
         out["derived_entry"] = segment.derived
+    if segment.gm:
+        fn = inv.scans["filename"]
+        out["general_missives"] = [{**g, "start": fn.iat[g["start"]], "end": fn.iat[g["end"]]} for g in segment.gm]
     placements = [pl for pl in result.placements if pl.entry in segment.toc_rows]
     if placements:
         pl = placements[0]

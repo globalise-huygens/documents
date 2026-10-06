@@ -13,9 +13,12 @@ These inventories have no ToC; the dataset takes its place:
   - A case with only a start scan (the Cape volumes) runs to the scan before
     the next known case; a case that ends in the next inventory runs to the end
     of this one; a case that began in the previous inventory runs from the end
-    of the previous known case. Covers and blank pages at the open end are left
-    out (non-document log-odds > 0). A start scan with nothing after it is a
+    of the previous known case. Blank pages at the open end are left out
+    (non-document log-odds > 0). A start scan with nothing after it is a
     forced start for the model, which also decides where that case ends.
+  - As everywhere (segmenter.py): no case starts on a blank scan (its start
+    moves to the first scan with text; a range without text is dropped), and
+    scans with text outside the cases all go to the model's documents.
   - Scan references in another inventory ('99 [9353]', '656 (9354)') are
     applied to that inventory. Starts and ends that fall inside another case's
     fixed range are dropped (conflicting data).
@@ -42,7 +45,7 @@ from .inventory import InventoryData
 from .model import SegmentationModel
 from .predictors import compute_features, scan_texts
 from .texts import TEXT_DIR
-from .segmenter import Result, Segment, scan_scores, segment_scans
+from .segmenter import Result, Segment, next_text_scan, scan_scores, segment_scans
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 COURT_RECORDS_PATH = os.environ.get("SEGMENTATION_COURT_RECORDS") or next(
@@ -348,6 +351,8 @@ def segment_court_inventory(inv: InventoryData, model: SegmentationModel, cases:
         compute_features(inv)
     sc = scan_scores(inv, model, use_toc=False)
     n = inv.n
+    blank = inv.scans["is_blank"].to_numpy(dtype=bool)
+    text_at = next_text_scan(blank)
     number = inv.scans["filename"].str.extract(r"_(\d+)$")[0].astype(int)
     pos_of = {int(v): k for k, v in number.items()}
 
@@ -387,6 +392,8 @@ def segment_court_inventory(inv: InventoryData, model: SegmentationModel, cases:
     open_starts, open_ends = [], []  # (position, Range)
     for rg in loose:
         p = pos(rg.start) if rg.start is not None else pos(rg.end)
+        if p is not None and rg.start is not None:
+            p = int(text_at[p])  # no document starts on a blank scan
         if p is None or covered[p]:
             continue  # inside another case's fixed range (or its own): conflicting data
         (open_starts if rg.start is not None else open_ends).append((p, rg))
@@ -395,8 +402,8 @@ def segment_court_inventory(inv: InventoryData, model: SegmentationModel, cases:
     fixed_starts = sorted({d.start for d in docs})
     fixed_ends = sorted({d.end for d in docs})
     starts = sorted({p for p, _ in open_starts} | set(fixed_starts))
-    nondoc = sc.nondoc > 0
-    trimmed = np.zeros(n, dtype=bool)  # covers/blanks at the open end of a case: non-document
+    nondoc = (sc.nondoc > 0) & blank  # scans with text always belong to a document
+    trimmed = np.zeros(n, dtype=bool)  # blanks at the open end of a case: non-document
     forced: dict[int, Range] = {}  # unbounded starts: the model decides where they end
     for p, rg in sorted(open_starts, key=lambda t: t[0]):
         nxt = [s for s in starts if s > p] + [q for q, _ in open_ends if q > p]
@@ -425,9 +432,17 @@ def segment_court_inventory(inv: InventoryData, model: SegmentationModel, cases:
         docs.append(_Doc(a, q, rg.case_id, rg.persons, how))
         ends_before = sorted(set(ends_before) | {q})
 
+    # no document starts on a blank scan; a range without any text is no document
+    empty = set()
+    for i, d in enumerate(docs):
+        if text_at[d.start] <= d.end and not blank[text_at[d.start]]:
+            d.start = int(text_at[d.start])
+        else:
+            empty.add(i)
     covered[:] = trimmed
-    for d in docs:
-        covered[d.start : d.end + 1] = True
+    for i, d in enumerate(docs):
+        if i not in empty:
+            covered[d.start : d.end + 1] = True
 
     # 3. the model segments every region outside the cases
     model_docs: list[tuple[int, int, str | None]] = []  # (start, end, case_id when a forced start)
@@ -442,7 +457,7 @@ def segment_court_inventory(inv: InventoryData, model: SegmentationModel, cases:
         hi = k - 1
         part = type(sc)(**{f: getattr(sc, f)[lo : hi + 1] for f in ("start", "end", "log_shared", "log_not_shared", "nondoc")})
         f_here = {p - lo for p in forced if lo <= p <= hi}
-        raw, _ = segment_scans(part, model.length_prior, model.max_length, f_here)
+        raw, _ = segment_scans(part, model.length_prior, model.max_length, f_here, blank=blank[lo : hi + 1])
         for a, e, _ in raw:
             model_docs.append((a + lo, e + lo, forced[a + lo].case_id if a + lo in forced else None))
 
@@ -459,7 +474,8 @@ def segment_court_inventory(inv: InventoryData, model: SegmentationModel, cases:
         sg = Segment(d.start, d.end, "subdoc" if d.parent is not None else "case", "", float(sc.start[d.start]), float(sc.end[d.end]))
         sg.court = _court_info(case, d, titles[i], len(d.persons))
         seg_of_doc[i] = sg
-        items.append((d.start, -d.end, 0 if d.parent is None else 1, sg))
+        if i not in empty:
+            items.append((d.start, -d.end, 0 if d.parent is None else 1, sg))
     for i, d in enumerate(docs):
         if d.parent is not None:
             seg_of_doc[i].court["parent_case"] = docs[d.parent].case_id

@@ -1,7 +1,15 @@
 """
-Import script for overview_general_missives.csv into the GLOBALISE database.
+Import script for the General Missives overview (data/overview_general_missives.xlsx,
+or the older overview_general_missives.csv when there is no xlsx) into the
+GLOBALISE database.
 
-Each CSV row maps to one Document, with:
+Re-running replaces the documents of the method "General Missives Ground Truth"
+(and their page, index id and type links) in the same transaction, so a
+corrected overview can simply be imported again. Afterwards re-run
+`python -m segmentation run` and `import`: the segmentation refers to these
+documents by id.
+
+Each row maps to one Document, with:
   - ExternalID          via Document2ExternalID  (context="OBP_INDEX")
   - Inventory           looked up by inventory_number
   - Document.title      from "Beschrijving in TANAP"
@@ -9,8 +17,8 @@ Each CSV row maps to one Document, with:
   - date_earliest_begin / date_latest_begin from "Datum (numeriek)"
     Single date  → both fields get the same value
     Range X/Y    → earliest_begin=X, latest_begin=Y
-  - Page2Document links to Pages that belong to the first- and last-scan
-    Scans are looked up by filename ("Bestandsnaam van eerste/laatste scan")
+  - Page2Document links to the Pages of every scan from "Beginscan" to
+    "Eindscan"; the filename prefix comes from "Bestandsnaam van eerste scan"
 
 
 
@@ -24,7 +32,7 @@ from datetime import date, datetime
 from typing import Optional, Tuple
 
 import pandas as pd
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session
 
 # ---------------------------------------------------------------------------
@@ -51,11 +59,27 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 METHOD_NAME = "General Missives Ground Truth"
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///globalise_documents.db")
 
-CSV_PATH = os.path.join(
-    SCRIPT_DIR,
-    "data",
-    "overview_general_missives.csv",
-)
+XLSX_PATH = os.path.join(SCRIPT_DIR, "data", "overview_general_missives.xlsx")
+XLSX_SHEET = "Overzicht van Generale Missiven"
+CSV_PATH = os.path.join(SCRIPT_DIR, "data", "overview_general_missives.csv")
+
+
+def load_overview(path: Optional[str] = None) -> pd.DataFrame:
+    """The overview as strings (we cast as needed): the xlsx when there is one, else the csv."""
+    path = path or (XLSX_PATH if os.path.exists(XLSX_PATH) else CSV_PATH)
+    logger.info("Loading %s", path)
+    if path.endswith(".xlsx"):
+        return pd.read_excel(path, sheet_name=XLSX_SHEET, dtype=str)
+    return pd.read_csv(path, dtype=str)
+
+
+def delete_previous(session: Session, method: DocumentIdentificationMethod) -> int:
+    """Remove the method's documents and everything linked to them."""
+    ids = "SELECT id FROM document WHERE method_id = :m"
+    for table in ("page2document", "document2external_id", "document2documenttype", "document2type", "document_evidence"):
+        session.execute(text(f"DELETE FROM {table} WHERE document_id IN ({ids})"), {"m": method.id})
+    session.execute(text(f"UPDATE document SET part_of_id = NULL WHERE part_of_id IN ({ids})"), {"m": method.id})
+    return session.execute(text("DELETE FROM document WHERE method_id = :m"), {"m": method.id}).rowcount
 
 # ---------------------------------------------------------------------------
 # Date helpers
@@ -199,6 +223,11 @@ def import_row(
 
     inv_number = str(int(inv_number)).strip()
     inventory = lookup_inventory(session, inv_number)
+    first_scan = row.get("Bestandsnaam van eerste scan")
+    if inventory is None and pd.notna(first_scan):
+        # a part of the inventory ("1179B", "1457A"): its number is in the scan filename
+        inv_number = str(first_scan).strip().rsplit("_", 1)[0].rsplit("_", 1)[-1]
+        inventory = lookup_inventory(session, inv_number)
     if inventory is None:
         logger.warning("Row %d: Inventory %r not found — skipping.", row_id, inv_number)
         stats["skipped_no_inventory"] += 1
@@ -370,6 +399,7 @@ def main() -> None:
     # parser.add_argument("--csv", required=True, help="Path to overview_general_missives.csv")
     # parser.add_argument("--db", required=True, help="SQLAlchemy database URL, e.g. sqlite:///globalise.db")
     # parser.add_argument("--method-id", default=None, help="UUID of an existing DocumentIdentificationMethod")
+    parser.add_argument("--path", default=None, help="overview .xlsx or .csv (default: data/overview_general_missives.xlsx, else .csv)")
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -384,8 +414,7 @@ def main() -> None:
     args = parser.parse_args()
 
     # ---- Load CSV --------------------------------------------------------
-    logger.info("Loading CSV: %s", CSV_PATH)
-    df = pd.read_csv(CSV_PATH, dtype=str)  # read everything as str; we cast as needed
+    df = load_overview(args.path)
     logger.info("Rows to import: %d", len(df))
 
     # ---- Database --------------------------------------------------------
@@ -402,6 +431,7 @@ def main() -> None:
 
     with Session(engine) as session:
         method = get_or_create_method(session)
+        logger.info("Replacing %d earlier documents of %r", delete_previous(session, method), METHOD_NAME)
 
         for i, (_, row) in enumerate(df.iterrows(), start=1):
             import_row(session, row, method, dry_run=args.dry_run, stats=stats)

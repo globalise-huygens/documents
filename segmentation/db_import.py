@@ -13,6 +13,12 @@ as documents of the identification method "Segmentation model".
     versions.py) take title and dates from the CSV; their source and the
     other versions are in their evidence (no index ids: those belong to the
     other volume's ToC).
+  - General Missives identified by hand (gm_ids; the documents of "General
+    Missives Ground Truth") take title, date text and dates from that
+    document, and its index ids when it has no ToC entry in the inventory;
+    further missives starting on the same scan (a secret letter with the
+    general one) span their own scans and are part of the first. Subdocuments
+    found inside a missive (parent_gm_id) are part of its document.
   - Court cases (kind 'case', from the EMDCCR dataset; court_records.py) take
     title, dates and place from the CSV and are linked to their case id
     (ExternalID context "EMDCCR"); the ranges of individual accused are
@@ -111,6 +117,37 @@ def _external_ids(session: Session, context: str, identifiers: set[str], dry_run
     return have
 
 
+GM_METHOD = "General Missives Ground Truth"
+GM_COLUMNS = ("title", "date_text", "date_earliest_begin", "date_latest_begin", "date_earliest_end", "date_latest_end")
+
+
+def _general_missives(conn, inv_id: str) -> tuple[dict[str, dict], dict[str, list[str]]]:
+    """The hand-identified General Missives of the inventory by document id
+    (GM_COLUMNS, csv_id, first and last scan), and their ExternalID rows."""
+    gm = pd.read_sql(
+        text(
+            "SELECT d.id, " + ", ".join(f"d.{c}" for c in GM_COLUMNS) + ", "
+            "(SELECT CAST(e.identifier AS INTEGER) FROM document2external_id de JOIN external_id e ON e.id = de.external_id "
+            " AND e.context = 'OBP_INDEX' WHERE de.document_id = d.id) AS csv_id, "
+            "(SELECT min(s.filename) FROM page2document p JOIN page pg ON pg.id = p.page_id JOIN scan s ON s.id = pg.scan_id WHERE p.document_id = d.id) AS first_scan, "
+            "(SELECT max(s.filename) FROM page2document p JOIN page pg ON pg.id = p.page_id JOIN scan s ON s.id = pg.scan_id WHERE p.document_id = d.id) AS last_scan "
+            "FROM document d JOIN document_identification_method m ON m.id = d.method_id AND m.name = :m WHERE d.inventory_id = :i"
+        ),
+        conn,
+        params={"m": GM_METHOD, "i": inv_id},
+    )
+    ext = pd.read_sql(
+        text(
+            "SELECT de.document_id, de.external_id FROM document2external_id de JOIN document d ON d.id = de.document_id "
+            "JOIN document_identification_method m ON m.id = d.method_id AND m.name = :m WHERE d.inventory_id = :i"
+        ),
+        conn,
+        params={"m": GM_METHOD, "i": inv_id},
+    )
+    info = {r["id"]: {k: (None if pd.isna(v) else v) for k, v in r.items()} for r in gm.to_dict("records")}
+    return info, ext.groupby("document_id")["external_id"].apply(list).to_dict()
+
+
 def _settlements(session: Session) -> dict[str, str]:
     return {r[0]: r[1] for r in session.execute(text("SELECT label, settlement_id FROM settlement_label"))}
 
@@ -146,10 +183,10 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False, res
     and with resume=True the inventories listed there are skipped."""
     seg = pd.read_csv(csv_path, dtype={"inventory": str, "toc_csv_ids": str}, low_memory=False)
     seg = seg[seg["kind"] != "non-document"]
-    extra = ("court_case", "parent_court_case", "title", "date_begin", "date_end", "place", "entry_id", "parent_entry_id")
+    extra = ("court_case", "parent_court_case", "title", "date_begin", "date_end", "place", "entry_id", "parent_entry_id", "gm_ids", "parent_gm_id")
     for c in extra:
         if c not in seg:
-            seg[c] = None  # CSVs written before court records / derived ToCs were added
+            seg[c] = None  # CSVs written before court records / derived ToCs / General Missives were added
     seg = seg.astype({c: object for c in extra})
     warnings = _stale_warnings(seg, csv_path)
     for w in warnings:
@@ -185,13 +222,22 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False, res
             pages_by_scan = pages.sort_values(["scan_id", "side"]).groupby("scan_id")["page_id"].apply(list).to_dict()
             toc, toc_ext = _toc_entries(conn, inv_id)
             nt_ext = _nt_external_ids(session, {int(v) for v in toc["nt_index"].dropna()}, dry_run)
+            gm_info, gm_ext = _general_missives(conn, inv_id)
+            stale = {g for v in rows["gm_ids"].dropna() for g in str(v).split(";") if g and g not in gm_info}
+            if stale:
+                logger.warning("%s: %d General Missives of %s are no longer in the database (8_import_GM.py was run again?); "
+                               "re-run `segmentation run` for this inventory to use the current ones", inv_number, len(stale), csv_path)
             if not dry_run:
                 totals["replaced"] += _delete_previous(session, method_id, inv_id)
 
             docs: list[dict] = []
             scans_of: dict[str, set[int]] = {}
             parent_csv: dict[str, int] = {}
+            parent_doc: dict[str, str] = {}  # document -> the first document starting on the same scan
             doc_by_csv: dict[int, str] = {}
+            gm_links: list[tuple[str, str]] = []  # (document, General Missive) whose index ids it takes over
+            gm_doc: dict[str, str] = {}  # General Missive -> its document
+            parent_gm: dict[str, str] = {}  # document -> General Missive of its parent
             evidence: dict[str, str] = {}
             case_doc: dict[str, str] = {}  # court case id -> its (first) document
             case_docs: list[tuple[str, str]] = []  # (court case id, document) of every court case document
@@ -201,7 +247,17 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False, res
             for r in rows.itertuples():
                 span = set(range(pos[r.start_scan], pos[r.end_scan] + 1))
                 csv_ids = [int(x) for x in str(r.toc_csv_ids).split(";") if x and x != "nan"]
-                for k, cid in enumerate(csv_ids or [None]):
+                # (ToC entry, General Missive) per document: each missive with its own entry, then the other entries
+                units, rest = [], list(csv_ids)
+                for g in (x for x in str(r.gm_ids).split(";") if x and x != "nan" and x in gm_info):
+                    c = gm_info[g]["csv_id"]
+                    c = int(c) if c is not None and int(c) in rest else None
+                    if c is not None:
+                        rest.remove(c)
+                    units.append((c, g))
+                units += [(c, None) for c in rest]
+                first_doc = None
+                for k, (cid, g) in enumerate(units or [(None, None)]):
                     doc_id = str(uuid.uuid4())
                     entry = toc.loc[cid] if cid is not None and cid in toc.index else None
                     doc = {"id": doc_id, "inventory_id": inv_id, "method_id": method_id, "part_of_id": None, "date_text": None,
@@ -211,12 +267,22 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False, res
                         doc[c] = None if v is None or pd.isna(v) else (int(v) if c.startswith("folio") else v)
                     docs.append(doc)
                     scans_of[doc_id] = span
+                    if g is not None:  # identified by hand: its title and dates win
+                        gm_doc[g] = doc_id
+                        doc.update({c: gm_info[g][c] for c in GM_COLUMNS})
+                        if k > 0 and gm_info[g]["last_scan"] in pos:
+                            scans_of[doc_id] = set(range(pos[r.start_scan], min(pos[gm_info[g]["last_scan"]], pos[r.end_scan]) + 1))
+                        if cid is None:
+                            gm_links.append((doc_id, g))
                     if cid is not None:
                         doc_by_csv[cid] = doc_id
                     if k > 0:
-                        parent_csv[doc_id] = csv_ids[0]  # another entry starting on the same scan
+                        parent_doc[doc_id] = first_doc  # another entry or missive starting on the same scan
+                    elif isinstance(r.parent_gm_id, str):
+                        parent_gm[doc_id] = r.parent_gm_id
                     elif not pd.isna(r.parent_csv_id):
                         parent_csv[doc_id] = int(r.parent_csv_id)
+                    first_doc = first_doc or doc_id
                     if isinstance(r.evidence, str):
                         evidence[doc_id] = r.evidence
                     if isinstance(r.entry_id, str):  # ToC entry derived from another version (versions.py)
@@ -237,7 +303,11 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False, res
                         if isinstance(r.parent_court_case, str):
                             parent_case[doc_id] = r.parent_court_case
             for d in docs:
-                if d["id"] in parent_csv:
+                if d["id"] in parent_doc:
+                    d["part_of_id"] = parent_doc[d["id"]]
+                elif d["id"] in parent_gm:
+                    d["part_of_id"] = gm_doc.get(parent_gm[d["id"]])
+                elif d["id"] in parent_csv:
                     d["part_of_id"] = doc_by_csv.get(parent_csv[d["id"]])
                 elif d["id"] in parent_case:
                     d["part_of_id"] = case_doc.get(parent_case[d["id"]])
@@ -270,6 +340,9 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False, res
                 nt = toc.at[cid, "nt_index"] if cid in toc.index else None
                 if nt is not None and not pd.isna(nt):
                     ext_links.append({"id": str(uuid.uuid4()), "document_id": doc_id, "external_id": nt_ext[int(nt)]})
+            for doc_id, g in gm_links:
+                for ext_id in gm_ext.get(g, []):
+                    ext_links.append({"id": str(uuid.uuid4()), "document_id": doc_id, "external_id": ext_id})
             for case_id, doc_id in case_docs:
                 ext_links.append({"id": str(uuid.uuid4()), "document_id": doc_id, "external_id": court_ext[case_id]})
             ev_rows = [{"document_id": k, "evidence": v} for k, v in evidence.items()]
@@ -278,6 +351,7 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False, res
             totals["ToC documents"] += len(doc_by_csv)
             totals["court case documents"] += len(case_docs)
             totals["derived ToC documents"] += len(entry_doc)
+            totals["General Missives"] += sum(1 for r in rows.itertuples() for x in str(r.gm_ids).split(";") if x in gm_info)
             totals["subdocuments"] += sum(1 for d in docs if d["part_of_id"])
             totals["page links"] += len(links)
             totals["index id links"] += len(ext_links)

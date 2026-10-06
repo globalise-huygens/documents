@@ -575,26 +575,29 @@ def segment_with_derived(inv, model, entries: pd.DataFrame):
     entries starting on the same scan as an earlier one are part of it.
     """
     from .predictors import compute_features
-    from .segmenter import Result, Segment, scan_scores, segment_scans
+    from .segmenter import Result, Segment, next_text_scan, scan_scores, segment_scans
 
     if inv.features is None:
         compute_features(inv)
     sc = scan_scores(inv, model, use_toc=False)
+    blank = inv.scans["is_blank"].to_numpy(dtype=bool)
+    text_at = next_text_scan(blank)
     pos = {f: k for k, f in enumerate(inv.scans["filename"])}
     e = entries.copy()
     e["s"] = e["start_scan"].map(pos)
     e["e"] = e["end_scan"].map(pos)
     e = e.dropna(subset=["s", "e"]).astype({"s": int, "e": int})
-    # an unverified start (its text not found in this volume) moves at most one scan to the best start evidence
+    # an unverified start (its text not found in this volume) moves at most one scan to the best start evidence;
+    # a start on a blank scan moves to the next scan with text
     verified = e["verified"].astype(str).str.lower().eq("true") if "verified" in e else pd.Series(False, index=e.index)
-    e["placed"] = [s if v else max(range(max(0, s - 1), min(inv.n, s + 2)), key=lambda c: sc.start[c] + (0.5 if c == s else 0))
+    e["placed"] = [int(text_at[s if v else max(range(max(0, s - 1), min(inv.n, s + 2)), key=lambda c: sc.start[c] + (0.5 if c == s else 0) - 1e6 * blank[c])])
                    for s, v in zip(e["s"], verified)]
     e = e.sort_values(["placed", "e"], ascending=[True, False]).reset_index(drop=True)
     forced = set(e["placed"])
     use_prior = np.ones(inv.n, dtype=bool)
     for r in e.itertuples():
         use_prior[r.placed : max(r.placed, r.e) + 1] = False  # an entry's length is given by its source
-    raw, _ = segment_scans(sc, model.length_prior, model.max_length, forced, use_prior)
+    raw, _ = segment_scans(sc, model.length_prior, model.max_length, forced, use_prior, blank)
 
     by_scan = {p: g for p, g in e.groupby("placed")}
     next_entry = sorted(by_scan)

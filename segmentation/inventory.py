@@ -21,6 +21,14 @@ TANAP_METHOD = "TANAP Digitized Index"
 GM_METHOD = "General Missives Ground Truth"
 BASELINE_METHOD = "Baseline: Empty Pages & Signatures"
 
+# ToC entries whose document is not in the volume: "[ontbreekt]", or "[ontbreekt"
+# with an explanation ("[ontbreekt maar geinsereert bij resolutie van ...]",
+# "[ontbreekt; zie VOC 08068 ...]"). Not "[folio 603 en 604 ontbreken]" and the
+# like: there only part of the document is missing.
+MISSING_RE = r"\[ontbreekt"
+
+BLANK_CHARS = 20  # 3.5_import_empty_pages.py: a page with less text is blank
+
 # Validated inventories whose segmentation import is effectively empty
 BROKEN_VALIDATIONS = {"1568", "1574", "8165"}
 
@@ -64,6 +72,11 @@ class InventoryData:
         return len(self.scans)
 
 
+def drop_missing(toc: pd.DataFrame) -> pd.DataFrame:
+    """The ToC entries without those whose document is missing from the volume (MISSING_RE)."""
+    return toc[~toc["title"].fillna("").str.contains(MISSING_RE, case=False, regex=True)]
+
+
 def load_inventory(conn: sqlite3.Connection, inventory_number: str) -> InventoryData:
     inv = conn.execute(
         "SELECT id FROM inventory WHERE inventory_number = ?", (inventory_number,)
@@ -95,7 +108,6 @@ def load_inventory(conn: sqlite3.Connection, inventory_number: str) -> Inventory
     )
     scans = scans.merge(agg, left_on="scan_id", right_index=True, how="left")
     scans["n_pages"] = scans["n_pages"].fillna(0).astype(int)
-    scans["is_blank"] = scans["is_blank"].fillna(True).astype(bool)  # no page rows: nothing to read
     scans["marginalia"] = scans["marginalia"].fillna(False).astype(bool)
     scans["layout"] = scans["scan_type"].map({"Single": "single", "Double": "double"}).fillna("single")
     scans["header"] = scans["header_raw"].map(_parse_list)
@@ -103,6 +115,8 @@ def load_inventory(conn: sqlite3.Connection, inventory_number: str) -> Inventory
     scans["folios"] = scans["folio_raw"].map(_parse_folios)
     scans["languages"] = scans["languages"].fillna("")
     scans["text_len"] = scans["text_len"].fillna(0).astype(int)
+    # no page rows (20 inventories lack them): blank by the length of the scan's text, as in step 3.5
+    scans["is_blank"] = scans["is_blank"].where(scans["n_pages"] > 0, scans["text_len"] < BLANK_CHARS).astype(bool)
     scans = scans.drop(columns=["header_raw", "signatures_raw", "folio_raw"]).reset_index(drop=True)
 
     toc = pd.read_sql(
@@ -118,7 +132,7 @@ def load_inventory(conn: sqlite3.Connection, inventory_number: str) -> Inventory
         conn,
         params=(TANAP_METHOD, inv_id),
     )
-    toc = toc.drop_duplicates("doc_id")
+    toc = drop_missing(toc.drop_duplicates("doc_id"))
     # an all-NULL column comes back as object/None; keep these numeric (NaN)
     for c in ("csv_id", "folio_start", "folio_end", "toc_order", "folio_sequence"):
         toc[c] = pd.to_numeric(toc[c], errors="coerce")
@@ -176,6 +190,23 @@ def load_general_missives(conn, inv: InventoryData) -> pd.DataFrame:
     """Hand-checked General Missives (step 8). Their ToC entry may extend
     beyond the span (appendices), so only starts and interiors are reliable."""
     return _doc_spans(conn, inv, "m.name = ?", (GM_METHOD,))
+
+
+def load_gm_overrides(conn, inv: InventoryData) -> pd.DataFrame:
+    """The hand-checked General Missives of the inventory as overrides for
+    segment_inventory: gm_id (their document), start, end (scan positions),
+    csv_id (index id of their ToC entry), title, date_begin, date_end."""
+    spans = load_general_missives(conn, inv)
+    if spans.empty:
+        return pd.DataFrame(columns=["gm_id", "start", "end", "csv_id", "title", "date_begin", "date_end"])
+    info = pd.read_sql(
+        "SELECT d.id AS doc_id, d.title, d.date_earliest_begin AS date_begin, coalesce(d.date_latest_end, d.date_latest_begin) AS date_end "
+        "FROM document d JOIN document_identification_method m ON m.id = d.method_id AND m.name = ? WHERE d.inventory_id = ?",
+        conn,
+        params=(GM_METHOD, inv.inventory_id),
+    )
+    out = spans.merge(info, on="doc_id").rename(columns={"doc_id": "gm_id"})
+    return out[["gm_id", "start", "end", "csv_id", "title", "date_begin", "date_end"]]
 
 
 def load_baseline(conn, inv: InventoryData) -> pd.DataFrame:

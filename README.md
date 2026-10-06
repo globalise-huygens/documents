@@ -73,7 +73,7 @@ data/
 ├── inventory2titles.json
 ├── inventory2uuid.json
 ├── inventories.json
-├── overview_general_missives.csv
+├── overview_general_missives.xlsx  (or the older .csv)
 ├── archival_hierarchy.json
 ├── pp_project_globalisethesaurus.ttl
 ├── location_index.csv
@@ -112,6 +112,8 @@ This script:
 - Links pages to scans
 - Maps folio numbers and recto/verso positions
 - Expected runtime: 5-10 minutes
+
+Some inventories currently have scans but no page rows; see [TO DO](#to-do).
 
 ### Step 3: Import Archival Hierarchy
 
@@ -220,7 +222,7 @@ The OBP CSV stores inventory numbers as integers, so documents of suffixed inven
 uv run python 8_import_GM.py [--dry-run]
 ```
 
-Uses the Ground Truth for General Missives to add documents. Requires the file `overview_general_missives.csv` to be in data folder.
+Uses the Ground Truth for General Missives to add documents, from `data/overview_general_missives.xlsx` (or the older `overview_general_missives.csv`). Re-running replaces the earlier General Missives documents, so a corrected overview can be imported again; re-run the segmentation (`run` and `import`) afterwards.
 
 ### Step 9: Import Annotation Page Availability
 
@@ -529,6 +531,48 @@ uv add --dev package-name
 
 # Update all packages
 uv sync --upgrade
+```
+
+## TO DO
+
+### Inventories without page rows
+
+These 20 inventories have scans in the database but no page rows (status of
+October 2026), presumably because they are missing from the page metadata files
+used in step 2:
+
+| Inv. nr. | Scans | | Inv. nr. | Scans |
+|---|---|---|---|---|
+| 1295 | 1893 | | 4022A | 780 |
+| 1684 | 767 | | 4025A | 623 |
+| 1713 | 595 | | 7577 | 264 |
+| 1887 | 1222 | | 8616 | 368 |
+| 1994 | 994 | | 8618 | 410 |
+| 2230 | 1210 | | 8770 | 1506 |
+| 2770 | 473 | | 9809 | 598 |
+| 10090 | 95 | | 9817 | 1 |
+| 10148 | 158 | | 10149B | 87 |
+| 10149A | 107 | | 10149C | 172 |
+
+12,323 scans in all. Consequences until this is fixed:
+
+- Documents of these inventories have no pages: Page2Document links pages, not
+  scans. This holds for the General Missives in 1684, 1887 and 2770 (step 8
+  reports their 1314 scans as `scans_without_pages`), and for the segmentation
+  documents.
+- The General Missives there have no scan range, so they do not override the
+  segmentation.
+- The segmentation decides which scans are blank from the length of the scan's
+  text (fewer than 20 characters) instead of `page.is_blank`, and has no folio
+  numbers, headers or signatures to go on for these inventories.
+
+To fix: add their page metadata, re-run step 2 and step 3.5 for them, then step
+8 (General Missives) and the segmentation (`run` and `import`). To list the
+inventories that still lack page rows:
+
+```bash
+sqlite3 globalise_documents.db "SELECT i.inventory_number, count(*) FROM scan s JOIN inventory i ON i.id = s.inventory_id \
+  WHERE NOT EXISTS (SELECT 1 FROM page p WHERE p.inventory_id = i.id) GROUP BY 1 ORDER BY 1"
 ```
 
 ## License

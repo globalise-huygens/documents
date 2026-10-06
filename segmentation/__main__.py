@@ -6,8 +6,10 @@ Command line for the segmentation metric.
   uv run python -m segmentation fit [--out segmentation/model.json]
       fit the model on all ground truth and save it
   uv run python -m segmentation run [1120 1557 ...] [--model FILE] [--out segments.csv] [--no-toc] [--no-court]
-          [--derived derived_toc.csv] [--resume]
+          [--no-gm] [--derived derived_toc.csv] [--resume]
       segment inventories (all when none are given) and write one row per segment;
+      the General Missives identified by hand override the model and the ToC alignment
+      (their start, span, title and dates; --no-gm to ignore them);
       inventories without a ToC that have court cases in data/EMDCCR*.xlsx are
       segmented on those cases (court_records.py; --no-court to ignore them); inventories
       with neither use the ToC entries derived from other versions of their text, when
@@ -60,11 +62,11 @@ import time
 import pandas as pd
 
 from .evaluation import cross_validate, fit_model, format_counts, load_items
-from .inventory import connect, load_inventory
+from .inventory import connect, load_gm_overrides, load_inventory
 from .model import DEFAULT_MODEL_PATH, SegmentationModel
 from .court_records import load_court_cases, segment_court_inventory
 from .explain import document_evidence, scan_evidence
-from .segmenter import segment_inventory
+from .segmenter import scan_rule_violations, segment_inventory
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("segmentation")
@@ -77,6 +79,7 @@ def result_rows(inv, result, model) -> list[dict]:
     toc = inv.toc
     for k, sg in enumerate(result.segments):
         entries = [toc.loc[r] for r in sg.toc_rows]
+        info = (sg.gm[0] if sg.gm else None) or sg.court or sg.derived or {}  # a hand-identified missive wins
         rows.append(
             {
                 "inventory": inv.inventory_number,
@@ -96,12 +99,14 @@ def result_rows(inv, result, model) -> list[dict]:
                 "evidence": json.dumps(document_evidence(inv, result, sg, ev), ensure_ascii=False) if sg.kind != "non-document" else None,
                 "court_case": sg.court["case_id"] if sg.court else None,
                 "parent_court_case": sg.court.get("parent_case") if sg.court else None,
-                "title": (sg.court or sg.derived or {}).get("title"),
-                "date_begin": (sg.court or sg.derived or {}).get("date_begin"),
-                "date_end": (sg.court or sg.derived or {}).get("date_end"),
+                "title": info.get("title"),
+                "date_begin": info.get("date_begin"),
+                "date_end": info.get("date_end"),
                 "place": sg.court["place"] if sg.court else None,
                 "entry_id": sg.derived.get("entry_id") if sg.derived else None,
                 "parent_entry_id": sg.derived.get("parent_entry_id") if sg.derived else None,
+                "gm_ids": ";".join(g["gm_id"] for g in sg.gm) or None,
+                "parent_gm_id": sg.parent_gm,
             }
         )
     return rows
@@ -123,6 +128,7 @@ def main():
     rn.add_argument("--out", default=None)
     rn.add_argument("--no-toc", action="store_true")
     rn.add_argument("--no-court", action="store_true", help="ignore the court cases of data/EMDCCR*.xlsx")
+    rn.add_argument("--no-gm", action="store_true", help="ignore the General Missives identified by hand")
     rn.add_argument("--derived", default="derived_toc.csv", help="ToC entries derived from other versions (derive-tocs)")
     rn.add_argument("--resume", action="store_true", help="skip inventories already in --out")
     st = sub.add_parser("split-texts")
@@ -332,13 +338,17 @@ def run(args):
             logger.warning("%s: inventory not found in the database; skipped", n)
             continue
         try:
+            gm = None if args.no_gm else load_gm_overrides(conn, inv)
             if court_ranges.get(n) and inv.toc.empty:
                 res = segment_court_inventory(inv, model, cases, court_ranges[n])
-            elif n in derived and inv.toc.empty and not args.no_toc:
+            elif n in derived and inv.toc.empty and not args.no_toc and (gm is None or gm.empty):
                 res = segment_with_derived(inv, model, derived[n])
             else:
-                res = segment_inventory(inv, model, use_toc=not args.no_toc)
+                res = segment_inventory(inv, model, use_toc=not args.no_toc, gm=gm)
             rows = result_rows(inv, res, model)
+            broken = scan_rule_violations(inv, res)
+            if broken:
+                logger.warning("%s: %d breaches of the hard rules, e.g. %s", n, len(broken), "; ".join(broken[:3]))
         except Exception:
             logger.exception("%s: segmentation failed; skipped", n)
             continue
