@@ -55,6 +55,7 @@ Documents{% endblock %} {% block content %}{% import "_reasons.html" as reasons_
 {% if evidence %}
 <div class="card">
   <h2>What the segmentation model read on this scan</h2>
+  <p><a href="{{ base_url }}/review/segments/{{ scan.inventory.inventory_number }}#scan={{ scan.filename }}">Review the document boundaries around this scan</a></p>
   <div class="info-row"><strong>Text:</strong><span>{{ evidence.text_len }} characters{% if evidence.blank %} <span class="badge badge-warning">Blank</span>{% endif %}</span></div>
   <div class="info-row"><strong>Page numbers:</strong><span>read: {{ evidence.numbers_read or '–' }}; used: {{ '%d' | format(evidence.number) if evidence.number is not none else '–' }} (numbering sequence {{ evidence.numbering_run }}{% if evidence.number_restart %}, <b>restarts here</b>{% endif %})</span></div>
   <div class="info-row"><strong>Running header:</strong><span>{{ evidence.header or '(none)' }}</span></div>

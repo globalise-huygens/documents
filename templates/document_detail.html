@@ -102,6 +102,7 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}{% imp
 {% if evidence %}
 <div class="card">
   <h2>How the segmentation model found this document</h2>
+  {% if first_scan_filename %}<p><a href="{{ base_url }}/review/segments/{{ document.inventory.inventory_number }}#scan={{ first_scan_filename }}">Review this document's start and end</a></p>{% endif %}
   <div class="info-row">
     <strong>Kind:</strong>
     <span>

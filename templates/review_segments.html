@@ -43,17 +43,19 @@
   .progress .bar { flex: 1; height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; align-self: center; }
   .progress .bar span { display: block; height: 100%; background: var(--ok); }
   #toc-list { list-style: none; overflow-y: auto; flex: 1; }
-  .item { display: grid; grid-template-columns: 14px 64px 1fr; gap: 0 6px; padding: 4px 10px; border-bottom: 1px solid var(--line); cursor: pointer; line-height: 1.35; }
+  .item { display: grid; grid-template-columns: 14px 30px 64px 1fr; gap: 0 6px; padding: 4px 10px; border-bottom: 1px solid var(--line); cursor: pointer; line-height: 1.35; }
   .item:hover { background: var(--bg); }
   .item.current { background: var(--sel); box-shadow: inset 3px 0 0 var(--coral); }
   .item.depth-1 { padding-left: 28px; }
   .item .scans { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--muted); }
   .item .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .item .meta { grid-column: 3; font-size: 11px; color: var(--muted); }
+  .item .idx { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; color: var(--ink); }
+  .item .idx.none { color: #c9c8c4; font-weight: 400; }
+  .item .meta { grid-column: 4; font-size: 11px; color: var(--muted); }
   .item.kind-unindexed .title, .item.kind-subdoc .title, .item.kind-added .title { font-style: italic; }
   .item.kind-unplaced .scans { color: var(--bad); }
   .item.kind-unplaced .title { color: var(--bad); }
-  .item.kind-gap { cursor: default; grid-template-columns: 14px 64px 1fr; color: var(--muted); font-size: 11px; background: repeating-linear-gradient(135deg, transparent 0 6px, rgba(0,0,0,.025) 6px 12px); }
+  .item.kind-gap { cursor: default; color: var(--muted); font-size: 11px; background: repeating-linear-gradient(135deg, transparent 0 6px, rgba(0,0,0,.025) 6px 12px); }
   .dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid #b9b8b4; margin-top: 4px; }
   .dot.confirmed { background: var(--ok); border-color: var(--ok); }
   .dot.corrected { background: var(--fix); border-color: var(--fix); }
@@ -85,6 +87,11 @@
   .pane-head .grow { flex: 1; }
   .strip { display: grid; grid-template-columns: 13% 1fr 13%; gap: 8px; padding: 0 14px; min-height: 0; }
   .thumb, .main { position: relative; min-height: 0; display: flex; align-items: center; justify-content: center; }
+  .main { overflow: hidden; }
+  .main.zoomed { cursor: grab; }
+  .main.zoomed.panning { cursor: grabbing; }
+  .main .frame { transform-origin: 0 0; will-change: transform; }
+  .zoom-level { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .thumb { cursor: pointer; opacity: .75; flex-direction: column; }
   .thumb:hover { opacity: 1; }
   .thumb span { font-size: 11px; color: var(--muted); }
@@ -149,7 +156,8 @@
       <input type="search" id="search" placeholder="Search title or scan" />
       <label><input type="checkbox" id="show-sub" checked /> subdocuments</label>
       <label><input type="checkbox" id="show-gap" /> non-document scans</label>
-      <div class="progress"><span id="progress-text"></span><span class="bar"><span id="progress-bar"></span></span></div>
+      <div class="progress"><span id="progress-index"></span><span class="bar"><span id="progress-bar"></span></span></div>
+      <div class="progress"><span id="progress-text"></span></div>
     </div>
     <ol id="toc-list"></ol>
   </aside>
@@ -167,6 +175,7 @@
           <span class="folio"></span>
           <span class="delta"></span>
           <span class="side-hint"></span>
+          <span class="zoom-level" title="Ctrl + scroll (or pinch) to zoom, drag to move, 0 to reset"></span>
           <span class="grow"></span>
           <button type="button" data-reset title="Back to the model's scan (r)">Model's scan</button>
           <a class="open-scan" target="_blank" title="Open the scan page">scan ↗</a>
@@ -195,7 +204,7 @@
     </div>
     <div class="keys">
       <kbd>j</kbd>/<kbd>k</kbd> next/previous document · <kbd>n</kbd> next to review · <kbd>←</kbd>/<kbd>→</kbd> scan back/forward · <kbd>↑</kbd>/<kbd>↓</kbd> start/end pane ·
-      click the left/right half of a double scan to mark the page · <kbd>r</kbd> model's scan · <kbd>t</kbd> text · <kbd>Enter</kbd> save · <kbd>u</kbd> unsure
+      click the left/right half of a double scan to mark the page · <kbd>Ctrl</kbd>+scroll or <kbd>+</kbd>/<kbd>-</kbd> zoom, drag to move, <kbd>0</kbd> fit · <kbd>r</kbd> model's scan · <kbd>t</kbd> text · <kbd>Enter</kbd> save · <kbd>u</kbd> unsure
     </div>
   </section>
 </div>
@@ -249,7 +258,7 @@ function visible(it) {
   if (f === 'index' && !it.csv_id) return false;
   if (f === 'model' && !['unindexed', 'subdoc', 'added'].includes(it.kind)) return false;
   if (q) {
-    const hay = `${it.title || ''} ${num(it.start)} ${num(it.end)} ${it.csv_id || ''}`.toLowerCase();
+    const hay = `${it.title || ''} ${num(it.start)} ${num(it.end)} ${it.csv_id ? 'obp ' + it.csv_id : ''} ${it.toc_order ? '#' + it.toc_order : ''}`.toLowerCase();
     if (!hay.includes(q)) return false;
   }
   return true;
@@ -258,26 +267,44 @@ function span(it) {
   if (!it.start) return 'not placed';
   return it.start === it.end || !it.end ? num(it.start) : `${num(it.start)}–${num(it.end)}`;
 }
+function outOfOrder() {
+  // index entries that the model put before an entry that comes earlier in the index
+  const out = new Set();
+  let seen = 0;
+  for (const it of items) {
+    if (!it.toc_order || !it.start) continue;
+    if (it.toc_order < seen) out.add(it.key);
+    seen = Math.max(seen, it.toc_order);
+  }
+  return out;
+}
+const N_INDEX = items.filter(it => it.csv_id).length;
 function renderToc() {
-  const list = $('#toc-list');
+  const list = $('#toc-list'), disorder = outOfOrder();
   list.innerHTML = items.filter(visible).map(it => {
     const k = items.indexOf(it);
-    if (it.kind === 'gap') return `<li class="item kind-gap"><span></span><span class="scans">${span(it)}</span><span>non-document scans</span></li>`;
+    if (it.kind === 'gap') return `<li class="item kind-gap"><span></span><span></span><span class="scans">${span(it)}</span><span>non-document scans</span></li>`;
     const m = method(it);
+    const idx = it.toc_order ? `<span class="idx" title="Entry ${it.toc_order} of ${N_INDEX} in the OBP index">${it.toc_order}</span>` : '<span class="idx none" title="Not an OBP index entry">·</span>';
     const meta = [
+      it.csv_id ? `<span title="OBP index number">OBP ${esc(it.csv_id)}</span>` : '',
       `<span class="chip ${esc(m.replace(' ', '-'))}">${esc(it.kind === 'unplaced' ? 'not placed' : m)}</span>`,
       it.index_folios ? esc(it.index_folios) : '',
+      disorder.has(it.key) ? '<span class="chip unplaced" title="Placed before an entry that precedes it in the index">out of index order</span>' : '',
       it.shared_span ? '<span class="chip" title="Several index entries were put on the same scans">shared span</span>' : '',
       it.stale ? '<span class="chip unplaced">no longer in model output</span>' : '',
       it.review && it.review.note ? '✎' : '',
     ].filter(Boolean).join(' ');
     return `<li class="item kind-${esc(it.kind)} depth-${it.depth || 0}${it === current ? ' current' : ''}" data-k="${k}">
-      <span class="dot ${statusOf(it)}"></span><span class="scans">${span(it)}</span>
+      <span class="dot ${statusOf(it)}"></span>${idx}<span class="scans">${span(it)}</span>
       <span class="title" title="${esc(it.title)}">${esc(it.title)}</span><span class="meta">${meta}</span></li>`;
   }).join('');
+  const index = items.filter(it => it.csv_id), indexDone = index.filter(isDone).length;
   const all = items.filter(reviewable), done = all.filter(isDone).length;
-  $('#progress-text').textContent = `${done} / ${all.length} reviewed · ${DATA.n_index} index entries`;
-  $('#progress-bar').style.width = `${all.length ? 100 * done / all.length : 0}%`;
+  const firstTodo = index.find(it => !isDone(it));
+  $('#progress-index').textContent = `OBP index: ${indexDone} / ${index.length} entries reviewed${firstTodo ? ` · next: entry ${firstTodo.toc_order}` : ''}`;
+  $('#progress-bar').style.width = `${index.length ? 100 * indexDone / index.length : 0}%`;
+  $('#progress-text').textContent = `All documents incl. model-only: ${done} / ${all.length} reviewed`;
   const cur = $('.item.current', list);
   if (cur) cur.scrollIntoView({ block: 'nearest' });
 }
@@ -301,12 +328,14 @@ function select(it, keepNote) {
   state.start = { pos: it.start ? POS[it.start] : fallback, side: rv.start_side || null };
   state.end = { pos: it.end ? POS[it.end] : (it.start ? POS[it.start] : fallback), side: rv.end_side || null };
   if (!keepNote) $('#note').value = rv.note || '';
+  if (it !== zoom.item) { zoom.item = it; resetZoom('start'); resetZoom('end'); }
   try { history.replaceState(null, '', '#' + encodeURIComponent(it.key)); } catch (e) {}
   const m = method(it);
   $('#doc-title').textContent = it.title || '(untitled)';
   const bits = [
     it.kind === 'unplaced' ? 'Index entry the model did not place' : ({ toc: 'Index entry', unindexed: 'Model: document without index entry', subdoc: 'Model: subdocument', derived: 'Entry derived from another version', gm: 'General Missive', case: 'Court case', added: 'Added by a reviewer' }[it.kind] || it.kind),
-    it.csv_id ? `index #${it.csv_id}` : '',
+    it.csv_id ? `OBP ${it.csv_id}` : '',
+    it.toc_order ? `entry ${it.toc_order} of ${N_INDEX} in the index` : '',
     it.index_folios,
     it.date,
     it.model_start ? `model: scans ${num(it.model_start)}–${num(it.model_end)} (${m}${it.boundary ? ', ' + it.boundary : ''})` : '',
@@ -335,7 +364,7 @@ function renderPane(which) {
   } else { d.className = 'delta moved'; d.textContent = 'no model scan'; }
   $('.side-hint', pane).textContent = scan.double ? (st.side ? `${which} on ${st.side} page` : 'double scan') : '';
   $('.open-scan', pane).href = `${BASE}/scan/${scan.f}`;
-  const main = $('.main img', pane), src = img(scan, scan.double ? 1600 : 1000);
+  const main = $('.main img', pane), src = img(scan, mainWidth(which, scan));
   $('.no-image', pane).hidden = !!src;
   main.hidden = !src;
   if (src && main.getAttribute('src') !== src) main.src = src;
@@ -398,10 +427,69 @@ document.querySelectorAll('.pane').forEach(pane => {
   pane.querySelectorAll('[data-step]').forEach(b => b.addEventListener('click', () => move(which, +b.dataset.step)));
   $('[data-reset]', pane).addEventListener('click', () => resetPane(which));
   pane.querySelectorAll('.half').forEach(h => h.addEventListener('click', () => {
+    if (dragged) { dragged = false; return; }
     state[which].side = state[which].side === h.dataset.side ? null : h.dataset.side;
     renderPane(which);
   }));
   $('.snippet', pane).addEventListener('click', () => showText(which));
+});
+
+// ── zoom ───────────────────────────────────────────────────────────────────
+// per pane; kept while stepping through scans, reset for another document
+const zoom = { item: null, start: { s: 1, x: 0, y: 0 }, end: { s: 1, x: 0, y: 0 } };
+let dragged = false;
+function mainWidth(which, scan) { return zoom[which].s >= 1.5 ? 3000 : scan.double ? 1600 : 1000; }
+function applyZoom(which) {
+  const pane = $('#pane-' + which), z = zoom[which], frame = $('.frame', pane);
+  const w = frame.offsetWidth, h = frame.offsetHeight;
+  // keep the image over its frame
+  z.x = Math.min(0, Math.max(w - w * z.s, z.x));
+  z.y = Math.min(0, Math.max(h - h * z.s, z.y));
+  frame.style.transform = z.s > 1 ? `translate(${z.x}px, ${z.y}px) scale(${z.s})` : '';
+  $('.main', pane).classList.toggle('zoomed', z.s > 1);
+  $('.zoom-level', pane).textContent = z.s > 1 ? `${Math.round(z.s * 100)}%` : '';
+  const scan = SCANS[state[which].pos], im = $('.main img', pane), src = img(scan, mainWidth(which, scan));
+  if (src && im.getAttribute('src') !== src) im.src = src;
+}
+function zoomAt(which, factor, cx, cy) {
+  const frame = $(`#pane-${which} .frame`), z = zoom[which], r = frame.getBoundingClientRect();
+  const ox = r.left - z.x, oy = r.top - z.y;  // top-left before the transform
+  const px = (cx ?? ox + frame.offsetWidth / 2) - ox, py = (cy ?? oy + frame.offsetHeight / 2) - oy;
+  const s = Math.min(8, Math.max(1, z.s * factor));
+  z.x = px - (px - z.x) * (s / z.s);
+  z.y = py - (py - z.y) * (s / z.s);
+  z.s = s;
+  applyZoom(which);
+}
+function resetZoom(which) { zoom[which] = { s: 1, x: 0, y: 0 }; applyZoom(which); }
+document.querySelectorAll('.pane').forEach(pane => {
+  const which = pane.dataset.which, main = $('.main', pane);
+  main.addEventListener('wheel', e => {
+    if (e.ctrlKey || e.metaKey) {  // also a trackpad pinch
+      e.preventDefault();
+      zoomAt(which, Math.exp(-e.deltaY * 0.0025), e.clientX, e.clientY);
+    } else if (zoom[which].s > 1) {  // scrolling moves a zoomed scan
+      e.preventDefault();
+      zoom[which].x -= e.deltaX; zoom[which].y -= e.deltaY;
+      applyZoom(which);
+    }
+  }, { passive: false });
+  main.addEventListener('dblclick', () => resetZoom(which));
+  main.addEventListener('mousedown', e => {
+    if (zoom[which].s <= 1 || e.button !== 0) return;
+    e.preventDefault();
+    const x0 = e.clientX, y0 = e.clientY, zx = zoom[which].x, zy = zoom[which].y;
+    dragged = false;
+    main.classList.add('panning');
+    const moveTo = ev => {
+      if (Math.abs(ev.clientX - x0) + Math.abs(ev.clientY - y0) > 4) dragged = true;
+      zoom[which].x = zx + ev.clientX - x0; zoom[which].y = zy + ev.clientY - y0;
+      applyZoom(which);
+    };
+    const stop = () => { main.classList.remove('panning'); window.removeEventListener('mousemove', moveTo); window.removeEventListener('mouseup', stop); };
+    window.addEventListener('mousemove', moveTo);
+    window.addEventListener('mouseup', stop);
+  });
 });
 
 // ── saving ─────────────────────────────────────────────────────────────────
@@ -456,7 +544,8 @@ document.addEventListener('keydown', e => {
     ArrowLeft: () => move(active, -1), ArrowRight: () => move(active, 1),
     ArrowUp: () => { active = 'start'; renderPanes(); }, ArrowDown: () => { active = 'end'; renderPanes(); },
     j: () => next(current, 1), k: () => next(current, -1), n: () => next(current, 1, true),
-    r: () => resetPane(active), t: () => showText(active), Enter: () => save(), u: () => save({ verdict: 'unsure' }),
+    r: () => resetPane(active), t: () => showText(active),
+    '+': () => zoomAt(active, 1.4), '=': () => zoomAt(active, 1.4), '-': () => zoomAt(active, 1 / 1.4), '0': () => resetZoom(active), Enter: () => save(), u: () => save({ verdict: 'unsure' }),
   };
   if (keys[e.key]) { e.preventDefault(); keys[e.key](); }
 });
@@ -473,8 +562,16 @@ const reviewer = $('#reviewer');
 reviewer.value = store.get('segment-reviewer') || '';
 reviewer.addEventListener('change', () => store.set('segment-reviewer', reviewer.value.trim()));
 
+function itemForScan(f) {
+  // the document starting on the scan, else the innermost one containing it
+  const p = POS[f];
+  if (p === undefined) return null;
+  const hits = items.filter(it => it.kind !== 'gap' && it.start && POS[it.start] <= p && p <= POS[it.end || it.start]);
+  return hits.find(it => it.start === f) || hits[hits.length - 1] || null;
+}
 const fromHash = decodeURIComponent(location.hash.slice(1));
-select(items.find(it => it.key === fromHash) || items.find(it => reviewable(it) && !isDone(it)) || items.find(reviewable));
+select((fromHash.startsWith('scan=') ? itemForScan(fromHash.slice(5)) : items.find(it => it.key === fromHash))
+  || items.find(it => reviewable(it) && !isDone(it)) || items.find(reviewable));
 </script>
 </body>
 </html>
