@@ -51,6 +51,8 @@
   .item .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .item .idx { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; color: var(--ink); }
   .item .idx.none { color: #c9c8c4; font-weight: 400; }
+  .item .search { font-size: 11px; color: var(--muted); text-decoration: none; border: 1px solid var(--line); border-radius: 9px; padding: 0 6px; white-space: nowrap; }
+  .item .search:hover { color: var(--ink); background: var(--blue); }
   .item .meta { grid-column: 4; font-size: 11px; color: var(--muted); }
   .item.kind-unindexed .title, .item.kind-subdoc .title, .item.kind-added .title { font-style: italic; }
   .item.kind-unplaced .scans { color: var(--bad); }
@@ -267,6 +269,13 @@ function span(it) {
   if (!it.start) return 'not placed';
   return it.start === it.end || !it.end ? num(it.start) : `${num(it.start)}–${num(it.end)}`;
 }
+// full-text search for an index entry's title in its inventory, in the GLOBALISE transcriptions
+const SEARCH_URL = 'https://transcriptions.globalise.huygens.knaw.nl/?indexName=globalise-2024.03.18-test&fragmentSize=100&from=0&size=10&sortBy=_score&sortOrder=desc&query=';
+function searchUrl(it) {
+  const q = JSON.stringify({ dateFrom: '1500-01-01', dateTo: '1800-01-01', rangeFrom: '0', rangeTo: '30000', fullText: it.title || '', terms: { invNr: [INV] } });
+  const bytes = new TextEncoder().encode(q);  // base64 of the UTF-8 text
+  return SEARCH_URL + encodeURIComponent(btoa(String.fromCharCode(...bytes)));
+}
 function outOfOrder() {
   // index entries that the model put before an entry that comes earlier in the index
   const out = new Set();
@@ -288,6 +297,7 @@ function renderToc() {
     const idx = it.toc_order ? `<span class="idx" title="Entry ${it.toc_order} of ${N_INDEX} in the OBP index">${it.toc_order}</span>` : '<span class="idx none" title="Not an OBP index entry">·</span>';
     const meta = [
       it.csv_id ? `<span title="OBP index number">OBP ${esc(it.csv_id)}</span>` : '',
+      it.csv_id && it.title ? `<a class="search" href="${esc(searchUrl(it))}" target="_blank" rel="noopener" title="Search the transcriptions of this inventory for the title (new tab)">search title ↗</a>` : '',
       `<span class="chip ${esc(m.replace(' ', '-'))}">${esc(it.kind === 'unplaced' ? 'not placed' : m)}</span>`,
       it.index_folios ? esc(it.index_folios) : '',
       disorder.has(it.key) ? '<span class="chip unplaced" title="Placed before an entry that precedes it in the index">out of index order</span>' : '',
@@ -309,6 +319,7 @@ function renderToc() {
   if (cur) cur.scrollIntoView({ block: 'nearest' });
 }
 $('#toc-list').addEventListener('click', e => {
+  if (e.target.closest('a')) return;  // the search link opens in a new tab
   const li = e.target.closest('.item[data-k]');
   if (li) select(items[+li.dataset.k]);
 });
