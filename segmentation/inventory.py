@@ -77,6 +77,31 @@ def drop_missing(toc: pd.DataFrame) -> pd.DataFrame:
     return toc[~toc["title"].fillna("").str.contains(MISSING_RE, case=False, regex=True)]
 
 
+def load_toc(conn: sqlite3.Connection, inventory_id: str) -> pd.DataFrame:
+    """The inventory's ToC entries (TANAP / OBP index), sorted by toc_order (NULL last)."""
+    toc = pd.read_sql(
+        "SELECT d.id AS doc_id, CAST(e.identifier AS INTEGER) AS csv_id, d.title, "
+        "       d.folio_start, d.folio_end, d.toc_folio_start_side AS start_side, "
+        "       d.toc_folio_end_side AS end_side, d.toc_order, d.toc_folio_sequence AS folio_sequence, "
+        "       d.toc_katern AS katern, d.date_earliest_begin AS date_begin, d.date_latest_end AS date_end "
+        "FROM document d "
+        "JOIN document_identification_method m ON m.id = d.method_id AND m.name = ? "
+        "LEFT JOIN document2external_id de ON de.document_id = d.id "
+        "LEFT JOIN external_id e ON e.id = de.external_id AND e.context = 'OBP_INDEX' "
+        "WHERE d.inventory_id = ? AND (e.id IS NOT NULL OR de.id IS NULL)",
+        conn,
+        params=(TANAP_METHOD, inventory_id),
+    )
+    toc = drop_missing(toc.drop_duplicates("doc_id"))
+    # an all-NULL column comes back as object/None; keep these numeric (NaN)
+    for c in ("csv_id", "folio_start", "folio_end", "toc_order", "folio_sequence"):
+        toc[c] = pd.to_numeric(toc[c], errors="coerce")
+    for c in ("date_begin", "date_end"):
+        toc[c] = pd.to_datetime(toc[c], errors="coerce").dt.date
+    toc["end_eff"] = toc["folio_end"].where(toc["folio_end"] >= toc["folio_start"], toc["folio_start"])
+    return toc.sort_values(["toc_order", "csv_id"], na_position="last").reset_index(drop=True)
+
+
 def load_inventory(conn: sqlite3.Connection, inventory_number: str) -> InventoryData:
     inv = conn.execute(
         "SELECT id FROM inventory WHERE inventory_number = ?", (inventory_number,)
@@ -119,27 +144,7 @@ def load_inventory(conn: sqlite3.Connection, inventory_number: str) -> Inventory
     scans["is_blank"] = scans["is_blank"].where(scans["n_pages"] > 0, scans["text_len"] < BLANK_CHARS).astype(bool)
     scans = scans.drop(columns=["header_raw", "signatures_raw", "folio_raw"]).reset_index(drop=True)
 
-    toc = pd.read_sql(
-        "SELECT d.id AS doc_id, CAST(e.identifier AS INTEGER) AS csv_id, d.title, "
-        "       d.folio_start, d.folio_end, d.toc_folio_start_side AS start_side, "
-        "       d.toc_folio_end_side AS end_side, d.toc_order, d.toc_folio_sequence AS folio_sequence, "
-        "       d.toc_katern AS katern, d.date_earliest_begin AS date_begin, d.date_latest_end AS date_end "
-        "FROM document d "
-        "JOIN document_identification_method m ON m.id = d.method_id AND m.name = ? "
-        "LEFT JOIN document2external_id de ON de.document_id = d.id "
-        "LEFT JOIN external_id e ON e.id = de.external_id AND e.context = 'OBP_INDEX' "
-        "WHERE d.inventory_id = ? AND (e.id IS NOT NULL OR de.id IS NULL)",
-        conn,
-        params=(TANAP_METHOD, inv_id),
-    )
-    toc = drop_missing(toc.drop_duplicates("doc_id"))
-    # an all-NULL column comes back as object/None; keep these numeric (NaN)
-    for c in ("csv_id", "folio_start", "folio_end", "toc_order", "folio_sequence"):
-        toc[c] = pd.to_numeric(toc[c], errors="coerce")
-    for c in ("date_begin", "date_end"):
-        toc[c] = pd.to_datetime(toc[c], errors="coerce").dt.date
-    toc["end_eff"] = toc["folio_end"].where(toc["folio_end"] >= toc["folio_start"], toc["folio_start"])
-    toc = toc.sort_values(["toc_order", "csv_id"], na_position="last").reset_index(drop=True)
+    toc = load_toc(conn, inv_id)
 
     return InventoryData(inventory_number, inv_id, scans, toc)
 

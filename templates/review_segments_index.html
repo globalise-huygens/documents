@@ -1,0 +1,52 @@
+{% extends "base.html" %} {% block title %}Segment review - GLOBALISE Documents{% endblock %}
+{% block extra_head %}{% if status == "running" %}<meta http-equiv="refresh" content="10" />{% endif %}{% endblock %}
+{% block content %}
+<style>
+  .review-stats { border-collapse: collapse; font-size: 0.85em; font-variant-numeric: tabular-nums; }
+  .review-stats th, .review-stats td { border-bottom: 1px solid var(--border); padding: 3px 8px; text-align: right; }
+  .review-stats th:first-child, .review-stats td:first-child { text-align: left; }
+</style>
+<h1>Review: document segmentation</h1>
+
+{% if status == "running" %}
+<div class="alert alert-info">Preparing the segmentation output for review (splitting segments.csv per inventory). This takes about half a minute; the page refreshes by itself.</div>
+{% elif status != "ready" %}
+<div class="alert alert-info">{{ status }}</div>
+{% else %}
+<div class="card">
+  <p>Check where the model puts the start and end of each document, next to the index (OBP / court cases / General Missives).
+    Confirm or correct them; the corrections are stored as ground truth for evaluation.</p>
+  <form method="get" style="margin-top: 0.75rem; display: flex; gap: 0.5rem; align-items: center">
+    <label for="inventory"><strong>Inventory</strong></label>
+    <input id="inventory" name="inventory" placeholder="e.g. 2345" required style="padding: 0.4rem 0.6rem; border: 1px solid var(--border); border-radius: 8px" />
+    <button type="submit" class="btn btn-primary">Review</button>
+  </form>
+</div>
+{% endif %}
+
+{% if inventories %}
+<div class="card">
+  <h2>Reviewed so far</h2>
+  <table class="review-stats">
+    <thead><tr><th>Inventory</th><th>Documents reviewed</th><th>of which corrected / verdict</th><th>Last review</th></tr></thead>
+    <tbody>{% for d in inventories %}
+      <tr><td><a href="{{ base_url }}/review/segments/{{ d.inventory }}">{{ d.inventory }}</a></td><td>{{ d.n }}</td><td>{{ d.corrected }}</td><td>{{ d.last.replace("T", " ") }}</td></tr>
+    {% endfor %}</tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if stats %}
+<div class="card">
+  <h2>Model versus review, all inventories</h2>
+  <p><small class="text-muted">Distance between the model's scan and the reviewed scan for each checked boundary, per placement method
+    (exact / interpolated / text / evidence / forced for index entries; model for unindexed documents and subdocuments).
+    Boundaries moved along with a neighbour are not counted. {{ n_reviews }} documents reviewed.</small></p>
+  <table class="review-stats">
+    <thead><tr><th>method</th>{% for c in stats.columns %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+    <tbody>{% for r in stats.rows %}<tr>{% for v in r %}<td>{% if loop.first %}<strong>{{ v }}</strong>{% else %}{{ v or "" }}{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody>
+  </table>
+  <p style="margin-top: 0.75rem"><a class="btn" href="{{ base_url }}/review/segments/export.csv">Download all reviews (CSV)</a></p>
+</div>
+{% endif %}
+{% endblock %}

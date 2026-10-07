@@ -749,6 +749,108 @@ def review_register_links():
     )
 
 
+def _segment_conn():
+    from segmentation.inventory import connect
+
+    return connect(app.config["SQLALCHEMY_DATABASE_URI"])
+
+
+def _stats_json(reviews):
+    from segmentation.review import evaluate
+
+    table = evaluate(reviews)
+    if table.empty:
+        return None
+    return {"columns": list(table.columns), "rows": [[str(i), *map(int, r)] for i, r in zip(table.index, table.values)]}
+
+
+@app.route("/review/segments")
+def review_segments_index():
+    """Inventories to review, and what the reviews so far say about the model."""
+    from segmentation.review import current_reviews, ensure_split_async
+
+    status = ensure_split_async()
+    inv = (request.args.get("inventory") or "").strip()
+    if inv and status == "ready":
+        return redirect(url_for("review_segments", inventory_number=inv))
+    reviews = list(current_reviews(_segment_conn()).values())
+    per_inv = {}
+    for rv in reviews:
+        d = per_inv.setdefault(rv["inventory"], {"inventory": rv["inventory"], "n": 0, "corrected": 0, "last": ""})
+        d["n"] += 1
+        d["corrected"] += "corrected" in (rv["start_status"], rv["end_status"]) or bool(rv["verdict"])
+        d["last"] = max(d["last"], rv["created_at"])
+    return render_template(
+        "review_segments_index.html", status=status, inventories=sorted(per_inv.values(), key=lambda d: d["last"], reverse=True),
+        stats=_stats_json(reviews), n_reviews=len(reviews),
+    )
+
+
+@app.route("/review/segments/<inventory_number>")
+def review_segments(inventory_number):
+    """Check and correct the model's document boundaries in one inventory (table segment_review)."""
+    from segmentation.review import ensure_split_async, has_segments, load_review
+
+    status = ensure_split_async()
+    if status != "ready":
+        return redirect(url_for("review_segments_index"))
+    if not has_segments(inventory_number):
+        abort(404, f"No segmentation output for inventory {inventory_number}")
+    try:
+        data = load_review(_segment_conn(), inventory_number)
+    except KeyError:
+        abort(404)
+    data["stats"] = _stats_json([it["review"] for it in data["items"] if it["review"]])
+    return render_template("review_segments.html", data=data, inventory_number=inventory_number)
+
+
+@lru_cache(maxsize=4)
+def _inventory_texts(inventory_number):
+    from segmentation.texts import TEXT_DIR
+
+    folder = os.path.join(TEXT_DIR, f"inv={inventory_number}")
+    if not os.path.isdir(folder):
+        return {}
+    import pandas as pd
+
+    t = pd.read_parquet(folder, columns=["filename", "text"])
+    return dict(zip(t["filename"], t["text"].fillna("")))
+
+
+@app.route("/review/segments/<inventory_number>/text/<filename>")
+def review_segments_text(inventory_number, filename):
+    return {"text": _inventory_texts(inventory_number).get(filename, "")}
+
+
+@app.route("/review/segments/<inventory_number>/save", methods=["POST"])
+def review_segments_save(inventory_number):
+    from models import SegmentReview
+    from segmentation.review import build_rows, load_review
+
+    conn = _segment_conn()
+    data = load_review(conn, inventory_number)
+    try:
+        rows = build_rows(data, request.get_json())
+    except (KeyError, ValueError) as e:
+        return {"error": str(e)}, 400
+    db_session = Session()
+    db_session.add_all(SegmentReview(**r) for r in rows)
+    db_session.commit()
+    data = load_review(conn, inventory_number)
+    return {
+        "items": data["items"], "saved": rows[0]["item_key"], "implied": [r["item_key"] for r in rows[1:]],
+        "stats": _stats_json([it["review"] for it in data["items"] if it["review"]]),
+    }
+
+
+@app.route("/review/segments/export.csv")
+def review_segments_export():
+    from segmentation.review import export_rows
+
+    return Response(export_rows(_segment_conn()).to_csv(index=False), mimetype="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=segment_reviews.csv"})
+
+
 @app.route("/scans")
 def scans():
     """List all scans."""

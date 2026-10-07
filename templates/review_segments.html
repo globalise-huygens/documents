@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Segment review · {{ inventory_number }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --font-sans: "Noto Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --ink: #1d1c1a; --muted: #6b6a66; --bg: #f4f6f5; --panel: #ffffff; --line: rgba(29, 28, 26, 0.12);
+    --mint: #bfeeca; --blue: #bde6fe; --coral: #ff9f84; --lilac: #e7d3ff;
+    --ok: #1f8a4c; --fix: #c77700; --bad: #c0392b; --unsure: #7b4fc9; --implied: #8aa9c2; --sel: #fff3d6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { font-family: var(--font-sans); color: var(--ink); background: var(--bg); font-size: 14px; display: flex; flex-direction: column; overflow: hidden; }
+  a { color: inherit; }
+  button { font: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 3px 9px; }
+  button:hover { background: var(--bg); }
+  button.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+  button.primary:hover { background: #3a3936; }
+  input, select { font: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 3px 7px; background: var(--panel); }
+  kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: var(--panel); }
+
+  .topbar { display: flex; align-items: center; gap: 14px; padding: 6px 14px; background: var(--ink); color: #fff; flex: none; }
+  .topbar a { text-decoration: none; opacity: .8; }
+  .topbar a:hover { opacity: 1; }
+  .topbar .grow { flex: 1; }
+  .topbar input { background: #33322f; color: #fff; border-color: #555; width: 9em; }
+  .topbar button { background: #33322f; color: #fff; border-color: #555; }
+
+  .layout { flex: 1; display: grid; grid-template-columns: minmax(300px, 30%) 1fr; min-height: 0; }
+
+  /* ToC */
+  .toc { display: flex; flex-direction: column; border-right: 1px solid var(--line); background: var(--panel); min-height: 0; }
+  .toc-tools { padding: 8px 10px; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+  .toc-tools input[type=search] { flex: 1; min-width: 8em; }
+  .toc-tools label { font-size: 12px; color: var(--muted); }
+  .progress { font-size: 12px; color: var(--muted); width: 100%; display: flex; gap: 10px; }
+  .progress .bar { flex: 1; height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; align-self: center; }
+  .progress .bar span { display: block; height: 100%; background: var(--ok); }
+  #toc-list { list-style: none; overflow-y: auto; flex: 1; }
+  .item { display: grid; grid-template-columns: 14px 64px 1fr; gap: 0 6px; padding: 4px 10px; border-bottom: 1px solid var(--line); cursor: pointer; line-height: 1.35; }
+  .item:hover { background: var(--bg); }
+  .item.current { background: var(--sel); box-shadow: inset 3px 0 0 var(--coral); }
+  .item.depth-1 { padding-left: 28px; }
+  .item .scans { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--muted); }
+  .item .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item .meta { grid-column: 3; font-size: 11px; color: var(--muted); }
+  .item.kind-unindexed .title, .item.kind-subdoc .title, .item.kind-added .title { font-style: italic; }
+  .item.kind-unplaced .scans { color: var(--bad); }
+  .item.kind-unplaced .title { color: var(--bad); }
+  .item.kind-gap { cursor: default; grid-template-columns: 14px 64px 1fr; color: var(--muted); font-size: 11px; background: repeating-linear-gradient(135deg, transparent 0 6px, rgba(0,0,0,.025) 6px 12px); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid #b9b8b4; margin-top: 4px; }
+  .dot.confirmed { background: var(--ok); border-color: var(--ok); }
+  .dot.corrected { background: var(--fix); border-color: var(--fix); }
+  .dot.verdict { background: var(--bad); border-color: var(--bad); }
+  .dot.unsure { background: var(--unsure); border-color: var(--unsure); }
+  .dot.implied { border-color: var(--implied); background: linear-gradient(90deg, var(--implied) 50%, transparent 50%); }
+  .chip { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 9px; background: var(--bg); border: 1px solid var(--line); margin-right: 3px; white-space: nowrap; }
+  .chip.exact, .chip.gm, .chip.case { background: var(--mint); }
+  .chip.interpolated, .chip.forced { background: #ffe1c4; }
+  .chip.text, .chip.evidence, .chip.derived { background: var(--blue); }
+  .chip.model, .chip.added { background: var(--lilac); }
+  .chip.unplaced, .chip.not-placed { background: #ffd1cb; }
+
+  /* viewer */
+  .viewer { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+  .doc-head { padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  .doc-head h2 { font-size: 15px; font-weight: 600; line-height: 1.3; }
+  .doc-head .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .panes { flex: 1; display: grid; grid-template-rows: 1fr 1fr; min-height: 0; }
+  .pane { display: grid; grid-template-rows: auto 1fr auto; min-height: 0; border-bottom: 1px solid var(--line); }
+  .pane.active { background: #fffdf6; }
+  .pane-head { display: flex; align-items: center; gap: 8px; padding: 4px 14px; font-size: 13px; }
+  .pane-head .label { font-weight: 700; letter-spacing: .04em; width: 3.6em; }
+  .pane.active .pane-head .label { color: var(--coral); }
+  .pane-head .scanno { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .pane-head .delta { font-size: 12px; padding: 0 6px; border-radius: 9px; }
+  .pane-head .delta.same { background: var(--mint); }
+  .pane-head .delta.moved { background: #ffe1c4; }
+  .pane-head .grow { flex: 1; }
+  .strip { display: grid; grid-template-columns: 13% 1fr 13%; gap: 8px; padding: 0 14px; min-height: 0; }
+  .thumb, .main { position: relative; min-height: 0; display: flex; align-items: center; justify-content: center; }
+  .thumb { cursor: pointer; opacity: .75; flex-direction: column; }
+  .thumb:hover { opacity: 1; }
+  .thumb span { font-size: 11px; color: var(--muted); }
+  .thumb img { max-width: 100%; max-height: calc(100% - 16px); object-fit: contain; border: 1px solid var(--line); }
+  .main .frame { position: relative; height: 100%; display: flex; align-items: center; justify-content: center; }
+  .main img { max-width: 100%; max-height: 100%; object-fit: contain; border: 1px solid var(--line); background: #ddd; display: block; }
+  .half { position: absolute; top: 0; bottom: 0; width: 50%; cursor: pointer; }
+  .half.left { left: 0; } .half.right { right: 0; }
+  .half:hover { background: rgba(255, 159, 132, .12); }
+  .half.chosen { outline: 3px solid var(--coral); outline-offset: -3px; }
+  .half.other { background: rgba(255, 255, 255, .45); }
+  .no-image { color: var(--muted); font-size: 12px; }
+  .pane-foot { padding: 3px 14px 6px; font-size: 12px; color: var(--muted); display: flex; gap: 10px; align-items: baseline; min-width: 0; }
+  .pane-foot .snippet { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-style: italic; cursor: pointer; }
+  .pane-foot details { flex: none; }
+  .pane-foot details[open] { position: absolute; z-index: 5; background: var(--panel); border: 1px solid var(--line); padding: 8px; border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,.15); max-width: 520px; }
+  .badge { display: inline-block; font-size: 11px; padding: 0 5px; border-radius: 4px; margin: 1px; }
+  .badge.pos { background: #d8f2df; } .badge.neg { background: #fbe0d6; }
+
+  .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 7px 14px; background: var(--panel); border-top: 1px solid var(--line); }
+  .actions .note { flex: 1; min-width: 12em; }
+  .actions .msg { font-size: 12px; color: var(--muted); }
+  .actions .msg.err { color: var(--bad); }
+  .keys { font-size: 11px; color: var(--muted); padding: 3px 14px 5px; background: var(--panel); }
+
+  dialog { margin: auto; border: 1px solid var(--line); border-radius: 10px; padding: 16px; max-width: 90vw; max-height: 85vh; }
+  dialog::backdrop { background: rgba(0,0,0,.3); }
+  dialog table { border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+  dialog th, dialog td { border-bottom: 1px solid var(--line); padding: 3px 8px; text-align: right; }
+  dialog th:first-child, dialog td:first-child { text-align: left; }
+  #text-dialog pre { white-space: pre-wrap; font: 13px/1.5 var(--font-sans); max-width: 70ch; }
+
+  @media (max-width: 900px) {
+    body { overflow: auto; }
+    .layout { grid-template-columns: 1fr; }
+    .toc { max-height: 40vh; }
+    .panes { grid-template-rows: 60vh 60vh; }
+  }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="{{ base_url }}/review/segments">← Segment review</a>
+  <strong>Inventory {{ inventory_number }}</strong>
+  <a href="{{ base_url }}/inventory/{{ inventory_number }}" target="_blank">inventory page ↗</a>
+  <span class="grow"></span>
+  <button type="button" id="stats-btn">Results</button>
+  <label>Reviewer <input id="reviewer" placeholder="your name" /></label>
+</div>
+
+<div class="layout">
+  <aside class="toc">
+    <div class="toc-tools">
+      <select id="filter" aria-label="Show">
+        <option value="all">All documents</option>
+        <option value="todo">To review</option>
+        <option value="done">Reviewed</option>
+        <option value="suspect">Suspect: forced, interpolated, not placed</option>
+        <option value="index">Index entries only</option>
+        <option value="model">Model-only documents</option>
+      </select>
+      <input type="search" id="search" placeholder="Search title or scan" />
+      <label><input type="checkbox" id="show-sub" checked /> subdocuments</label>
+      <label><input type="checkbox" id="show-gap" /> non-document scans</label>
+      <div class="progress"><span id="progress-text"></span><span class="bar"><span id="progress-bar"></span></span></div>
+    </div>
+    <ol id="toc-list"></ol>
+  </aside>
+
+  <section class="viewer">
+    <div class="doc-head"><h2 id="doc-title">Select a document</h2><div class="sub" id="doc-sub"></div></div>
+    <div class="panes">
+      {% for which in ("start", "end") %}
+      <div class="pane" id="pane-{{ which }}" data-which="{{ which }}">
+        <div class="pane-head">
+          <span class="label">{{ which|upper }}</span>
+          <button type="button" data-step="-1" title="Previous scan (←)">◀</button>
+          <span class="scanno"></span>
+          <button type="button" data-step="1" title="Next scan (→)">▶</button>
+          <span class="folio"></span>
+          <span class="delta"></span>
+          <span class="side-hint"></span>
+          <span class="grow"></span>
+          <button type="button" data-reset title="Back to the model's scan (r)">Model's scan</button>
+          <a class="open-scan" target="_blank" title="Open the scan page">scan ↗</a>
+        </div>
+        <div class="strip">
+          <div class="thumb" data-step="-1"><img alt="" /><span></span></div>
+          <div class="main"><div class="frame"><img alt="" /><div class="half left" data-side="left" hidden></div><div class="half right" data-side="right" hidden></div></div><span class="no-image" hidden>no image</span></div>
+          <div class="thumb" data-step="1"><img alt="" /><span></span></div>
+        </div>
+        <div class="pane-foot"><span class="snippet" title="Show the whole text (t)"></span><details class="why"><summary>model's reasons</summary><div></div></details></div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="actions">
+      <button type="button" class="primary" id="save" title="Save the start and end as shown (Enter)">✓ Save start + end</button>
+      <button type="button" data-verdict="unsure" title="u">Unsure</button>
+      <button type="button" data-verdict="not_document">Not a document</button>
+      <button type="button" data-verdict="merge_previous" title="The model split a document: this belongs to the previous one">Belongs to previous</button>
+      <button type="button" data-verdict="not_in_inventory" id="not-in-inv" title="The index entry's document is not in this inventory">Not in inventory</button>
+      <button type="button" id="add-doc" title="The model missed a document: add one starting at the START scan shown">+ Missed document</button>
+      <button type="button" id="clear">Clear review</button>
+      <input class="note" id="note" placeholder="Note (optional)" />
+      <label title="When you move a shared or adjacent boundary, move the neighbour's boundary along (unless it was reviewed)"><input type="checkbox" id="link" checked /> move neighbours along</label>
+      <label><input type="checkbox" id="advance" checked /> next after saving</label>
+      <span class="msg" id="msg"></span>
+    </div>
+    <div class="keys">
+      <kbd>j</kbd>/<kbd>k</kbd> next/previous document · <kbd>n</kbd> next to review · <kbd>←</kbd>/<kbd>→</kbd> scan back/forward · <kbd>↑</kbd>/<kbd>↓</kbd> start/end pane ·
+      click the left/right half of a double scan to mark the page · <kbd>r</kbd> model's scan · <kbd>t</kbd> text · <kbd>Enter</kbd> save · <kbd>u</kbd> unsure
+    </div>
+  </section>
+</div>
+
+<dialog id="stats-dialog"><h3 style="margin-bottom:8px">Reviewed boundaries in this inventory</h3><p style="font-size:12px;color:var(--muted);margin-bottom:8px">Distance between the model's scan and the reviewed scan, per placement method. Boundaries moved along with a neighbour are not counted.</p><div id="stats-table"></div><p style="margin-top:12px"><button type="button" onclick="this.closest('dialog').close()">Close</button></p></dialog>
+<dialog id="text-dialog"><h3 id="text-title" style="margin-bottom:8px"></h3><pre id="text-body"></pre><p style="margin-top:12px"><button type="button" onclick="this.closest('dialog').close()">Close</button></p></dialog>
+
+<script>
+const BASE = {{ base_url|tojson }};
+const INV = {{ inventory_number|tojson }};
+const DATA = {{ data|tojson }};
+const SCANS = DATA.scans;
+const POS = Object.fromEntries(SCANS.map((s, i) => [s.f, i]));
+let items = DATA.items;
+let stats = DATA.stats;
+let current = null;           // the selected item
+let active = 'start';         // pane that the arrow keys move
+const state = { start: { pos: 0, side: null }, end: { pos: 0, side: null } };
+const texts = {};
+
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
+
+function img(scan, width) { return scan && scan.iiif ? `${scan.iiif}/full/${width},/0/default.jpg` : ''; }
+function num(f) { return f ? String(POS[f] !== undefined ? SCANS[POS[f]].n : f.split('_').pop()).padStart(4, '0') : '–'; }
+function reviewable(it) { return it.kind !== 'gap'; }
+function statusOf(it) {
+  const rv = it.review;
+  if (!rv) return '';
+  if (rv.verdict === 'unsure') return 'unsure';
+  if (rv.verdict) return 'verdict';
+  const s = [rv.start_status, rv.end_status];
+  if (s.includes('corrected')) return 'corrected';
+  if (s.every(x => x === 'confirmed')) return 'confirmed';
+  if (s.includes('implied')) return 'implied';
+  return s.some(Boolean) ? 'confirmed' : '';
+}
+function isDone(it) { const s = statusOf(it); return s && s !== 'implied'; }
+function method(it) { return (it.placed_by || '').split(';')[0] || it.kind; }
+function suspect(it) { return ['forced', 'interpolated', 'not placed'].includes(method(it)); }
+
+// ── ToC ───────────────────────────────────────────────────────────────────
+function visible(it) {
+  const f = $('#filter').value, q = $('#search').value.trim().toLowerCase();
+  if (it.kind === 'gap') return $('#show-gap').checked && f === 'all' && !q;
+  if (it.depth > 0 && !$('#show-sub').checked && it !== current) return false;
+  if (f === 'todo' && isDone(it)) return false;
+  if (f === 'done' && !isDone(it)) return false;
+  if (f === 'suspect' && !suspect(it)) return false;
+  if (f === 'index' && !it.csv_id) return false;
+  if (f === 'model' && !['unindexed', 'subdoc', 'added'].includes(it.kind)) return false;
+  if (q) {
+    const hay = `${it.title || ''} ${num(it.start)} ${num(it.end)} ${it.csv_id || ''}`.toLowerCase();
+    if (!hay.includes(q)) return false;
+  }
+  return true;
+}
+function span(it) {
+  if (!it.start) return 'not placed';
+  return it.start === it.end || !it.end ? num(it.start) : `${num(it.start)}–${num(it.end)}`;
+}
+function renderToc() {
+  const list = $('#toc-list');
+  list.innerHTML = items.filter(visible).map(it => {
+    const k = items.indexOf(it);
+    if (it.kind === 'gap') return `<li class="item kind-gap"><span></span><span class="scans">${span(it)}</span><span>non-document scans</span></li>`;
+    const m = method(it);
+    const meta = [
+      `<span class="chip ${esc(m.replace(' ', '-'))}">${esc(it.kind === 'unplaced' ? 'not placed' : m)}</span>`,
+      it.index_folios ? esc(it.index_folios) : '',
+      it.shared_span ? '<span class="chip" title="Several index entries were put on the same scans">shared span</span>' : '',
+      it.stale ? '<span class="chip unplaced">no longer in model output</span>' : '',
+      it.review && it.review.note ? '✎' : '',
+    ].filter(Boolean).join(' ');
+    return `<li class="item kind-${esc(it.kind)} depth-${it.depth || 0}${it === current ? ' current' : ''}" data-k="${k}">
+      <span class="dot ${statusOf(it)}"></span><span class="scans">${span(it)}</span>
+      <span class="title" title="${esc(it.title)}">${esc(it.title)}</span><span class="meta">${meta}</span></li>`;
+  }).join('');
+  const all = items.filter(reviewable), done = all.filter(isDone).length;
+  $('#progress-text').textContent = `${done} / ${all.length} reviewed · ${DATA.n_index} index entries`;
+  $('#progress-bar').style.width = `${all.length ? 100 * done / all.length : 0}%`;
+  const cur = $('.item.current', list);
+  if (cur) cur.scrollIntoView({ block: 'nearest' });
+}
+$('#toc-list').addEventListener('click', e => {
+  const li = e.target.closest('.item[data-k]');
+  if (li) select(items[+li.dataset.k]);
+});
+['filter', 'search', 'show-sub', 'show-gap'].forEach(id => $('#' + id).addEventListener('input', renderToc));
+
+// ── selection and panes ─────────────────────────────────────────────────────
+function nearestPos(it) {
+  // for an entry the model did not place: the end of the closest placed item before it
+  for (let k = items.indexOf(it) - 1; k >= 0; k--) if (items[k].end && POS[items[k].end] !== undefined) return POS[items[k].end];
+  return 0;
+}
+function select(it, keepNote) {
+  if (!it || it.kind === 'gap') return;
+  current = it;
+  const rv = it.review || {};
+  const fallback = nearestPos(it);
+  state.start = { pos: it.start ? POS[it.start] : fallback, side: rv.start_side || null };
+  state.end = { pos: it.end ? POS[it.end] : (it.start ? POS[it.start] : fallback), side: rv.end_side || null };
+  if (!keepNote) $('#note').value = rv.note || '';
+  try { history.replaceState(null, '', '#' + encodeURIComponent(it.key)); } catch (e) {}
+  const m = method(it);
+  $('#doc-title').textContent = it.title || '(untitled)';
+  const bits = [
+    it.kind === 'unplaced' ? 'Index entry the model did not place' : ({ toc: 'Index entry', unindexed: 'Model: document without index entry', subdoc: 'Model: subdocument', derived: 'Entry derived from another version', gm: 'General Missive', case: 'Court case', added: 'Added by a reviewer' }[it.kind] || it.kind),
+    it.csv_id ? `index #${it.csv_id}` : '',
+    it.index_folios,
+    it.date,
+    it.model_start ? `model: scans ${num(it.model_start)}–${num(it.model_end)} (${m}${it.boundary ? ', ' + it.boundary : ''})` : '',
+    it.p_start != null ? `p(start) ${(+it.p_start).toFixed(2)}` : '',
+    it.p_end != null ? `p(end) ${(+it.p_end).toFixed(2)}` : '',
+    rv.created_at ? `reviewed ${rv.created_at.replace('T', ' ')}${rv.reviewer ? ' by ' + rv.reviewer : ''}` : '',
+    rv.verdict ? `verdict: ${rv.verdict.replace(/_/g, ' ')}` : '',
+  ].filter(Boolean);
+  $('#doc-sub').textContent = bits.join(' · ');
+  $('#not-in-inv').hidden = !it.csv_id;
+  renderPanes();
+  renderToc();
+}
+function renderPanes() { renderPane('start'); renderPane('end'); }
+function renderPane(which) {
+  const pane = $('#pane-' + which), st = state[which], scan = SCANS[st.pos];
+  pane.classList.toggle('active', active === which);
+  $('.scanno', pane).textContent = `scan ${num(scan.f)} of ${SCANS.length}`;
+  $('.folio', pane).textContent = scan.folio ? `folio ${scan.folio}` : '';
+  const model = current && current['model_' + which];
+  const d = $('.delta', pane);
+  if (model && POS[model] !== undefined) {
+    const off = st.pos - POS[model];
+    d.className = 'delta ' + (off ? 'moved' : 'same');
+    d.textContent = off ? `≠ model (${off > 0 ? '+' : ''}${off})` : "= model";
+  } else { d.className = 'delta moved'; d.textContent = 'no model scan'; }
+  $('.side-hint', pane).textContent = scan.double ? (st.side ? `${which} on ${st.side} page` : 'double scan') : '';
+  $('.open-scan', pane).href = `${BASE}/scan/${scan.f}`;
+  const main = $('.main img', pane), src = img(scan, scan.double ? 1600 : 1000);
+  $('.no-image', pane).hidden = !!src;
+  main.hidden = !src;
+  if (src && main.getAttribute('src') !== src) main.src = src;
+  pane.querySelectorAll('.half').forEach(h => {
+    h.hidden = !scan.double;
+    h.classList.toggle('chosen', st.side === h.dataset.side);
+    h.classList.toggle('other', !!st.side && st.side !== h.dataset.side);
+  });
+  pane.querySelectorAll('.thumb').forEach(t => {
+    const s = SCANS[st.pos + +t.dataset.step];
+    t.style.visibility = s ? 'visible' : 'hidden';
+    if (!s) return;
+    const im = $('img', t), u = img(s, 320);
+    if (im.getAttribute('src') !== u) im.src = u;
+    $('span', t).textContent = `${+t.dataset.step < 0 ? '◀' : ''} ${num(s.f)} ${+t.dataset.step > 0 ? '▶' : ''}`;
+  });
+  [-2, 2, 3, -3].forEach(o => { const s = SCANS[st.pos + o]; if (s && s.iiif) new Image().src = img(s, s.double ? 1600 : 1000); });
+  // reasons are those of the model's scan
+  const why = current && current['why_' + which];
+  const det = $('.why', pane);
+  det.hidden = !(why && why.length && model === scan.f);
+  if (!det.hidden) $('div', det).innerHTML = why.map(r => `<span class="badge ${r[1] > 0 ? 'pos' : 'neg'}" title="${esc((r[2] || []).map(p => `${p[0]} ${p[1] > 0 ? '+' : ''}${p[1]}`).join('\n'))}">${esc(r[0])} ${r[1] > 0 ? '+' : ''}${(+r[1]).toFixed(1)}</span>`).join(' ');
+  showSnippet(which, scan.f);
+}
+async function getText(f) {
+  if (!(f in texts)) {
+    try { texts[f] = (await (await fetch(`${BASE}/review/segments/${INV}/text/${f}`)).json()).text || ''; } catch (e) { texts[f] = ''; }
+  }
+  return texts[f];
+}
+async function showSnippet(which, f) {
+  const el = $(`#pane-${which} .snippet`);
+  el.textContent = '…';
+  const t = (await getText(f)).replace(/\s+/g, ' ').trim();
+  if (SCANS[state[which].pos].f !== f) return;
+  el.textContent = !t ? '(no text)' : which === 'start' ? t.slice(0, 400) : '…' + t.slice(-400);
+}
+async function showText(which) {
+  const f = SCANS[state[which].pos].f;
+  $('#text-title').textContent = `Scan ${num(f)}`;
+  $('#text-body').textContent = (await getText(f)) || '(no text)';
+  $('#text-dialog').showModal();
+}
+function move(which, step) {
+  const p = state[which].pos + step;
+  if (p < 0 || p >= SCANS.length) return;
+  state[which] = { pos: p, side: null };
+  // keep start ≤ end
+  if (which === 'start' && p > state.end.pos) state.end = { pos: p, side: null };
+  if (which === 'end' && p < state.start.pos) state.start = { pos: p, side: null };
+  renderPanes();
+}
+function resetPane(which) {
+  const m = current && current['model_' + which];
+  if (m && POS[m] !== undefined) { state[which] = { pos: POS[m], side: null }; renderPanes(); }
+}
+document.querySelectorAll('.pane').forEach(pane => {
+  const which = pane.dataset.which;
+  pane.addEventListener('mousedown', () => { if (active !== which) { active = which; renderPanes(); } });
+  pane.querySelectorAll('[data-step]').forEach(b => b.addEventListener('click', () => move(which, +b.dataset.step)));
+  $('[data-reset]', pane).addEventListener('click', () => resetPane(which));
+  pane.querySelectorAll('.half').forEach(h => h.addEventListener('click', () => {
+    state[which].side = state[which].side === h.dataset.side ? null : h.dataset.side;
+    renderPane(which);
+  }));
+  $('.snippet', pane).addEventListener('click', () => showText(which));
+});
+
+// ── saving ─────────────────────────────────────────────────────────────────
+async function save(extra) {
+  if (!current) return;
+  const payload = {
+    key: current.key, reviewer: $('#reviewer').value.trim(), note: $('#note').value.trim(), link: $('#link').checked,
+    start: SCANS[state.start.pos].f, end: SCANS[state.end.pos].f, start_side: state.start.side, end_side: state.end.side,
+    ...extra,
+  };
+  const msg = $('#msg');
+  msg.className = 'msg'; msg.textContent = 'saving…';
+  let res;
+  try {
+    res = await fetch(`${BASE}/review/segments/${INV}/save`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  } catch (e) { msg.className = 'msg err'; msg.textContent = 'Could not reach the server'; return; }
+  const out = await res.json();
+  if (!res.ok) { msg.className = 'msg err'; msg.textContent = out.error || 'Save failed'; return; }
+  items = out.items; stats = out.stats;
+  const saved = items.find(it => it.key === out.saved);
+  msg.textContent = `saved${out.implied.length ? ` · moved ${out.implied.length} neighbouring boundar${out.implied.length > 1 ? 'ies' : 'y'} along` : ''}`;
+  if ($('#advance').checked && !extra?.clear) next(saved, 1, true);
+  else select(saved);
+}
+$('#save').addEventListener('click', () => save());
+document.querySelectorAll('[data-verdict]').forEach(b => b.addEventListener('click', () => {
+  const v = b.dataset.verdict;
+  // a verdict about the whole document does not confirm its boundaries
+  save(v === 'unsure' ? { verdict: v } : { verdict: v, start: null, end: null });
+}));
+$('#clear').addEventListener('click', () => save({ clear: true }));
+$('#add-doc').addEventListener('click', () => {
+  const title = prompt(`Add a document the model missed, from scan ${num(SCANS[state.start.pos].f)} to ${num(SCANS[state.end.pos].f)} (set START and END first).\nTitle or description:`);
+  if (title === null) return;
+  save({ key: 'added:new', title: title || 'Added document' });
+});
+
+// ── navigation ─────────────────────────────────────────────────────────────
+function next(from, dir, todoOnly) {
+  const shown = items.filter(it => it.kind !== 'gap' && visible(it));
+  let k = shown.indexOf(from ?? current);
+  for (let i = 0; i < shown.length; i++) {
+    k += dir;
+    if (k < 0 || k >= shown.length) break;
+    if (!todoOnly || !isDone(shown[k])) return select(shown[k]);
+  }
+  if (from && from !== current) select(from);
+}
+document.addEventListener('keydown', e => {
+  if (e.target.matches('input, select, textarea') || e.metaKey || e.ctrlKey || e.altKey || document.querySelector('dialog[open]')) return;
+  const keys = {
+    ArrowLeft: () => move(active, -1), ArrowRight: () => move(active, 1),
+    ArrowUp: () => { active = 'start'; renderPanes(); }, ArrowDown: () => { active = 'end'; renderPanes(); },
+    j: () => next(current, 1), k: () => next(current, -1), n: () => next(current, 1, true),
+    r: () => resetPane(active), t: () => showText(active), Enter: () => save(), u: () => save({ verdict: 'unsure' }),
+  };
+  if (keys[e.key]) { e.preventDefault(); keys[e.key](); }
+});
+
+// ── results ────────────────────────────────────────────────────────────────
+$('#stats-btn').addEventListener('click', () => {
+  $('#stats-table').innerHTML = !stats ? '<p>No reviews yet.</p>' :
+    `<table><thead><tr><th>method</th>${stats.columns.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${
+      stats.rows.map(r => `<tr>${r.map((v, i) => `<td>${i === 0 ? `<strong>${esc(v)}</strong>` : v || ''}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  $('#stats-dialog').showModal();
+});
+
+const reviewer = $('#reviewer');
+reviewer.value = store.get('segment-reviewer') || '';
+reviewer.addEventListener('change', () => store.set('segment-reviewer', reviewer.value.trim()));
+
+const fromHash = decodeURIComponent(location.hash.slice(1));
+select(items.find(it => it.key === fromHash) || items.find(it => reviewable(it) && !isDone(it)) || items.find(reviewable));
+</script>
+</body>
+</html>

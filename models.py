@@ -703,6 +703,42 @@ class RegisterLinkReview(Base):
     labelled_at: Mapped[Optional[str]] = mapped_column(String(32))
 
 
+class SegmentReview(Base):
+    """
+    Document boundaries of the segmentation model checked by hand
+    (/review/segments; segmentation/review.py). Append-only: the latest row
+    per (inventory, item_key) is the current label.
+    item_key identifies the document independently of the run: toc:<csv_id>,
+    entry:<entry_id>, gm:<id>, case:<id>, or <kind>:<model start scan> for
+    unindexed documents and subdocuments, added:<n> for documents the model missed.
+    start/end_status: confirmed (= model) | corrected | implied (moved along
+    with a neighbour's boundary) | NULL (not looked at).
+    verdict: NULL | not_document | merge_previous | not_in_inventory | unsure.
+    start/end_side: left | right on a double scan (where the boundary is), else NULL.
+    """
+
+    __tablename__ = "segment_review"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    inventory: Mapped[str] = mapped_column(String(10), index=True)
+    item_key: Mapped[str] = mapped_column(String(255), index=True)
+    kind: Mapped[Optional[str]] = mapped_column(String(32))
+    placed_by: Mapped[Optional[str]] = mapped_column(String(32))
+    model_start: Mapped[Optional[str]] = mapped_column(String(255))
+    model_end: Mapped[Optional[str]] = mapped_column(String(255))
+    start_scan: Mapped[Optional[str]] = mapped_column(String(255))
+    end_scan: Mapped[Optional[str]] = mapped_column(String(255))
+    start_side: Mapped[Optional[str]] = mapped_column(String(8))
+    end_side: Mapped[Optional[str]] = mapped_column(String(8))
+    start_status: Mapped[Optional[str]] = mapped_column(String(16))
+    end_status: Mapped[Optional[str]] = mapped_column(String(16))
+    verdict: Mapped[Optional[str]] = mapped_column(String(32))
+    title: Mapped[Optional[str]] = mapped_column(Text)
+    note: Mapped[Optional[str]] = mapped_column(Text)
+    reviewer: Mapped[Optional[str]] = mapped_column(String(64))
+    created_at: Mapped[str] = mapped_column(String(32))
+
+
 class Page2Document(Base):
     __tablename__ = "page2document"
 

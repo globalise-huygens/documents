@@ -48,6 +48,11 @@ Command line for the segmentation metric.
   uv run python -m segmentation register-sample [--n 200]
       draw a stratified sample of scans to label at /review/registers in the app
   uv run python -m segmentation import segments.csv [--dry-run] [--resume]
+  uv run python -m segmentation review-split [segments.csv]
+      split segments.csv into data/segments/<inventory>.parquet for /review/segments
+      (the app also does this by itself when segments.csv has changed)
+  uv run python -m segmentation review-evaluate [--out segment_reviews.csv]
+      the boundaries checked in /review/segments, per placement method
       store the segments as documents of the method "Segmentation model"
       (re-importing an inventory replaces its earlier segmentation documents);
       --resume skips the inventories already imported from this CSV (<csv>.imported)
@@ -170,6 +175,10 @@ def main():
     rs = sub.add_parser("register-sample")
     rs.add_argument("--n", type=int, default=200)
     rs.add_argument("--scores", default="data/registers/scores.parquet")
+    rsp = sub.add_parser("review-split")
+    rsp.add_argument("source", nargs="?", default=None)
+    rev = sub.add_parser("review-evaluate")
+    rev.add_argument("--out", default=None, help="also write the current reviews to this CSV")
     im = sub.add_parser("import")
     im.add_argument("csv")
     im.add_argument("--dry-run", action="store_true")
@@ -195,6 +204,18 @@ def main():
 
         split_texts(args.source)
         logger.info("Split %s into data/texts/", args.source)
+    elif args.cmd == "review-split":
+        from .review import SEGMENTS_CSV, split_segments
+
+        n = split_segments(args.source or SEGMENTS_CSV)
+        logger.info("Split %s into %d inventories", args.source or SEGMENTS_CSV, n)
+    elif args.cmd == "review-evaluate":
+        from .review import evaluate, export_rows
+
+        rows = export_rows(connect())
+        print(evaluate(rows.to_dict("records")).to_string() if len(rows) else "No reviews yet")
+        if args.out:
+            rows.to_csv(args.out, index=False)
     elif args.cmd == "cache-layout":
         from .pagexml import CACHE_DIR, PAGEXML_DIR, load_layout
 
