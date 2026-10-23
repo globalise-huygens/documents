@@ -15,7 +15,8 @@ Two kinds of ground truth:
 
 The model is fitted on the validated inventories only (adding the General
 Missives made every metric worse, including on the missives themselves).
-Evaluation is cross-validated by inventory.
+Evaluation is cross-validated by inventory. The embedding features of the
+validated inventories are out-of-fold (attach_embedding_features).
 """
 
 import os
@@ -25,6 +26,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+from .embeddings import PROBE_TARGETS, EmbeddingPredictor, EmbeddingProbe, load_embeddings
 from .ground_truth import csv_path, load_truth
 from .inventory import (
     InventoryData,
@@ -98,7 +100,9 @@ def load_items(sources=("validated", "gm"), cache: str | None = None, gm_limit: 
     if cache and os.path.exists(cache):
         with open(cache, "rb") as f:
             items = pickle.load(f)
-        return [it for it in items if it.source in sources]
+        items = [it for it in items if it.source in sources]
+        attach_embedding_features(items)
+        return items
     conn = connect()
     items = []
     if "validated" in sources:
@@ -110,7 +114,51 @@ def load_items(sources=("validated", "gm"), cache: str | None = None, gm_limit: 
     if cache:
         with open(cache, "wb") as f:
             pickle.dump(items, f)
+    attach_embedding_features(items)
     return items
+
+
+# ── embedding features without leakage ────────────────────────────────────────
+
+
+def _probe_data(items: list[Item]) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    """Embeddings and start/end/nondoc targets of the text scans of each validated inventory."""
+    data = {}
+    for it in items:
+        if it.source != "validated" or it.truth.empty:
+            continue
+        E = load_embeddings(it.inv)
+        if E is None:
+            continue
+        has = ~np.isnan(E[:, 0])
+        data[it.inv.inventory_number] = (E[has], labels(it)[list(PROBE_TARGETS)].to_numpy()[has])
+    return data
+
+
+def fit_probe(items: list[Item], exclude: str | None = None, data=None) -> EmbeddingProbe:
+    data = data or _probe_data(items)
+    keys = [k for k in data if k != exclude]
+    return EmbeddingProbe.fit(np.concatenate([data[k][0] for k in keys]), np.concatenate([data[k][1] for k in keys]))
+
+
+def attach_embedding_features(items: list[Item]):
+    """
+    (Re)compute the embedding features of every item. The probe scores of a
+    validated inventory come from probes fitted on the other validated
+    inventories, like its kNN scores; all other inventories are scored by
+    the probes fitted on all of them. The saved probe (fitted on everything)
+    is never used here: on the validated inventories it would be in-sample.
+    """
+    data = _probe_data(items)
+    if not data:
+        return
+    full = fit_probe(items, data=data)
+    for it in items:
+        k = it.inv.inventory_number
+        probe = fit_probe(items, exclude=k, data=data) if k in data else full
+        emb = EmbeddingPredictor(probe=probe).compute(it.inv).reset_index(drop=True)
+        f = it.inv.features
+        it.inv.features = pd.concat([f.drop(columns=[c for c in emb.columns if c in f]).reset_index(drop=True), emb], axis=1)
 
 
 # ── flat view of the ground truth ─────────────────────────────────────────────

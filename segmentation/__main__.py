@@ -3,8 +3,9 @@ Command line for the segmentation metric.
 
   uv run python -m segmentation evaluate [--gm-limit N] [--cache FILE]
       cross-validated evaluation on the validated and General Missives inventories
-  uv run python -m segmentation fit [--out segmentation/model.json]
-      fit the model on all ground truth and save it
+  uv run python -m segmentation fit [--out segmentation/model.json] [--probe-out segmentation/embedding_probe.npz]
+      fit the model on all ground truth and save it, with the linear probes on the page
+      embeddings (embeddings.py; SEGMENTATION_EMBEDDINGS_DIR, SEGMENTATION_EMBEDDING_PROBE)
   uv run python -m segmentation run [1120 1557 ...] [--model FILE] [--out segments.csv] [--no-toc] [--no-court]
           [--no-gm] [--derived derived_toc.csv] [--resume]
       segment inventories (all when none are given) and write one row per segment;
@@ -66,7 +67,8 @@ import time
 
 import pandas as pd
 
-from .evaluation import cross_validate, fit_model, format_counts, load_items
+from .embeddings import PROBE_PATH
+from .evaluation import cross_validate, fit_model, fit_probe, format_counts, load_items
 from .inventory import connect, load_gm_overrides, load_inventory
 from .model import DEFAULT_MODEL_PATH, SegmentationModel
 from .court_records import load_court_cases, segment_court_inventory
@@ -126,6 +128,7 @@ def main():
     ev.add_argument("--l2", type=float, default=10.0)
     ft = sub.add_parser("fit")
     ft.add_argument("--out", default=DEFAULT_MODEL_PATH)
+    ft.add_argument("--probe-out", default=PROBE_PATH)
     ft.add_argument("--cache", default=None)
     rn = sub.add_parser("run")
     rn.add_argument("inventories", nargs="*", help="inventory numbers (default: all)")
@@ -196,6 +199,8 @@ def main():
         model = fit_model(items)
         model.save(args.out)
         logger.info("Saved model to %s", args.out)
+        fit_probe(items).save(args.probe_out)
+        logger.info("Saved embedding probe to %s", args.probe_out)
         for name, w in sorted(model.start.weights.items(), key=lambda kv: -abs(kv[1])):
             print(f"  start  {name:<26} {w:+.2f}")
         print(f"  start  {'(bias)':<26} {model.start.bias:+.2f}")

@@ -76,6 +76,19 @@ FEATURE_LABELS = {
     "heading_below_top": "centred heading below the top",
     "n_paragraph_lines": "number of text lines",
     "has_layout": "page layout available",
+    "knn_p": "embedding kNN: start probability",
+    "knn_logit": "embedding kNN: start log-odds",
+    "knn_zero": "embedding kNN: no similar start pages",
+    "knn_all_seeds": "embedding kNN: all three seeds predict a start",
+    "knn_seed_sd": "embedding kNN: seeds disagree",
+    "knn_peak": "embedding kNN: higher than neighbouring pages",
+    "knn_missing": "no embedding (no text)",
+    "emb_prev_cos": "text similar to previous page",
+    "emb_next_cos": "text similar to next page",
+    "emb_across": "text before similar to text after",
+    "probe_start": "embedding: looks like a first page",
+    "probe_end": "embedding: looks like a last page",
+    "probe_nondoc": "embedding: looks like a non-document page",
 }
 MODELS = {"start": "document starts here", "end": "document ends here", "shared": "starts on previous document's last page", "nondoc": "not part of a document"}
 

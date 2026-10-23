@@ -7,9 +7,9 @@ page/folio number for ToC alignment); all other columns are numeric features
 for the boundary model. Feature values describe scan i as a possible document
 start, so "prev_*" features look at scan i-1.
 
-To add a predictor (e.g. the text-embedding first/last-page model), subclass
-Predictor, return its feature columns, and add it to default_predictors() or
-pass it explicitly. The boundary model picks up new feature names by itself;
+To add a predictor, subclass Predictor, return its feature columns, and add it
+to default_predictors() or pass it explicitly (the text-embedding features are
+in embeddings.py). The boundary model picks up new feature names by itself;
 refit the weights afterwards.
 """
 
@@ -577,6 +577,8 @@ EXTERNAL_SCORES_ENV = "SEGMENTATION_EXTERNAL_SCORES"
 
 
 def default_predictors() -> list[Predictor]:
+    from .embeddings import EmbeddingPredictor  # imports this module
+
     preds: list[Predictor] = [
         BlankPredictor(),
         SignaturePredictor(),
@@ -591,6 +593,7 @@ def default_predictors() -> list[Predictor]:
         TextFormulaPredictor(),
         ToCTextPredictor(),
         LayoutPredictor(),
+        EmbeddingPredictor(),
     ]
     path = os.environ.get(EXTERNAL_SCORES_ENV)
     if path:

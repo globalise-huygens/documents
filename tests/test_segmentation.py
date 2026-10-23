@@ -455,3 +455,49 @@ def test_monotone_assignment():
     # entry 0 fits document 2 best, entry 1 document 1 (out of order) or 3 (a bit less): order wins
     scores = np.array([[0, 0, 5, 0], [0, 6, 0, 4], [0, 0, 0, 0]], dtype=float)
     assert _monotone(scores, [0, 1, 2]) == {0: 2, 1: 3}
+
+
+# ── page embeddings ───────────────────────────────────────────────────────────
+
+
+def test_similarity_features_skip_textless_scans():
+    from segmentation.embeddings import MAX_GAP, similarity_features
+
+    a, b = np.array([1.0, 0.0]), np.array([0.0, 1.0])
+    n = MAX_GAP + 5
+    E = np.full((n, 2), np.nan)
+    E[0], E[1], E[3] = a, a, b  # scan 2 has no text
+    E[n - 1] = b  # more than MAX_GAP scans after scan 3
+    f = similarity_features(E, n)
+    assert f.at[1, "emb_prev_cos"] == 1.0 and f.at[3, "emb_prev_cos"] == 0.0  # 3 is compared with 1
+    assert np.isnan(f.at[0, "emb_prev_cos"]) and np.isnan(f.at[2, "emb_prev_cos"])
+    assert np.isnan(f.at[3, "emb_next_cos"]) and np.isnan(f.at[n - 1, "emb_prev_cos"])
+    assert f.at[3, "emb_across"] == 0.0
+
+
+def test_knn_features_missing_and_peak():
+    from segmentation.embeddings import SEEDS, knn_features
+
+    inv = _toy_inventory()
+    fn = inv.scans["filename"]
+    p = np.where(np.arange(inv.n) == 2, 0.8, 0.1)
+    scores = pd.DataFrame({"p_start": p, **{s: p for s in SEEDS}}, index=fn.to_numpy()).drop(fn.iat[5])
+    f = knn_features(inv, scores)
+    assert f.at[5, "knn_missing"] == 1 and np.isnan(f.at[5, "knn_p"])
+    assert f.at[2, "knn_all_seeds"] == 1 and f.at[2, "knn_peak"] == pytest.approx(0.7)
+    assert f.at[0, "knn_all_seeds"] == 0
+    assert knn_features(inv, None)["knn_missing"].eq(1).all()
+
+
+def test_embedding_probe_roundtrip(tmp_path):
+    from segmentation.embeddings import EmbeddingProbe
+
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(200, 12)).astype(np.float32)
+    Y = np.column_stack([X[:, 0] > 0, X[:, 1] > 0, X[:, 2] > 0]).astype(int)
+    probe = EmbeddingProbe.fit(X, Y, n_components=6)
+    probe.save(tmp_path / "probe.npz")
+    E = np.vstack([X[:3], np.full((1, 12), np.nan)])
+    s = EmbeddingProbe.load(tmp_path / "probe.npz").scores(E, 4)
+    assert list(s.columns) == ["probe_start", "probe_end", "probe_nondoc"]
+    assert s.iloc[3].isna().all() and np.allclose(s.iloc[:3], probe.scores(E, 4).iloc[:3])
