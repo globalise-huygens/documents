@@ -89,6 +89,7 @@ def knn_features(inv: InventoryData, scores: pd.DataFrame | None) -> pd.DataFram
             # how much higher than the best other score within two scans
             "knn_peak": p - pd.concat([p.shift(k) for k in (-2, -1, 1, 2)], axis=1).max(axis=1),
             "knn_missing": (~known).astype(float),
+            "_knn_seeds_start": (seeds > 0.5).sum(axis=1).where(known),  # for display only
         }
     )
 

@@ -143,6 +143,8 @@ class AlignParams:
     length_weight: float = 1.0  # |log(actual / expected span)| penalty between consecutive entries
     skip: float = -4.0  # ToC entry with a start number that is not placed
     same_start: float = -2.0  # two entries starting on the same scan (nested entries)
+    same_start_folio: float = 2.0  # ... minus this × log(folio distance) when their ToC start folios differ
+    index_interp_weight: float = 2.0  # entries placed between neighbours: per 2 folios' worth of scans away from the index-interpolated position
     max_skip: int = 8  # consecutive unplaced entries considered in one transition
     unnumbered_threshold: float = 0.5  # min score to place an entry without a start number
     max_candidates: int = 12

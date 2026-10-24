@@ -1,5 +1,5 @@
 {% extends "base.html" %} {% block title %}{{ document.title if document.title
-else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}{% import "_reasons.html" as reasons_ui %}
+else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}{% import "_reasons.html" as reasons_ui %}{% import "_embedding.html" as embedding_ui %}
 <h1>{{ document.title if document.title else 'Untitled Document' }}</h1>
 
 <div class="card">
@@ -189,6 +189,7 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}{% imp
           {% if evidence.start.text_start %}<br />text: <i>{{ evidence.start.text_start }}</i>{% endif %}
           {% if evidence.start.formulas %}<br />formulas: {{ evidence.start.formulas }}{% endif %}
           {% if evidence.start.best_toc_match %}<br />best ToC match: {{ evidence.start.best_toc_match }}{% endif %}
+          <br />page embedding: {{ embedding_ui.summary(evidence.start, 'start') }}
         </td>
         <td>{{ reasons_ui.badges(evidence.start.why_start) }}</td>
       </tr>
@@ -198,7 +199,8 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}{% imp
         <td>end {{ '%.0f' | format(evidence.end.p_end * 100) }}%</td>
         <td>signature: {{ evidence.end.signature or '(none)' }}{% if evidence.end.signature_kind %} ({{ evidence.end.signature_kind }}){% endif %}
           {% if evidence.end.text_end %}<br />text ends: <i>…{{ evidence.end.text_end }}</i>{% endif %}
-          {% if evidence.end.formulas %}<br />formulas: {{ evidence.end.formulas }}{% endif %}</td>
+          {% if evidence.end.formulas %}<br />formulas: {{ evidence.end.formulas }}{% endif %}
+          <br />page embedding: {{ embedding_ui.summary(evidence.end, 'end') }}</td>
         <td>{{ reasons_ui.badges(evidence.end.why_end) }}</td>
       </tr>
     </tbody>

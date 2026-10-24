@@ -164,6 +164,26 @@ def refresh_document_reasons(evidence, inventory_number):
     return evidence
 
 
+def add_embedding_scores(evidence, inventory_number):
+    """
+    Fill in the page-embedding scores of a document's first and last scan when
+    the stored evidence predates them. They are inputs of the model, not its
+    output, so the current values hold whichever model found the document.
+    """
+    from segmentation.explain import EMBEDDING_SCORES
+
+    parts = [p for p in ("start", "end") if evidence.get(p) and "knn_p_start" not in evidence[p]]
+    ev = scan_evidence_for(inventory_number) if parts else None
+    if ev is None:
+        return evidence
+    for part in parts:
+        hit = ev.index[ev["filename"] == evidence[part].get("filename")]
+        if len(hit):
+            row = evidence_record(ev, int(hit[0]))
+            evidence[part].update({k: row[k] for k in EMBEDDING_SCORES if k in row})
+    return evidence
+
+
 SCAN_PREFIX = "NL-HaNA_1.04.02_"
 MAX_VERSION_INVENTORIES = 25
 MAX_VERSION_DOCUMENTS = 8
@@ -620,6 +640,7 @@ def document_detail(document_id):
     row = db_session.query(DocumentEvidence).filter_by(document_id=document_id).first()
     if row:
         evidence = refresh_document_reasons(json.loads(row.evidence), document.inventory.inventory_number)
+        evidence = add_embedding_scores(evidence, document.inventory.inventory_number)
 
     versions = text_versions(
         db_session, document.inventory.inventory_number, _scan_number(first_scan_filename), _scan_number(last_scan_filename)

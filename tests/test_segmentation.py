@@ -501,3 +501,55 @@ def test_embedding_probe_roundtrip(tmp_path):
     s = EmbeddingProbe.load(tmp_path / "probe.npz").scores(E, 4)
     assert list(s.columns) == ["probe_start", "probe_end", "probe_nondoc"]
     assert s.iloc[3].isna().all() and np.allclose(s.iloc[:3], probe.scores(E, 4).iloc[:3])
+
+
+def test_embedding_scores_for_display():
+    from segmentation.explain import EMBEDDING_SCORES, embedding_scores
+
+    f = pd.DataFrame({"knn_p": [0.5, np.nan], "_knn_seeds_start": [2, np.nan], "probe_start": [0.0, np.nan], "emb_prev_cos": [0.9, np.nan]})
+    s = embedding_scores(f)
+    assert set(s) == set(EMBEDDING_SCORES)
+    assert s["knn_p_start"][0] == 0.5 and s["knn_seeds_start"][0] == 2 and s["emb_p_first"][0] == 0.5 and s["emb_sim_prev"][0] == 0.9
+    assert np.isnan(s["emb_p_last"]).all() and np.isnan(s["knn_p_start"][1])
+
+
+# ── ToC alignment: entries sharing a scan ─────────────────────────────────────
+
+
+def test_clean_numbers_drops_number_repeated_on_many_scans():
+    # a stamp or misread header: "1228" on scan after scan between real folios
+    raw = [[1090], [], [1091], [1228], [1228], [1228], [1228], [1228], [1228], [1229], [], [1231]]
+    value, _ = clean_numbers(pd.Series(raw))
+    assert np.isnan(value[3:9]).all()
+    assert value[0] == 1090 and value[9] == 1229
+
+
+def test_share_cost_grows_with_folio_distance():
+    from segmentation.segmenter import share_cost
+
+    p = AlignParams()
+    assert share_cost(10, 10, p) == share_cost(10, 11, p) == p.same_start  # a letter and its enclosure
+    assert share_cost(10, np.nan, p) == p.same_start
+    assert share_cost(1, 21, p) < share_cost(10, 13, p) < p.same_start
+
+
+def test_place_unnumbered_spreads_entries_by_index_folios():
+    from types import SimpleNamespace
+
+    from segmentation.segmenter import Placement, _place_unnumbered
+
+    n = 41
+    toc = pd.DataFrame({"index": range(5), "folio_start": [1.0, 5, 11, 17, 21]})
+    anchors = [Placement(0, 0, 0.0, "exact"), Placement(4, 40, 0.0, "exact")]
+    s = np.full(n, -3.0)
+    s[38] = 4.0  # one convincing scan near the right anchor
+    dterms = [np.zeros(n)] * 5
+    inv = SimpleNamespace(n=n)
+
+    def placed(**kw):
+        p = AlignParams(**kw)
+        return sorted(pl.scan for pl in _place_unnumbered(inv, toc, anchors, s, dterms, p, np.zeros(n, dtype=bool)))
+
+    assert placed(same_start_folio=0, index_interp_weight=0) == [38, 38, 38]  # the old behaviour: piled up
+    spread = placed()
+    assert spread[0] < 15 < spread[1] < 25 < spread[2]  # folios 5, 11, 17 of 1–21 over scans 0–40

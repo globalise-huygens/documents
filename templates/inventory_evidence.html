@@ -1,4 +1,4 @@
-{% extends "base.html" %} {% block title %}Segmentation evidence {{ inventory.inventory_number }} - GLOBALISE Documents{% endblock %} {% block content %}{% import "_reasons.html" as reasons_ui %}
+{% extends "base.html" %} {% block title %}Segmentation evidence {{ inventory.inventory_number }} - GLOBALISE Documents{% endblock %} {% block content %}{% import "_reasons.html" as reasons_ui %}{% import "_embedding.html" as embedding_ui %}
 <h1>Segmentation evidence: inventory <a href="{{ base_url }}/inventory/{{ inventory.inventory_number }}">{{ inventory.inventory_number }}</a></h1>
 
 <div class="card">
@@ -21,7 +21,8 @@
       <tr>
         <th>#</th><th>Scan</th><th>Text</th><th>Page no.<br /><small>read → used</small></th>
         <th class="hdr">Running header</th><th>Header date</th><th>Date vs prev.</th><th>Date across</th><th>Wording change</th>
-        <th>Signature</th><th class="hdr">Text begins / formulas / ToC match</th><th>P(start)</th><th>P(same scan)</th><th>P(end)</th><th>P(non-doc)</th><th>Imported documents</th>
+        <th>Signature</th><th class="hdr">Text begins / formulas / ToC match</th>
+        <th>kNN start<br /><small>seeds</small></th><th>Embedding<br /><small>first / last / non-doc</small></th><th>Similarity<br /><small>prev / next</small></th><th>P(start)</th><th>P(same scan)</th><th>P(end)</th><th>P(non-doc)</th><th>Imported documents</th>
       </tr>
     </thead>
     <tbody>
@@ -40,6 +41,13 @@
         <td>{% if r.header_change_vs_previous or r.header_change_across %}{{ '%.0f' | format(r.header_change_vs_previous * 100) }}% / {{ '%.0f' | format(r.header_change_across * 100) }}%{% endif %}</td>
         <td>{{ r.signature | truncate(25) }}{% if r.signature_kind %} <small>({{ r.signature_kind }})</small>{% endif %}</td>
         <td class="hdr"><i>{{ r.text_start | truncate(70) }}</i>{% if r.formulas %}<br /><small>{{ r.formulas }}</small>{% endif %}{% if r.best_toc_match %}<br /><small>ToC {{ r.best_toc_match | truncate(60) }}</small>{% endif %}</td>
+        {% if embedding_ui.has(r) %}
+        <td class="p {% if r.knn_p_start is not none and r.knn_p_start >= 0.5 %}hi{% endif %}">{{ embedding_ui.knn(r) }}</td>
+        <td class="p">{% for k in ('emb_p_first', 'emb_p_last', 'emb_p_nondoc') %}{% if r[k] is not none %}<span{% if r[k] >= 0.5 %} class="hi"{% endif %}>{{ '%.0f' | format(r[k] * 100) }}</span>{% else %}–{% endif %}{% if not loop.last %} / {% endif %}{% endfor %}</td>
+        <td class="p">{{ embedding_ui.sim(r.emb_sim_prev) }} / {{ embedding_ui.sim(r.emb_sim_next) }}</td>
+        {% else %}
+        <td class="p" colspan="3"><small class="text-muted">no embedding</small></td>
+        {% endif %}
         {% for key, why in [('p_start', r.why_start), ('p_same_scan', r.why_shared), ('p_end', r.why_end), ('p_nondoc', r.why_nondoc)] %}
         <td class="p {% if r[key] >= 0.5 %}hi{% endif %}" title="{{ reasons_ui.lines(why) }}">{{ '%.0f' | format(r[key] * 100) }}%</td>
         {% endfor %}
@@ -52,6 +60,7 @@
       {% endfor %}
     </tbody>
   </table>
-  <p><small class="text-muted">Wording change: running header vs the previous headers / next header vs the last header before this scan (headers often start on a document's second page). Date across: the same comparison for header dates.</small></p>
+  <p><small class="text-muted">Wording change: running header vs the previous headers / next header vs the last header before this scan (headers often start on a document's second page). Date across: the same comparison for header dates.
+  kNN start: probability of a document start from the kNN on the page embeddings (how many of its three seeds predict a start). Embedding: probability that the page is a document's first page, last page or a non-document page, from the linear probes on the embedding (%). Similarity: cosine between this page's embedding and the previous / next page with text; ~0.94 is typical within a document, lower values suggest a change of text.</small></p>
 </div>
 {% endblock %}

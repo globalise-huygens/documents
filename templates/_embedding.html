@@ -1,0 +1,23 @@
+{# Page-embedding scores of a scan (segmentation.explain.embedding_scores), in
+   evidence records or a document's stored start/end evidence. Cosine
+   similarities are shown as such: within a document they are typically ~0.94,
+   so a percentage would overstate how alike two pages are. #}
+{% macro pct(v) -%}{{ '%.0f' | format(v * 100) }}%{%- endmacro %}
+
+{% macro has(e) -%}{{ 'yes' if e and e.knn_p_start is defined and (e.knn_p_start is not none or e.emb_p_first is not none) }}{%- endmacro %}
+
+{% macro knn(e) -%}
+{% if e.knn_p_start is not none %}{{ pct(e.knn_p_start) }}{% if e.knn_seeds_start is not none %} <small class="text-muted">({{ '%d' | format(e.knn_seeds_start) }}/3 seeds)</small>{% endif %}{% else %}–{% endif %}
+{%- endmacro %}
+
+{% macro sim(v) -%}{{ '%.2f' | format(v) if v is not none else '–' }}{%- endmacro %}
+
+{# one line for a scan; `part`: 'start' (a document's first scan), 'end' (its last) or 'scan' (everything) #}
+{% macro summary(e, part='scan') -%}
+{% if not has(e) %}<span class="text-muted">no embedding (no text on this scan, or no embedding data)</span>{% else %}
+{% if part in ('start', 'scan') %}kNN start {{ knn(e) }}; {% endif %}
+looks like {% if part in ('start', 'scan') %}a first page {{ pct(e.emb_p_first) if e.emb_p_first is not none else '–' }}{% endif %}{% if part == 'scan' %}, {% endif %}{% if part in ('end', 'scan') %}a last page {{ pct(e.emb_p_last) if e.emb_p_last is not none else '–' }}{% endif %}{% if part == 'scan' %}, a non-document page {{ pct(e.emb_p_nondoc) if e.emb_p_nondoc is not none else '–' }}{% endif %};
+text similarity with {% if part in ('start', 'scan') %}previous page {{ sim(e.emb_sim_prev) }}{% endif %}{% if part == 'scan' %}, {% endif %}{% if part in ('end', 'scan') %}next page {{ sim(e.emb_sim_next) }}{% endif %}
+<small class="text-muted">(cosine; ~0.94 within a document)</small>
+{% endif %}
+{%- endmacro %}

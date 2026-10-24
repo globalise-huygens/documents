@@ -1,5 +1,5 @@
 {% extends "base.html" %} {% block title %}{{ scan.filename }} - GLOBALISE
-Documents{% endblock %} {% block content %}{% import "_reasons.html" as reasons_ui %}
+Documents{% endblock %} {% block content %}{% import "_reasons.html" as reasons_ui %}{% import "_embedding.html" as embedding_ui %}
 <h1>Scan: {{ scan.filename }}</h1>
 
 <div class="card">
@@ -73,6 +73,7 @@ Documents{% endblock %} {% block content %}{% import "_reasons.html" as reasons_
   {% if evidence.text_end %}<div class="info-row"><strong>Text ends:</strong><span><i>…{{ evidence.text_end }}</i></span></div>{% endif %}
   <div class="info-row"><strong>Formulas found:</strong><span>{{ evidence.formulas or '–' }}</span></div>
   <div class="info-row"><strong>Best ToC match:</strong><span>{{ evidence.best_toc_match or '–' }}</span></div>
+  <div class="info-row"><strong>Page embedding:</strong><span>{{ embedding_ui.summary(evidence) }}</span></div>
   <table>
     <thead><tr><th>Model</th><th>Probability</th><th>Main reasons</th></tr></thead>
     <tbody>

@@ -245,9 +245,35 @@ def scan_evidence(inv: InventoryData, model: SegmentationModel) -> pd.DataFrame:
             "p_nondoc": _sigmoid(sc.nondoc).round(3),
         }
     )
+    for k, v in embedding_scores(f).items():
+        ev[k] = v
     for name in MODELS:
         ev[f"why_{name}"] = contributions(getattr(model, name), f)
     return ev
+
+
+# what the page embeddings say about a scan (embeddings.py); NaN without text or data
+EMBEDDING_SCORES = ("knn_p_start", "knn_seeds_start", "emb_p_first", "emb_p_last", "emb_p_nondoc", "emb_sim_prev", "emb_sim_next")
+
+
+def embedding_scores(f: pd.DataFrame) -> dict[str, np.ndarray]:
+    """The embedding inputs of the model as probabilities and similarities: the
+    kNN start score and the number of its three seeds that predict a start, the
+    probes' probability of a first, last and non-document page, and the cosine
+    similarity with the previous and next scan with text."""
+
+    def col(name, fn=lambda x: x):
+        return np.round(fn(f[name].to_numpy(dtype=float)), 3) if name in f else np.full(len(f), np.nan)
+
+    return {
+        "knn_p_start": col("knn_p"),
+        "knn_seeds_start": col("_knn_seeds_start"),
+        "emb_p_first": col("probe_start", _sigmoid),
+        "emb_p_last": col("probe_end", _sigmoid),
+        "emb_p_nondoc": col("probe_nondoc", _sigmoid),
+        "emb_sim_prev": col("emb_prev_cos"),
+        "emb_sim_next": col("emb_next_cos"),
+    }
 
 
 def document_evidence(inv: InventoryData, result: Result, segment: Segment, ev: pd.DataFrame) -> dict:
@@ -256,8 +282,8 @@ def document_evidence(inv: InventoryData, result: Result, segment: Segment, ev: 
     out = {
         "kind": segment.kind,
         "boundary": segment.boundary,
-        "start": {k: _plain(ev.at[a, k]) for k in ("filename", "p_start", "p_same_scan", "header", "header_date", "header_date_across", "number", "text_start", "formulas", "best_toc_match", "why_start")},
-        "end": {k: _plain(ev.at[e, k]) for k in ("filename", "p_end", "signature", "signature_kind", "text_end", "formulas", "why_end")},
+        "start": {k: _plain(ev.at[a, k]) for k in ("filename", "p_start", "p_same_scan", "header", "header_date", "header_date_across", "number", "text_start", "formulas", "best_toc_match", "why_start", *EMBEDDING_SCORES)},
+        "end": {k: _plain(ev.at[e, k]) for k in ("filename", "p_end", "signature", "signature_kind", "text_end", "formulas", "why_end", *EMBEDDING_SCORES)},
     }
     if segment.court:
         out["court_case"] = segment.court

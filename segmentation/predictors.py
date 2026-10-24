@@ -98,12 +98,14 @@ class SignaturePredictor(Predictor):
 # ── page / folio numbers ──────────────────────────────────────────────────────
 
 RESTART_MAX, RESTART_MIN_PREVIOUS = 5, 10
+REPEAT_MAX = 4  # a number read on more scans is not a page/folio number (a stamp, a misread running header)
 
 
 def clean_numbers(folio_lists: pd.Series) -> tuple[np.ndarray, np.ndarray]:
     """
     Pick one plausible page/folio number per scan and split the scans into
-    numbering runs (a new run starts where the numbering restarts).
+    numbering runs (a new run starts where the numbering restarts). A number
+    read on more than REPEAT_MAX scans is dropped.
 
     A value is kept when it is consistent with a nearby observation: numbers
     increase with scan position at no more than ~3 per scan (pagination on
@@ -131,6 +133,10 @@ def clean_numbers(folio_lists: pd.Series) -> tuple[np.ndarray, np.ndarray]:
                 best, best_support = v, support
         if best is not None:
             value[i] = best
+
+    # the same number on many scans fits its neighbours trivially but is not a page number
+    vals, counts = np.unique(value[~np.isnan(value)], return_counts=True)
+    value[np.isin(value, vals[counts > REPEAT_MAX])] = np.nan
 
     # restarts: a small number after the run reached RESTART_MIN_PREVIOUS,
     # confirmed by a consistent following observation

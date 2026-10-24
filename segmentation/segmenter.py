@@ -280,7 +280,7 @@ def align_toc(inv: InventoryData, s: np.ndarray, p: AlignParams, fixed: dict[int
                         continue
                     v = best[tp][cpi] + local + p.skip * (t - tp - 1)
                     if ppos == pos:
-                        v += p.same_start
+                        v += share_cost(fs_arr[kp], fs_arr[k], p)
                     v += _length_term(fs_arr[kp], fs_arr[k], ppos, pos, numbers, p)
                     if v > scores[ci]:
                         scores[ci], bp[ci] = v, (tp, cpi)
@@ -312,6 +312,15 @@ def align_toc(inv: InventoryData, s: np.ndarray, p: AlignParams, fixed: dict[int
     return placements
 
 
+def share_cost(f0: float, f1: float, p: AlignParams) -> float:
+    """Score of two consecutive ToC entries starting on the same scan: cheap for
+    entries with the same start folio (a letter and its enclosures), more
+    expensive the further apart the ToC puts them."""
+    if np.isnan(f0) or np.isnan(f1):
+        return p.same_start
+    return p.same_start - p.same_start_folio * math.log1p(max(0.0, abs(f1 - f0) - 1))
+
+
 def _length_term(fs0: float, fs1: float, ppos: int, pos: int, numbers: NumberIndex, p: AlignParams) -> float:
     if np.isnan(fs0) or np.isnan(fs1) or fs1 < fs0 or numbers.run[ppos] != numbers.run[pos]:
         return 0.0
@@ -324,14 +333,18 @@ def _place_unnumbered(inv, toc, placed: list[Placement], s, dterms, p: AlignPara
     Place every entry the number-based alignment left out, between its placed
     neighbours in index order, on the scans with the best start evidence
     (start log-odds + header-date agreement). Positions are non-decreasing;
-    sharing a scan with a neighbour is allowed at the same_start penalty (for
-    when there is no room). Scans in `avoid` (blank, or inside a General
-    Missive identified by hand) are taken only when there is nothing else. A
+    sharing a scan with a neighbour is allowed at share_cost (for when there
+    is no room). Where both neighbours have a start folio, an entry with one is
+    drawn towards the position its folio implies between them
+    (index_interp_weight), which spreads entries over a stretch without
+    usable page numbers. Scans in `avoid` (blank, or inside a General Missive
+    identified by hand) are taken only when there is nothing else. A
     placement is 'evidence' when its evidence clears unnumbered_threshold,
     'forced' otherwise.
     """
     placed_rows = {pl.entry for pl in placed}
     row_to_k = {int(r): k for k, r in enumerate(toc["index"])}
+    fs = toc["folio_start"].to_numpy(dtype=float)
     anchors = [(-1, -1)] + sorted((row_to_k[pl.entry], pl.scan) for pl in placed) + [(len(toc), inv.n)]
     out = []
     for (ka, ca), (kb, cb) in zip(anchors, anchors[1:]):
@@ -341,8 +354,21 @@ def _place_unnumbered(inv, toc, placed: list[Placement], s, dterms, p: AlignPara
         lo, hi = max(ca, 0), min(cb, inv.n - 1)  # inclusive; the ends share a scan with an anchor
         J = hi - lo + 1
         pos = np.arange(lo, hi + 1)
-        edge_penalty = np.where((pos == ca) | (pos == cb), p.same_start, 0.0) - FIXED_BONUS * avoid[lo : hi + 1]
-        gain = np.array([p.w_start * s[lo : hi + 1] + dterms[k][lo : hi + 1] + edge_penalty for k in todo])
+        fa = fs[ka] if ka >= 0 else np.nan
+        fb = fs[kb] if kb < len(toc) else np.nan
+        interp = not np.isnan(fa) and not np.isnan(fb) and fb > fa and cb > ca >= 0
+        evidence, gain = [], []
+        for k in todo:
+            ev = p.w_start * s[lo : hi + 1] + dterms[k][lo : hi + 1]
+            ev = ev + np.where(pos == ca, share_cost(fa, fs[k], p), 0.0) + np.where(pos == cb, share_cost(fs[k], fb, p), 0.0)
+            g = ev - FIXED_BONUS * avoid[lo : hi + 1]
+            if interp and not np.isnan(fs[k]) and p.index_interp_weight:
+                expected = ca + (fs[k] - fa) / (fb - fa) * (cb - ca)
+                scale = max(1.0, 2 * (cb - ca) / (fb - fa))  # scans per two folios
+                g = g - p.index_interp_weight * np.abs(pos - expected) / scale
+            evidence.append(ev)
+            gain.append(g)
+        gain = np.array(gain)
         U = len(todo)
         best = np.full((U, J), -np.inf)
         from_same = np.zeros((U, J), dtype=bool)  # True: previous entry on the same scan
@@ -350,12 +376,12 @@ def _place_unnumbered(inv, toc, placed: list[Placement], s, dterms, p: AlignPara
         for u in range(1, U):
             prefix = np.maximum.accumulate(best[u - 1])  # best previous position <= j
             earlier = np.concatenate([[-np.inf], prefix[:-1]])  # previous position < j
-            same = best[u - 1] + p.same_start
+            same = best[u - 1] + share_cost(fs[todo[u - 1]], fs[todo[u]], p)
             from_same[u] = same > earlier
             best[u] = gain[u] + np.maximum(earlier, same)
         j = int(np.argmax(best[U - 1]))
         for u in range(U - 1, -1, -1):
-            g = float(gain[u][j] + FIXED_BONUS * avoid[lo + j])
+            g = float(evidence[u][j])
             out.append(Placement(int(toc.at[todo[u], "index"]), lo + j, g, "evidence" if g >= p.unnumbered_threshold else "forced"))
             if u == 0:
                 break
