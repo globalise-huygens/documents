@@ -17,8 +17,10 @@ Find the best segmentation of one inventory.
    themselves. The ToC starts from step 2 are forced.
 4. Every document is labelled: 'toc' (starts a ToC entry), 'gm' (a General
    Missive identified by hand that has no ToC entry here), 'subdoc' (inside
-   the page range of the ToC entry it follows, e.g. an enclosure or appendix),
-   or 'unindexed' (outside any entry's range, or no ToC at all); runs of
+   the page range of the ToC entry it follows, e.g. an enclosure or appendix;
+   when that range or the page number is unknown, only if no non-document
+   scans separate them), or 'unindexed' (outside any entry's range, or no ToC
+   at all); runs of
    non-document scans are reported as 'non-document'.
 
 Hard rules, whatever the model scores say: no document starts on a blank
@@ -44,7 +46,7 @@ import pandas as pd
 from .header_dates import HeaderDate
 from .inventory import InventoryData
 from .model import AlignParams, SegmentationModel
-from .predictors import ToCNumberPredictor, ToCTextPredictor, compute_features
+from .predictors import REGISTER_TITLE_RE, ToCNumberPredictor, ToCTextPredictor, compute_features, register_heading
 
 BIG = 1e6
 
@@ -64,6 +66,9 @@ def next_text_scan(blank: np.ndarray) -> np.ndarray:
 
 
 # ── page/folio number index ───────────────────────────────────────────────────
+
+
+EXTRAPOLATE_MAX = 10  # also extrapolate from a page number this close to the one sought
 
 
 class NumberIndex:
@@ -103,26 +108,38 @@ class NumberIndex:
         return self.rate(r) >= (1.5 if layout == "single" else 0.75)
 
     def positions(self, number: float, margin: int = 30) -> list[tuple[int, float]]:
-        """Interpolated scan positions of `number`, one per run that covers it."""
+        """
+        Interpolated scan positions of `number` per run that covers it: between
+        two numbers that follow each other in scan order and bracket it (the
+        closest such pair), and extrapolated at the run's rate from the nearest
+        number below and above it when these are close (or nothing brackets it). Numbers
+        of another section that ended up in the run (a restart that was not
+        recognised) then cannot pull the position away, as they would when the
+        run's numbers are sorted by value; where both positions differ, the
+        alignment chooses.
+        """
         out = []
         for r, (idx, val) in self.points.items():
             lo, hi = val.min(), val.max()
             if not (lo - margin <= number <= hi + margin):
                 continue
-            order = np.argsort(val, kind="stable")
-            v_sorted, i_sorted = val[order], idx[order]
-            k = np.searchsorted(v_sorted, number)
             rate = self.rate(r)
-            if k == 0:
-                pos = i_sorted[0] - (v_sorted[0] - number) * rate
-            elif k == len(v_sorted):
-                pos = i_sorted[-1] + (number - v_sorted[-1]) * rate
-            else:
-                v1, v2, i1, i2 = v_sorted[k - 1], v_sorted[k], i_sorted[k - 1], i_sorted[k]
-                pos = i1 + (number - v1) * (i2 - i1) / (v2 - v1) if v2 > v1 else i1
             run_scans = np.flatnonzero(self.run == r)
-            pos = min(max(pos, run_scans[0]), run_scans[-1])
-            out.append((r, float(pos)))
+            found = []
+            pairs = [k for k in range(len(idx) - 1) if val[k] <= number <= val[k + 1]]
+            if pairs:
+                k = min(pairs, key=lambda k: val[k + 1] - val[k])
+                v1, v2, i1, i2 = val[k], val[k + 1], idx[k], idx[k + 1]
+                found.append(i1 + (number - v1) * (i2 - i1) / (v2 - v1) if v2 > v1 else i1)
+            for side in (val <= number, val >= number):  # from the nearest number below, and above
+                if side.any():
+                    k = np.flatnonzero(side)[np.argmin(np.abs(val[side] - number))]
+                    if not pairs or abs(val[k] - number) <= EXTRAPOLATE_MAX:
+                        found.append(idx[k] + (number - val[k]) * rate)
+            for pos in found:
+                pos = float(min(max(pos, run_scans[0]), run_scans[-1]))
+                if all(abs(pos - q) > 1 for rr, q in out if rr == r):
+                    out.append((r, pos))
         return out
 
     def number_at(self, pos: int) -> float:
@@ -177,7 +194,8 @@ class Placement:
     entry: int  # row in inv.toc
     scan: int
     score: float
-    how: str  # 'exact' | 'interpolated' (page numbers) | 'text' (description matches the text) | 'evidence' | 'forced' (placed between neighbours)
+    how: str  # 'exact' | 'interpolated' (page numbers) | 'text' (description matches the text) | 'register' (unfoliated register just before its folio) | 'evidence' | 'forced' (placed between neighbours)
+    note: str = ""  # e.g. a register placed out of ToC order
 
 
 def _candidates(entry, numbers: NumberIndex, number: np.ndarray, layout: np.ndarray, s, dterm: np.ndarray, sim: np.ndarray, p: AlignParams, n: int):
@@ -262,8 +280,90 @@ def align_toc(inv: InventoryData, s: np.ndarray, p: AlignParams, fixed: dict[int
             cands.append([(c, FIXED_BONUS + p.w_start * s[c] + dterms[k][c], "gm")])
         else:
             cands.append(_restrict(_candidates(e, numbers, number, layout, s, dterms[k], sims[k], p, n), text_at, blocked))
-    placeable = [k for k in range(len(toc)) if cands[k]]
 
+    # An unfoliated register gets the folio of the next numbered leaf in the ToC:
+    # where that leaf is not a register page itself but one lies just before it,
+    # the register is placed on that page.
+    texts = inv.texts if inv.texts is not None else pd.Series("", index=range(n))
+    heading = np.array([register_heading(t) for t in texts])
+    for k, e in enumerate(toc.itertuples()):
+        if int(e.index) in fixed or not REGISTER_TITLE_RE.match(str(e.title or "")):
+            continue
+        moved_back = []
+        for c, score, how in cands[k]:
+            j = next((j for j in range(c - 1, max(-1, c - 1 - REGISTER_LOOKBACK), -1) if heading[j] and np.isnan(number[j]) and not blocked[j]), None)
+            if how == "exact" and not heading[c] and j is not None:
+                moved_back.append((j, p.exact_number + p.w_start * s[j] + dterms[k][j], "register"))
+            else:
+                moved_back.append((c, score, how))
+        cands[k] = sorted({c: (c, sc, h) for c, sc, h in sorted(moved_back, key=lambda t: t[1])}.values(), key=lambda t: -t[1])
+
+    # A register page found by what it lists is strong evidence for its register,
+    # as strong as a page number matching the ToC (the move below handles
+    # registers on the other side of their papers).
+    for rp in inv.register_pages or []:
+        if rp.register >= len(toc) or int(toc.at[rp.register, "index"]) in fixed:
+            continue
+        c = int(text_at[rp.scan])
+        if not blocked[c]:
+            ck = [cd for cd in cands[rp.register] if cd[0] != c]
+            cands[rp.register] = sorted(ck + [(c, p.exact_number + p.w_start * s[c] + dterms[rp.register][c], "register")], key=lambda t: -t[1])
+
+    def run(order, cands_k):
+        objective, placed = _align_in_order(toc.iloc[order].reset_index(drop=True), [cands_k[k] for k in order], fs_arr[order], numbers, p)
+        return objective, placed
+
+    order = np.arange(len(toc))
+    objective, placements = run(order, cands)
+    # A register of papers may be bound on the other side of the papers it lists
+    # than the ToC has it. Where its page was found by what it lists
+    # (predictors.find_register_pages), the register goes on that page, on the
+    # other side of its papers, unless that disrupts the other entries. Its own
+    # description is no help in deciding: registers are worded alike, and the
+    # current placement is often on another register's page that matches the
+    # wording as well; so it scores the same in both orders.
+    moved = {}
+    for rp in (inv.register_pages or []) if p.move_registers else []:
+        if rp.register >= len(toc) or int(toc.at[rp.register, "index"]) in fixed:
+            continue
+        c = int(text_at[rp.scan])
+        row = int(toc.at[rp.register, "index"])
+        if blocked[c]:
+            continue
+        own = next((pl.score for pl in placements if pl.entry == row), 0.0)  # the register's term as it is now
+        alt_cands = list(cands)
+        alt_cands[rp.register] = [(c, own, "text")]
+        rest = [k for k in order if k != rp.register]
+        at = rest.index(min(rp.papers)) if rp.side == "after" else rest.index(max(rp.papers)) + 1
+        alt = np.array(rest[:at] + [rp.register] + rest[at:])
+        alt_objective, alt_placements = run(alt, alt_cands)
+        if alt_objective >= objective - REGISTER_MOVE_TOLERANCE and any(pl.entry == row for pl in alt_placements):
+            order, cands, objective, placements = alt, alt_cands, alt_objective, alt_placements
+            moved[int(toc.at[rp.register, "index"])] = rp.side
+    toc_o = toc.iloc[order].reset_index(drop=True)
+    placements += _place_unnumbered(inv, toc_o, placements, s, [dterms[k] for k in order], p, blank | blocked)
+    for pl in placements:
+        if pl.entry in moved:
+            pl.note = "register moved " + ("before" if moved[pl.entry] == "after" else "after") + " the papers its page lists"
+    
+    # hand-identified starts win, also where the ToC order contradicts them (the DP then dropped them)
+    placements = [pl for pl in placements if pl.entry not in fixed]
+    placements += [Placement(row, scan, 0.0, "gm") for row, scan in fixed.items()]
+    for pl in placements:
+        if pl.how != "gm":
+            pl.scan = int(text_at[pl.scan])  # no room between the neighbours but a blank scan
+    placements.sort(key=lambda pl: (pl.scan, pl.how != "gm", inv.toc.at[pl.entry, "toc_order"]))
+    return placements
+
+
+REGISTER_LOOKBACK = 6  # scans before the numbered leaf where an unfoliated register may begin
+REGISTER_MOVE_TOLERANCE = 2.0  # a register is moved to its page unless the other entries then fit this much worse
+
+
+def _align_in_order(toc: pd.DataFrame, cands: list, fs_arr: np.ndarray, numbers: NumberIndex, p: AlignParams) -> tuple[float, list[Placement]]:
+    """The monotone DP over the entries in this order: the placements of the
+    entries it places, and its objective (to compare orders)."""
+    placeable = [k for k in range(len(toc)) if cands[k]]
     # DP over (placeable entry, candidate): best[t][c]
     best: list[np.ndarray] = []
     back: list[list[tuple[int, int] | None]] = []
@@ -288,28 +388,21 @@ def align_toc(inv: InventoryData, s: np.ndarray, p: AlignParams, fixed: dict[int
         back.append(bp)
 
     placements: list[Placement] = []
-    if placeable:
-        total = [best[t].max() + p.skip * (len(placeable) - 1 - t) if len(best[t]) else -np.inf for t in range(len(placeable))]
-        t = int(np.argmax(total))
-        ci = int(np.argmax(best[t]))
-        while True:
-            k = placeable[t]
-            pos, local, how = cands[k][ci]
-            placements.append(Placement(int(toc.at[k, "index"]), int(pos), float(local - (FIXED_BONUS if how == "gm" else 0)), how))
-            if back[t][ci] is None:
-                break
-            t, ci = back[t][ci]
-        placements.reverse()
-
-    placements += _place_unnumbered(inv, toc, placements, s, dterms, p, blank | blocked)
-    # hand-identified starts win, also where the ToC order contradicts them (the DP then dropped them)
-    placements = [pl for pl in placements if pl.entry not in fixed]
-    placements += [Placement(row, scan, 0.0, "gm") for row, scan in fixed.items()]
-    for pl in placements:
-        if pl.how != "gm":
-            pl.scan = int(text_at[pl.scan])  # no room between the neighbours but a blank scan
-    placements.sort(key=lambda pl: (pl.scan, pl.how != "gm", inv.toc.at[pl.entry, "toc_order"]))
-    return placements
+    if not placeable:
+        return 0.0, placements
+    total = [best[t].max() + p.skip * (len(placeable) - 1 - t) if len(best[t]) else -np.inf for t in range(len(placeable))]
+    t = int(np.argmax(total))
+    objective = float(total[t])
+    ci = int(np.argmax(best[t]))
+    while True:
+        k = placeable[t]
+        pos, local, how = cands[k][ci]
+        placements.append(Placement(int(toc.at[k, "index"]), int(pos), float(local - (FIXED_BONUS if how == "gm" else 0)), how))
+        if back[t][ci] is None:
+            break
+        t, ci = back[t][ci]
+    placements.reverse()
+    return objective, placements
 
 
 def share_cost(f0: float, f1: float, p: AlignParams) -> float:
@@ -723,7 +816,9 @@ def segment_inventory(inv: InventoryData, model: SegmentationModel, use_toc: boo
         while row is not None:  # innermost enclosing ToC entry whose range covers this start
             end_eff = inv.toc.at[row, "end_eff"]
             same_run = numbers.run[placed_at[row]] == numbers.run[a]
-            if same_run and (pd.isna(end_eff) or pd.isna(num) or num <= end_eff + 0.5):
+            unknown = pd.isna(end_eff) or pd.isna(num)
+            # after non-document scans the entry has ended, unless its range is known to cover this start
+            if same_run and (num <= end_eff + 0.5 if not unknown else bt != "gap"):
                 kind, parent = "subdoc", row
                 break
             row = parent_of.get(row)

@@ -114,8 +114,9 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}{% imp
   <div class="info-row">
     <strong>ToC placement:</strong>
     <span>
-      {{ {'gm': 'start identified by hand (General Missives dataset)', 'exact': 'page number in the ToC found on the scan', 'interpolated': 'position interpolated from nearby page numbers', 'text': 'the ToC description matches the text', 'evidence': 'placed between its neighbours in the ToC on strong start evidence', 'forced': 'placed between its neighbours in the ToC on weak evidence — check'}.get(evidence.toc.placed_by, evidence.toc.placed_by) }}
+      {{ {'gm': 'start identified by hand (General Missives dataset)', 'exact': 'page number in the ToC found on the scan', 'register': 'unfoliated register page just before the leaf with the page number in the ToC', 'interpolated': 'position interpolated from nearby page numbers', 'text': 'the ToC description matches the text', 'evidence': 'placed between its neighbours in the ToC on strong start evidence', 'forced': 'placed between its neighbours in the ToC on weak evidence — check'}.get(evidence.toc.placed_by, evidence.toc.placed_by) }}
       <small class="text-muted">(score {{ evidence.toc.placement_score }})</small>
+      {% if evidence.toc.note %}<span class="badge badge-warning" title="The register's page lists ToC entries on the other side of it in the ToC; the alignment fits clearly better with the register on that page">{{ evidence.toc.note }}</span>{% endif %}
     </span>
   </div>
   <div class="info-row">

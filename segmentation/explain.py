@@ -298,6 +298,7 @@ def document_evidence(inv: InventoryData, result: Result, segment: Segment, ev: 
         entry = inv.toc.loc[pl.entry]
         out["toc"] = {
             "placed_by": pl.how,
+            "note": pl.note,
             "placement_score": round(pl.score, 2),
             "toc_start_number": _plain(entry.folio_start),
             "toc_end_number": _plain(entry.end_eff),

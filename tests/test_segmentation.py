@@ -553,3 +553,137 @@ def test_place_unnumbered_spreads_entries_by_index_folios():
     assert placed(same_start_folio=0, index_interp_weight=0) == [38, 38, 38]  # the old behaviour: piled up
     spread = placed()
     assert spread[0] < 15 < spread[1] < 25 < spread[2]  # folios 5, 11, 17 of 1–21 over scans 0–40
+
+
+def test_clean_numbers_restart_without_its_first_numbers():
+    # 1999: folios run to 255, the next section's numbers are read only from 11 on
+    raw = [[251], [], [253], [], [255], [], [], [], [11], [], [13], [], [15], [], [23]]
+    value, run = clean_numbers(pd.Series(raw))
+    assert value[8] == 11 and run[4] == 0 and run[8] == 1 and run[14] == 1
+    # a single misread low number does not split a run
+    value, run = clean_numbers(pd.Series([[165], [], [167], [], [169], [], [171], [], [17], [], [175], [], [177]]))
+    assert (run == 0).all()
+
+
+def test_register_page_matches_only_the_register():
+    from segmentation.predictors import ToCTextPredictor
+
+    inv = _toy_inventory()
+    register = "Register der papieren ontfangen per het schip Heesburg"
+    missive = "Duplicaet missive van de residenten tot Mocha aen haer edelheden over de coffij"
+    inv.toc["title"] = [register, missive, "Rendement der verkochte goederen"]
+    filler = "Wij hebben UEd. missive wel ontfangen ende daeruijt verstaen " * 8
+    texts = [filler] * inv.n
+    texts[0] = f"{register}. 1. {missive}. " + filler  # the register lists its paper (3+ matches would make it a ToC page)
+    texts[2] = f"{missive}. " + filler
+    inv.texts = pd.Series(texts)
+    ToCTextPredictor().compute(inv)
+    sim = inv.toc_text_sim
+    assert sim[0, 0] >= 0.5  # the register page matches the register
+    assert sim[1, 0] == 0 and sim[1, 2] >= 0.5  # the missive matches its own first page, not the list
+
+
+def test_clean_numbers_no_restart_after_misread_high_numbers():
+    # 8834: every other folio misread with a 9 for a 4; the next number is not a restart
+    raw = [[429], [], [431], [], [433], [], [935], [], [439], [], [941], [], [443], [], [447], [], [449]]
+    _, run = clean_numbers(pd.Series(raw))
+    assert (run == 0).all()
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        [[1631], [], [1652], [], [1653], [], [418], [], [420], [], [422], [], [1668], [], [1677]],  # the old level comes back
+        [[61], [], [63], [], [64], [], [65], [], [166], [], [168], [], [169], [], [71], [], [72], [], [73]],  # "1" added before 66-69
+    ],
+)
+def test_clean_numbers_no_restart_on_misread_stretches(raw):
+    _, run = clean_numbers(pd.Series(raw))
+    assert (run == 0).all()
+
+
+# ── registers out of ToC order ────────────────────────────────────────────────
+
+
+PAPERS = [
+    "Duplicaet missive van de residenten tot Mocha aen haer edelheden",
+    "Diverse gewisselde brieven tussen de residenten Steenwijk en Augier",
+    "Copie inkoopsreeckening van coffijbalen tot Betelfagie",
+    "Instructie voor de adsistent Sonmans op sijn reyse na Sanaa",
+    "Rapport wegens het tekort op de ladingen van de schepen",
+    "Rakende de tarra van ieder coffijbaal ten bedrage van een tiende",
+]
+OTHER = ["Originele missive van den commandeur tot Gamron aen Batavia", "Gewisselde brieven tussen Gamron en Spahan", "Copie memorie van den raed extraordinaris"]
+
+
+def _register_toc(titles):
+    return pd.DataFrame({"title": titles, "folio_start": np.nan})
+
+
+def test_register_page_found_by_its_list():
+    from segmentation.predictors import find_register_pages
+
+    # ToC: other entries, the register's papers, then the register itself (listed after its papers)
+    titles = OTHER + PAPERS + ["Register der papieren. (Ontfangen 22 Maert per het schip Heesburg)"]
+    register = np.array([False] * (len(titles) - 1) + [True])
+    filler = "Wy hebben de missive ontfangen ende de goederen verkocht na behooren " * 5
+    texts = pd.Series([filler] * 10)
+    texts[3] = "A:o 1724 Register van sodanige brieven als in desen ingesonden. " + " „ ".join(PAPERS[:5])  # the register page
+    found = find_register_pages(texts, _register_toc(titles), register)
+    assert [(rp.scan, rp.register, rp.side) for rp in found] == [(3, len(titles) - 1, "after")]
+    assert set(found[0].papers) >= {3, 4, 5}
+
+
+def test_register_page_between_two_registers_is_undecided():
+    from segmentation.predictors import find_register_pages
+
+    # the papers lie between two registers that are worded alike: either could list them
+    titles = ["Register der papieren. (Ontfangen 9 Mei per de schepen)"] + PAPERS + ["Register der papieren. (Ontfangen 1 Julij per het schip)"]
+    register = np.array([True] + [False] * len(PAPERS) + [True])
+    texts = pd.Series(["Wy hebben de missive ontfangen " * 5] * 6)
+    texts[2] = "Register der papieren ontfangen per het schip " + " „ ".join(PAPERS)
+    assert find_register_pages(texts, _register_toc(titles), register) == []
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("Register der papieren. (Ontfangen 28 Julij per de fluiit Abbekerk).", (28, 7)),
+        ("schip de generale vrede Register der brieven ... Ontfangen den 27=e Iunij p=r het", (27, 6)),
+        ("A:o 1748. den 19:' feb: Register ... ontvangen 29 Maart 1748", (29, 3)),
+        ("Register der papieren (ontvangen den 28 September 1740 per het schip)", (28, 9)),
+        ("A:o 1724. den 22 Ianuarij per het schip de koning Carel ... ontfangen van Mocha", None),  # a letter's date, not a receipt
+    ],
+)
+def test_received_date(text, expected):
+    from segmentation.predictors import received_date
+
+    assert received_date(text) == expected
+
+
+def test_register_page_with_another_receipt_date_is_not_its_register():
+    from segmentation.predictors import find_register_pages
+
+    titles = OTHER + PAPERS + ["Register der papieren. (Ontfangen 28 Julij per de fluit Abbekerk)"]
+    register = np.array([False] * (len(titles) - 1) + [True])
+    texts = pd.Series(["Wy hebben de missive ontfangen ende de goederen verkocht na behooren " * 5] * 10)
+    page = "Register der brieven als in dese sijn ingesz: " + " „ ".join(PAPERS[:5])
+    texts[3] = "Schip de Generale Vrede. Ontfangen den 27 Junij. " + page  # another shipment's register
+    assert find_register_pages(texts, _register_toc(titles), register) == []
+    texts[3] = "Ontfangen den 28 Julij per de fluit Abbekerk. " + page  # its own
+    assert [rp.scan for rp in find_register_pages(texts, _register_toc(titles), register)] == [3]
+
+
+def test_positions_follow_scan_order_despite_numbers_of_another_section():
+    from segmentation.segmenter import NumberIndex
+
+    # 1999: folios 11-86 of the Mocha papers, then 57, 63, 97 of the next (Persia) section,
+    # whose restart was not recognised, all in one numbering run
+    number = np.full(220, np.nan)
+    for pos, v in ((0, 11), (2, 13), (4, 15), (44, 53), (58, 67), (79, 86), (162, 57), (168, 63), (200, 97)):
+        number[pos] = v
+    ni = NumberIndex(number, np.zeros(220, dtype=int), pd.Series(["single"] * 220))
+    at = lambda folio: [round(p) for _, p in ni.positions(folio)]
+    assert any(44 <= p <= 46 for p in at(54))  # between 53 and 67, not between 53 and the stray 57
+    assert any(80 <= p <= 86 for p in at(89))  # extrapolated from 86 ...
+    assert any(p > 150 for p in at(89))  # ... besides the position among the next section's numbers

@@ -14,8 +14,10 @@ refit the weights afterwards.
 """
 
 import math
+from dataclasses import dataclass
 import os
 import re
+import unicodedata
 from abc import ABC, abstractmethod
 
 import numpy as np
@@ -24,7 +26,7 @@ from rapidfuzz import fuzz
 
 from .header_dates import compare_dates, parse_header_date
 from .inventory import InventoryData
-from .texts import TextIndex, load_texts
+from .texts import TextIndex, load_texts, normalize_tokens
 
 
 class Predictor(ABC):
@@ -98,6 +100,7 @@ class SignaturePredictor(Predictor):
 # ── page / folio numbers ──────────────────────────────────────────────────────
 
 RESTART_MAX, RESTART_MIN_PREVIOUS = 5, 10
+RESTART_MIN_DROP = 20  # a restart whose first numbers were not read: a drop of at least this much
 REPEAT_MAX = 4  # a number read on more scans is not a page/folio number (a stamp, a misread running header)
 
 
@@ -139,21 +142,42 @@ def clean_numbers(folio_lists: pd.Series) -> tuple[np.ndarray, np.ndarray]:
     value[np.isin(value, vals[counts > REPEAT_MAX])] = np.nan
 
     # restarts: a small number after the run reached RESTART_MIN_PREVIOUS,
-    # confirmed by a consistent following observation
+    # confirmed by a consistent following observation; or, when the first
+    # numbers of the new run were not read, a drop to below half the run's
+    # recent level (the lowest of its last three numbers, so that one misread
+    # high number such as 935 for 435 does not count) confirmed by the next
+    # two observations (255 → 11, 13, 15)
     run = np.zeros(n, dtype=int)
     current, running_max = 0, None
+    recent: list[float] = []
     kept = [i for i in range(n) if not np.isnan(value[i])]
     for k, i in enumerate(kept):
         v = value[i]
-        if running_max is not None and running_max >= RESTART_MIN_PREVIOUS and v <= RESTART_MAX:
-            nxt = kept[k + 1 : k + 3]
-            if not nxt or any(consistent(i, v, j, value[j]) for j in nxt):
+        nxt = kept[k + 1 : k + 3]
+        small = running_max is not None and running_max >= RESTART_MIN_PREVIOUS and v <= RESTART_MAX
+        level = min(recent[-3:]) if recent else None
+        drop = (
+            level is not None
+            and v < level / 2
+            and level - v >= RESTART_MIN_DROP
+            and len(nxt) == 2
+            and all(consistent(i, v, j, value[j]) for j in nxt)
+            # the old level does not come back (1653 | 418 420 1668: misreads, not a restart) ...
+            and all(value[j] < level for j in kept[k + 1 : k + 7])
+            # ... and v does not continue the numbers before a stretch of misread
+            # high ones (63 64 65 166 168 169 | 71)
+            and not any(consistent(kept[k - 1 - m], value[kept[k - 1 - m]], i, v) for m in range(3, min(6, k)))
+        )
+        if small or drop:
+            if drop or not nxt or any(consistent(i, v, j, value[j]) for j in nxt):
                 current += 1
                 running_max = None
+                recent = []
                 # the run starts after the previous numbered scan
                 prev_i = kept[k - 1] if k else -1
                 run[prev_i + 1 :] = current
         running_max = v if running_max is None else max(running_max, v)
+        recent.append(v)
     return value, run
 
 
@@ -412,6 +436,7 @@ CLOSING_RE = re.compile(
     re.I,
 )
 PLACE_DATE_RE = re.compile(r"(casteel|batavia|fort|comptoir|adij|den\s*\d{1,2}\W).{0,60}1[5-8]\d\d", re.I | re.S)
+REGISTER_TITLE_RE = re.compile(r"\s*(duplicaet\s+|dubbelt\s+)?register\b", re.I)  # "Register der papieren", "Duplicaet register"
 LEADER_RE = re.compile(r"(\.\s){3,}|\.{4,}|(-\s){3,}|(„\s?){3,}")
 
 
@@ -457,6 +482,130 @@ class TextFormulaPredictor(Predictor):
         return pd.DataFrame(rows, columns=cols)
 
 
+REGISTER_WINDOW = 20  # papers a register lists: at most this many ToC entries next to it
+REGISTER_WORD_RE = re.compile(r"\bre[gq]i[sl]", re.I)  # register, registerder, regislaetje, regisser
+REGISTER_HEADING_CHARS = 300  # a register page has the word near its top
+RECEIVED_RE = re.compile(r"ont?f?v?a?n?g?en\W+(?:den\W+)?(\d{1,2})\W{0,3}(?:e|en|ste|de)?\W{0,3}([a-z]{3,})", re.I)
+MONTHS = {"jan": 1, "feb": 2, "maa": 3, "mae": 3, "mar": 3, "apr": 4, "mei": 5, "mey": 5, "may": 5, "jun": 6, "jul": 7,
+          "aug": 8, "sep": 9, "7be": 9, "oct": 10, "okt": 10, "8be": 10, "nov": 11, "9be": 11, "dec": 12, "xbe": 12}
+
+
+def received_date(text: str) -> tuple[int, int] | None:
+    """(day, month) of the first 'ontfangen [den] 27 Junij' in the text, if any."""
+    t = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().lower().replace("ij", "y")
+    for m in RECEIVED_RE.finditer(t):
+        word = m.group(2)
+        word = "j" + word[1:] if word[0] == "i" else word  # Iunij, Ianuarij
+        month = MONTHS.get(word[:3])
+        if month and 1 <= int(m.group(1)) <= 31:
+            return int(m.group(1)), month
+    return None
+
+
+def register_heading(text: str) -> bool:
+    return bool(text) and bool(REGISTER_WORD_RE.search(text[:REGISTER_HEADING_CHARS]))
+LISTED = 0.45  # share of an entry's (IDF-weighted) description words on a page for it to count as listed there
+REGISTER_MIN_LISTED, REGISTER_MIN_SHARE = 3, 0.3  # a register page lists at least this many / this share of the entries up to its furthest one
+REGISTER_ADJACENT = 5  # ... starting within this many entries of the register
+REGISTER_CONTRAST = 3.0  # ... and its papers this many times more often than other entries
+
+
+@dataclass
+class RegisterPage:
+    """A register of papers found on a scan: the ToC entries (positions in ToC
+    order) its list contains, and the register entry it belongs to, listed
+    'after' or 'before' those papers in the ToC."""
+
+    scan: int
+    register: int
+    papers: list[int]
+    side: str  # 'after' | 'before'
+
+
+def find_register_pages(texts: pd.Series, toc: pd.DataFrame, register: np.ndarray, window: int = REGISTER_WINDOW) -> list[RegisterPage]:
+    """
+    Register pages and the register entry each belongs to, identified by what
+    they list. Registers are worded alike ("Register der papieren ontfangen
+    per ..."), and the date and ship in the ToC description are often not on
+    the page at all, so the register's own description cannot tell which
+    register a page is. Its list can: the descriptions (and folio numbers) of
+    the papers, which are distinctive. A register's papers are the ToC entries
+    between it and the neighbouring register, on the side where the ToC lists
+    them. A page belongs to a register when it lists a clear part of that
+    group, starting next to the register, and few other entries. Only clear
+    cases count: a page that registers on both sides of the same papers could
+    claim, and a register with pages on both sides, are left undecided; so is
+    a page naming another receipt date ("ontfangen den 27 Junij") than the
+    register's description, while a page naming the same date settles both. A register page has the register word near its
+    top; entries with the same description count once. The register begins
+    on the first of consecutive pages listing its papers.
+    """
+    regs = np.flatnonzero(register)
+    candidates = [j for j, t in enumerate(texts) if register_heading(t)]
+    if not len(regs) or not candidates:
+        return []
+    index = TextIndex([(j, texts.iat[j]) for j in candidates], len(texts))
+    titles = toc["title"].fillna("").astype(str).tolist()
+    listed = np.vstack([index.scores(t) for t in titles]) >= LISTED  # entries × scans
+    # entries with the same description (a run of letters from one resident) count once
+    first_of = {}
+    same = np.array([first_of.setdefault(" ".join(sorted(set(normalize_tokens(t)))), k) != k for k, t in enumerate(titles)])
+    received = {j: received_date(texts.iat[j][:400]) for j in candidates}
+    folio = toc["folio_start"].to_numpy(dtype=float)
+    numbers = {j: set(re.findall(r"\b\d{1,4}\b", texts.iat[j])) for j in candidates}
+    ordinary = ~register
+    claims: dict[int, list[tuple[float, int, str, list[int]]]] = {}  # scan -> (score, register, side, papers)
+    for r in regs:
+        prev_r = regs[regs < r].max() if (regs < r).any() else -1
+        next_r = regs[regs > r].min() if (regs > r).any() else len(toc)
+        groups = {"after": np.arange(max(prev_r + 1, r - window), r), "before": np.arange(r + 1, min(next_r, r + 1 + window))}
+        for side, group in groups.items():
+            group = group[ordinary[group]]
+            if len(group) < REGISTER_MIN_LISTED:
+                continue
+            others = np.setdiff1d(np.flatnonzero(ordinary), np.arange(r - window, r + window + 1))
+            own_received = received_date(titles[r])
+            for j in candidates:
+                if own_received and received[j] and own_received != received[j]:
+                    continue  # the page names another receipt date: another register's page
+                hits = group[listed[group, j]]
+                if (~same[hits]).sum() < REGISTER_MIN_LISTED:
+                    continue
+                # the listed papers start next to the register; the share counts the stretch up to the furthest one
+                nearest = r - hits.max() if side == "after" else hits.min() - r
+                stretch = group[(group >= hits.min()) & (group <= hits.max())]
+                share = len(hits) / len(stretch)
+                background = listed[others, j].mean() if len(others) else 0.0
+                if nearest > REGISTER_ADJACENT or share < REGISTER_MIN_SHARE or share < REGISTER_CONTRAST * background:
+                    continue
+                with_folio = sum(not np.isnan(folio[k]) and str(int(folio[k])) in numbers[j] for k in hits)
+                score = len(hits) * share + 0.5 * with_folio
+                same_date = bool(own_received) and own_received == received[j]
+                claims.setdefault(j, []).append((score, int(r), side, hits.tolist(), same_date))
+    # Only clear cases: a page that two registers could claim (the papers
+    # between them) and a register with pages on both sides are undecided.
+    by_register: dict[int, list[tuple[float, int, str, list[int]]]] = {}
+    for j, cl in claims.items():
+        dated = [c for c in cl if c[4]]
+        if len({c[1] for c in cl}) > 1 and len({c[1] for c in dated}) != 1:
+            continue  # contested, unless the page names the receipt date of exactly one claimant
+        for c in dated or cl:
+            by_register.setdefault(c[1], []).append((c[0], j, c[2], c[3], c[4]))
+    found = []
+    for r, pages in by_register.items():
+        if any(pg[4] for pg in pages):
+            pages = [pg for pg in pages if pg[4]]  # a page with the register's own receipt date wins
+        if len({pg[2] for pg in pages}) > 1:
+            continue
+        score, j, side, papers, _ = max(pages)
+        # the register begins on the first of the consecutive pages listing these papers
+        scans = sorted(pg[1] for pg in pages)
+        while any(j - 3 <= jj < j for jj in scans):
+            j = max(jj for jj in scans if j - 3 <= jj < j)
+        found.append(RegisterPage(j, r, papers, side))
+    return sorted(found, key=lambda rp: rp.register)
+
+
 class ToCTextPredictor(Predictor):
     """
     How well a scan's opening words match a ToC description (IDF-weighted
@@ -490,9 +639,18 @@ class ToCTextPredictor(Predictor):
                     passages.append((i, rest[: self.OPENING_CHARS]))
         index = TextIndex(passages, n)
         sim = np.vstack([index.scores(str(d or "")) for d in toc["title"]])
+        register = toc["title"].fillna("").str.match(REGISTER_TITLE_RE).to_numpy()
+        inv.register_pages = find_register_pages(texts, toc, register)
         n_matched = (sim >= self.MATCH).sum(axis=0)
         toc_page = n_matched >= self.TOC_PAGE_ENTRIES
         sim[:, toc_page] = 0
+        # A register of papers lists the titles of the papers that follow (or
+        # precede) it: on a scan matching a register entry, the other entries'
+        # matches come from that list, so only the register's match counts.
+        if register.any():
+            matched = sim >= self.MATCH
+            on_register = matched[register].any(axis=0) & (matched.sum(axis=0) >= 2)
+            sim[np.ix_(~register, on_register)] = 0
         # A short page matching an entry is a title page: before the document
         # (front title) or on its last page (docket, end title). It is never a
         # start itself; it counts for the next scan only when that scan opens

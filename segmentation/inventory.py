@@ -66,6 +66,7 @@ class InventoryData:
     features: pd.DataFrame = field(default=None)  # filled by predictors
     texts: pd.Series = field(default=None)  # full text per scan (texts.load_texts), loaded on demand
     toc_text_sim: object = field(default=None)  # ToC entries × scans text similarity, filled by predictors
+    register_pages: list = field(default=None)  # predictors.RegisterPage per register page found, filled by predictors
 
     @property
     def n(self) -> int:

@@ -145,9 +145,10 @@ class AlignParams:
     same_start: float = -2.0  # two entries starting on the same scan (nested entries)
     same_start_folio: float = 2.0  # ... minus this × log(folio distance) when their ToC start folios differ
     index_interp_weight: float = 2.0  # entries placed between neighbours: per 2 folios' worth of scans away from the index-interpolated position
+    move_registers: bool = False  # try registers on their detected page on the other side of their papers (segmenter.align_toc); off until register pages are identified reliably
     max_skip: int = 8  # consecutive unplaced entries considered in one transition
     unnumbered_threshold: float = 0.5  # min score to place an entry without a start number
-    max_candidates: int = 12
+    max_candidates: int = 20
     text_weight: float = 8.0  # × (similarity − text_floor) of the ToC description and the scan's opening words
     text_floor: float = 0.25
     text_candidates: int = 4  # best text matches added as candidate starts ...
