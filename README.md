@@ -83,6 +83,8 @@ data/
 
 ## Database Setup
 
+The database is `globalise_documents.db` (about 12 GB). All scripts and the app find it through `DATABASE_URL` (default `sqlite:///globalise_documents.db`, relative to the repository). In this setup the file lives on the external drive, `/Volumes/storage/globalise/globalise_documents.db`, and `globalise_documents.db` in the repository is a symbolic link to it; the drive must be mounted to use the app or run the scripts. SQLite writes its journal next to the real file, so imports need free space on that drive (keep 5–10 GB free). To put it elsewhere, move the file and either update the link or set `DATABASE_URL=sqlite:////path/to/globalise_documents.db`.
+
 Run the import scripts sequentially to create and populate the SQLite database:
 
 ### Step 1: Import Scans and Inventories
@@ -460,7 +462,7 @@ docker pull ghcr.io/globalise-huygens/documents:latest
 ```
 
 ```bash
-docker run -p 8000:8000 -v ./globalise_documents.db:/app/globalise_documents.db --rm globalisedocuments:latest
+docker run -p 8000:8000 -v /Volumes/storage/globalise/globalise_documents.db:/app/globalise_documents.db --rm globalisedocuments:latest
 ```
 
 Then open your browser to: **http://localhost:8000**

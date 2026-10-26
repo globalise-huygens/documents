@@ -1,8 +1,10 @@
+import os
 import sqlite3
 import re
 from tqdm import tqdm
 
-DB_PATH = "globalise_documents.db"
+DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///globalise_documents.db")
+DB_PATH = DATABASE_URL.removeprefix("sqlite:///")
 
 FILENAME_PATTERN = re.compile(r"_(\d+)[A-Za-z]*$")
 
