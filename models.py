@@ -223,6 +223,15 @@ class RectoVerso(str, enum.Enum):
     VERSO = "Verso"
 
 
+document_settlement = Table(
+    "document_settlement",
+    Base.metadata,
+    Column("document_id", String(128), ForeignKey("document.id"), primary_key=True),
+    Column("settlement_id", String(36), ForeignKey("settlement.id"), primary_key=True),
+    comment="Settlements of a document: an index entry exported once per settlement is merged into one (step 21)",
+)
+
+
 class Document(Base):
     __tablename__ = "document"
 
@@ -288,6 +297,15 @@ class Document(Base):
         Integer,
         comment="ID of the entry in OBP NT_gecorrigeerd.xlsx (first row of the document)",
     )
+    title_source: Mapped[Optional[str]] = mapped_column(
+        String(32),
+        index=True,
+        comment=(
+            "Who made the title: 'VOC' (the index, i.e. the VOC itself), 'VOC (other version)' (the index "
+            "entry of another version of the text), 'Resilient Diversity' (the court case dataset), "
+            "'General Missives' (the hand-identified missives), 'inferred' (by this project from the text)"
+        ),
+    )
     toc_folio_start_side: Mapped[Optional[RectoVerso]] = mapped_column(
         SQLEnum(RectoVerso, values_callable=lambda obj: [e.value for e in obj]),
         comment="Side of the start folio if the TANAP index specifies it (e.g. '14v')",
@@ -316,6 +334,9 @@ class Document(Base):
     location: Mapped[Optional["Settlement"]] = relationship(
         "Settlement", back_populates="documents"
     )
+    settlements: Mapped[List["Settlement"]] = relationship(
+        "Settlement", secondary=document_settlement
+    )  # all settlements of an index entry (location is the first); see step 21
     document_types: Mapped[List["Document2Type"]] = relationship(
         "Document2Type", back_populates="document", cascade="all, delete-orphan"
     )

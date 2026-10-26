@@ -24,7 +24,8 @@ These inventories have no ToC; the dataset takes its place:
     fixed range are dropped (conflicting data).
   - All scans outside the cases are segmented by the model as usual.
 
-Titles are in Dutch: claimant contra defendants; court, place, date (charge).
+Titles are in Dutch: claimant contra defendants; court, place, date (the charges are
+kept in the case info, not in the title).
 The claimant is the prosecutor (advocaat-fiscaal van India at Batavia,
 independent fiscaal at the Cape), named when the case's text names him;
 in civil disputes the claimant is not in the dataset.
@@ -327,9 +328,8 @@ def case_title(case: Case, persons: list[dict], prosecutor: str | None, prosecut
     dates = [d for d in (_date(p.get("Aanklacht_Datum"), p.get("Jaar")) for p in persons) if d[0] is not None]
     date_text = min(dates, key=lambda d: d[0])[2] if dates else case.date_text
     where = ", ".join(x for x in (case.court, case.place, date_text) if x)
-    own = list(dict.fromkeys(_clean(p.get("Aanklacht_Standaard")) for p in persons if _clean(p.get("Aanklacht_Standaard")))) or case.charges
-    charges = [c[:1].lower() + c[1:] for c in own[:2]] + (["e.a."] if len(own) > 2 else [])
-    return f"{claimant} contra {defendants}; {where}" + (f" ({'; '.join(charges)})" if charges else "")
+    # the charges (what the case was about) are not part of the title; they stay in the case info
+    return f"{claimant} contra {defendants}; {where}"
 
 
 # ── segmentation ──────────────────────────────────────────────────────────────

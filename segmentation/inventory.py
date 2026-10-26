@@ -93,7 +93,9 @@ def load_toc(conn: sqlite3.Connection, inventory_id: str) -> pd.DataFrame:
         conn,
         params=(TANAP_METHOD, inventory_id),
     )
-    toc = drop_missing(toc.drop_duplicates("doc_id"))
+    # a merged index entry (step 21) carries the OBP ids of its duplicates: keep its own, the lowest
+    toc["csv_id"] = pd.to_numeric(toc["csv_id"], errors="coerce")
+    toc = drop_missing(toc.sort_values("csv_id").drop_duplicates("doc_id"))
     # an all-NULL column comes back as object/None; keep these numeric (NaN)
     for c in ("csv_id", "folio_start", "folio_end", "toc_order", "folio_sequence"):
         toc[c] = pd.to_numeric(toc[c], errors="coerce")

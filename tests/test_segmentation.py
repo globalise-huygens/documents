@@ -323,7 +323,7 @@ def _case(persons, civil=False, place="Batavia"):
 def test_case_title():
     persons = [{"Voornaam": n, "Achternaam": "X", "Aanklacht_Datum": "1734-10-20", "Aanklacht_Standaard": "Geweld"} for n in "ABCDE"]
     assert case_title(_case(persons[:2]), persons[:2], "Adrianus Bergsma") == (
-        "Advocaat-fiscaal van India mr. Adrianus Bergsma contra A X en B X; Raad van Justitie, Batavia, 20 oktober 1734 (geweld)"
+        "Advocaat-fiscaal van India mr. Adrianus Bergsma contra A X en B X; Raad van Justitie, Batavia, 20 oktober 1734"
     )
     assert "contra A X, B X, C X en 2 anderen;" in case_title(_case(persons), persons, None)
     assert case_title(_case(persons[:1], civil=True), persons[:1], None).startswith("Onbekende eiser contra A X;")

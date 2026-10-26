@@ -64,6 +64,12 @@ METHOD_DESCRIPTION = (
 )
 SOURCE = "SEGMENTATION_MODEL"
 NT_CONTEXT = "NT"
+# document.title_source: who made the title
+TITLE_VOC = "VOC"  # the index (the VOC itself)
+TITLE_OTHER_VERSION = "VOC (other version)"  # the index entry of another version of the text
+TITLE_COURT = "Resilient Diversity"  # the court case dataset (EMDCCR)
+TITLE_GM = "General Missives"  # the missives identified by hand
+TITLE_INFERRED = "inferred"  # by this project, from the text
 COURT_CONTEXT = "EMDCCR"
 DERIVED_TOC = "derived_toc.csv"  # entries derived from other versions (versions.py)
 DOC_COLUMNS = (
@@ -92,7 +98,7 @@ def _in_chunks(session: Session, sql: str, ids: list[str]):
 
 def _delete_previous(session: Session, method_id: str, inventory_id: str) -> int:
     ids = [r[0] for r in session.execute(text("SELECT id FROM document WHERE method_id = :m AND inventory_id = :i"), {"m": method_id, "i": inventory_id})]
-    for table in ("page2document", "document2external_id", "document2documenttype", "document_evidence"):
+    for table in ("page2document", "document2external_id", "document2documenttype", "document_evidence", "document_settlement"):
         _in_chunks(session, f"DELETE FROM {table} WHERE document_id IN ({{ph}})", ids)
     _in_chunks(session, "UPDATE document SET part_of_id = NULL WHERE id IN ({ph})", ids)
     _in_chunks(session, "DELETE FROM document WHERE id IN ({ph})", ids)
@@ -178,6 +184,21 @@ def _toc_entries(conn, inv_id: str) -> tuple[pd.DataFrame, dict[int, list[str]]]
     return toc, {cid: by_doc.get(r.toc_doc_id, []) for cid, r in toc.iterrows()}
 
 
+def _toc_settlements(conn, inv_id: str) -> dict[str, list[str]]:
+    """All settlements of the inventory's index entries (step 21 merges entries listed once per settlement)."""
+    rows = conn.execute(
+        text(
+            "SELECT ds.document_id, ds.settlement_id FROM document_settlement ds JOIN document d ON d.id = ds.document_id "
+            "JOIN document_identification_method m ON m.id = d.method_id AND m.name = 'TANAP Digitized Index' WHERE d.inventory_id = :i"
+        ),
+        {"i": inv_id},
+    ).fetchall()
+    out: dict[str, list[str]] = {}
+    for doc, settlement in rows:
+        out.setdefault(doc, []).append(settlement)
+    return out
+
+
 def import_segments(csv_path: str, database_url: str, dry_run: bool = False, resume: bool = False):
     """Import the segments; every committed inventory is recorded in <csv>.imported,
     and with resume=True the inventories listed there are skipped."""
@@ -221,6 +242,7 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False, res
             pages["side"] = pages["recto_verso"].map({"Verso": 0, "Recto": 1}).fillna(0)
             pages_by_scan = pages.sort_values(["scan_id", "side"]).groupby("scan_id")["page_id"].apply(list).to_dict()
             toc, toc_ext = _toc_entries(conn, inv_id)
+            toc_settlements = _toc_settlements(conn, inv_id)
             nt_ext = _nt_external_ids(session, {int(v) for v in toc["nt_index"].dropna()}, dry_run)
             gm_info, gm_ext = _general_missives(conn, inv_id)
             stale = {g for v in rows["gm_ids"].dropna() for g in str(v).split(";") if g and g not in gm_info}
@@ -261,7 +283,8 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False, res
                     doc_id = str(uuid.uuid4())
                     entry = toc.loc[cid] if cid is not None and cid in toc.index else None
                     doc = {"id": doc_id, "inventory_id": inv_id, "method_id": method_id, "part_of_id": None, "date_text": None,
-                           "title": entry["title"] if entry is not None else None}
+                           "title": entry["title"] if entry is not None else None,
+                           "title_source": TITLE_VOC if entry is not None and isinstance(entry["title"], str) else None}
                     for c in DOC_COLUMNS:
                         v = entry[c] if entry is not None else None
                         doc[c] = None if v is None or pd.isna(v) else (int(v) if c.startswith("folio") else v)
@@ -270,6 +293,7 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False, res
                     if g is not None:  # identified by hand: its title and dates win
                         gm_doc[g] = doc_id
                         doc.update({c: gm_info[g][c] for c in GM_COLUMNS})
+                        doc["title_source"] = TITLE_GM if doc.get("title") else doc["title_source"]
                         if k > 0 and gm_info[g]["last_scan"] in pos:
                             scans_of[doc_id] = set(range(pos[r.start_scan], min(pos[gm_info[g]["last_scan"]], pos[r.end_scan]) + 1))
                         if cid is None:
@@ -287,6 +311,7 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False, res
                         evidence[doc_id] = r.evidence
                     if isinstance(r.entry_id, str):  # ToC entry derived from another version (versions.py)
                         doc["title"] = r.title if isinstance(r.title, str) else None
+                        doc["title_source"] = TITLE_OTHER_VERSION if doc["title"] else None
                         doc["date_earliest_begin"] = r.date_begin if isinstance(r.date_begin, str) else None
                         doc["date_latest_end"] = r.date_end if isinstance(r.date_end, str) else None
                         entry_doc[r.entry_id] = doc_id
@@ -294,6 +319,7 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False, res
                         parent_entry[doc_id] = r.parent_entry_id
                     if isinstance(r.court_case, str):
                         doc["title"] = r.title if isinstance(r.title, str) else None
+                        doc["title_source"] = TITLE_COURT if doc["title"] else None
                         doc["date_earliest_begin"] = r.date_begin if isinstance(r.date_begin, str) else None
                         doc["date_latest_end"] = r.date_end if isinstance(r.date_end, str) else None
                         doc["location_id"] = settlements.get(r.place) if isinstance(r.place, str) else None
@@ -345,6 +371,12 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False, res
                     ext_links.append({"id": str(uuid.uuid4()), "document_id": doc_id, "external_id": ext_id})
             for case_id, doc_id in case_docs:
                 ext_links.append({"id": str(uuid.uuid4()), "document_id": doc_id, "external_id": court_ext[case_id]})
+            seen = set()  # a merged index entry carries its NT numbers both as nt_index and as ids
+            ext_links = [x for x in ext_links if (x["document_id"], x["external_id"]) not in seen and not seen.add((x["document_id"], x["external_id"]))]
+            settlement_rows = {(d["id"], d["location_id"]) for d in docs if d.get("location_id")}
+            for cid, doc_id in doc_by_csv.items():
+                if cid in toc.index:
+                    settlement_rows |= {(doc_id, x) for x in toc_settlements.get(toc.at[cid, "toc_doc_id"], [])}
             ev_rows = [{"document_id": k, "evidence": v} for k, v in evidence.items()]
 
             totals["documents"] += len(docs)
@@ -367,6 +399,9 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False, res
             session.execute(text(f"INSERT INTO document ({', '.join(cols)}) VALUES ({', '.join(':' + c for c in cols)})"), docs)
             if ext_links:
                 session.execute(text("INSERT INTO document2external_id (id, document_id, external_id) VALUES (:id, :document_id, :external_id)"), ext_links)
+            if settlement_rows:
+                session.execute(text("INSERT OR IGNORE INTO document_settlement (document_id, settlement_id) VALUES (:d, :s)"),
+                                [{"d": d, "s": x} for d, x in settlement_rows])
             if links:
                 session.execute(text('INSERT INTO page2document (id, page_id, document_id, "index", source, confidence) '
                                      "VALUES (:id, :page_id, :document_id, :index, :source, :confidence)"), links)

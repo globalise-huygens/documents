@@ -49,7 +49,7 @@ _FUZZY_CHOICES = {w: m for m, ws in MONTH_WORDS.items() for w in ws}
 FUZZY_MIN_SCORE = 80
 
 TOKEN_RE = re.compile(r"[a-z]+|\d+", re.IGNORECASE)
-NUMBER_MONTH_RE = re.compile(r"^(7|8|9|10|x)b(e?r\w*|re)?$", re.IGNORECASE)
+NUMBER_MONTH_RE = re.compile(r"^(7|8|9|10|x)e?b(e?r\w*|re)?$", re.IGNORECASE)  # 9ber, xber, xeber
 
 
 @dataclass(frozen=True)

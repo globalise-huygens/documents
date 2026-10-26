@@ -783,6 +783,7 @@ def segment_inventory(inv: InventoryData, model: SegmentationModel, use_toc: boo
 
     by_scan: dict[int, list[Placement]] = {}
     placed_at = {pl.entry: pl.scan for pl in placements}
+    span_end = {pl.entry: e for pl, (_, e) in zip(placements, _entry_spans(inv, placements))}
     for pl in placements:
         by_scan.setdefault(pl.scan, []).append(pl)
     parent_of = _nesting(inv, placements)
@@ -814,11 +815,14 @@ def segment_inventory(inv: InventoryData, model: SegmentationModel, use_toc: boo
         num = numbers.number_at(a)
         row = owner
         while row is not None:  # innermost enclosing ToC entry whose range covers this start
-            end_eff = inv.toc.at[row, "end_eff"]
+            start_f, end_eff = inv.toc.at[row, "folio_start"], inv.toc.at[row, "end_eff"]
             same_run = numbers.run[placed_at[row]] == numbers.run[a]
             unknown = pd.isna(end_eff) or pd.isna(num)
+            in_range = not unknown and (pd.isna(start_f) or num >= start_f - 0.5) and num <= end_eff + 0.5
+            # within the scans the entry's page range implies (page numbers may be unread or misread)
+            in_span = a <= span_end.get(row, inv.n)
             # after non-document scans the entry has ended, unless its range is known to cover this start
-            if same_run and (num <= end_eff + 0.5 if not unknown else bt != "gap"):
+            if same_run and in_span and (in_range if not unknown else bt != "gap"):
                 kind, parent = "subdoc", row
                 break
             row = parent_of.get(row)

@@ -325,6 +325,22 @@ Combines three ToC sources (see `toc_sources.py`): the OBP CSV (its `ID` is the 
 - `toc_folio_start_side` / `toc_folio_end_side` – `Recto`/`Verso` when the index page range specifies it (e.g. `14v-16`)
 - `nt_index` – the entry's ID in NT_gecorrigeerd
 
+### Step 20: Record Who Made Each Title
+
+```bash
+uv run python 20_add_title_source.py [--dry-run]
+```
+
+Adds `document.title_source` and fills it: `VOC` (the index entry: the VOC itself named the document), `VOC (other version)` (the index entry of another version of the text), `Resilient Diversity` (the court case dataset), `General Missives` (the missives identified by hand), `page header` (baseline titles from step 16) and `inferred` (made by this project from the text). Segmentation documents get their source from their stored evidence; the segmentation import sets it from then on. **Run this before starting the app or importing a segmentation**: both expect the column.
+
+### Step 21: Merge Duplicate Index Entries
+
+```bash
+uv run python 21_merge_duplicate_index_entries.py [--dry-run]
+```
+
+The Digitized Indexes list some documents once per settlement they were linked to (e.g. inventory 3558, OBP 95419 *Batavia* and 95420 *Japan*). Entries in the same inventory with the same description, folios and dates are merged into the one with the lowest OBP id: it gets all settlements (table `document_settlement`), the index ids of the others (OBP, TANAP, typoscript) and the NT numbers of all, and the others are deleted (943 groups, 991 entries). Run the segmentation (`run` + `import`) again afterwards, so that its documents follow.
+
 ## Document Segmentation (`segmentation/`)
 
 Finds, for every inventory, the best-scoring sequence of documents given all predictors and the ToC (when there is one).
@@ -393,7 +409,7 @@ The probes are fitted by `fit` and saved to `segmentation/embedding_probe.npz` (
 
 The probes contribute most; the kNN scores add a little on top. The probe settings were chosen on the validated inventories: more than 256 components did not help, and C=10 beat C=3 on starts in 12 inventories against 4 worse.
 
-**Court records** (`court_records.py`): inventories without a ToC that have cases in `data/EMDCCR*.xlsx` (Early Modern Dutch Colonial Court Records: Raad van Justitie of Batavia and the Cape, one row per accused) are segmented on those cases instead (`run --no-court` to ignore them). A case with a start and end scan is a fixed document (kind `case`), and the ranges of individual accused within it are its subdocuments. A case with only a start scan (the Cape volumes) runs to the next known case, and covers and blanks at the open end are left out. References to another inventory (`656 (9354)`) continue a case across volumes, and starts or ends inside another case's range are dropped. The model segments everything else as usual. Titles are Dutch: claimant contra defendants; court, place, date (charge), e.g. *Advocaat-fiscaal van India mr. Adrianus Bergsma contra Jacobus Bunnegam en Pieter Hildernisse; Raad van Justitie, Batavia, 1733 (plichtsverzuim (fugie))*. The prosecutor's name is taken from the case's text when it names a known advocaat-fiscaal or fiscaal, and in civil disputes the claimant is unknown (*Onbekende eiser*). `import` stores title, dates and place and links each case to its id (ExternalID context `EMDCCR`).
+**Court records** (`court_records.py`): inventories without a ToC that have cases in `data/EMDCCR*.xlsx` (Early Modern Dutch Colonial Court Records: Raad van Justitie of Batavia and the Cape, one row per accused) are segmented on those cases instead (`run --no-court` to ignore them). A case with a start and end scan is a fixed document (kind `case`), and the ranges of individual accused within it are its subdocuments. A case with only a start scan (the Cape volumes) runs to the next known case, and covers and blanks at the open end are left out. References to another inventory (`656 (9354)`) continue a case across volumes, and starts or ends inside another case's range are dropped. The model segments everything else as usual. Titles are Dutch: claimant contra defendants; court, place, date, e.g. *Advocaat-fiscaal van India mr. Adrianus Bergsma contra Jacobus Bunnegam en Pieter Hildernisse; Raad van Justitie, Batavia, 1733*; the charges are not part of the title (they stay in the case information of the document evidence). The prosecutor's name is taken from the case's text when it names a known advocaat-fiscaal or fiscaal, and in civil disputes the claimant is unknown (*Onbekende eiser*). `import` stores title, dates and place and links each case to its id (ExternalID context `EMDCCR`).
 
 **Versions and derived ToCs** (`versions.py`): much of the archive exists in several versions (a letter to the Heren XVII and the same letter to the kamer Zeeland, enclosures copied into the Batavia *overgekomen brieven en papieren*, …). Which version is the copy is often unclear, so versions are symmetric.
 
