@@ -19,7 +19,8 @@ Find the best segmentation of one inventory.
    Missive identified by hand that has no ToC entry here), 'subdoc' (inside
    the page range of the ToC entry it follows, e.g. an enclosure or appendix;
    when that range or the page number is unknown, only if no non-document
-   scans separate them), or 'unindexed' (outside any entry's range, or no ToC
+   scans separate them; never beyond 1.5 times the scans the entry's page
+   range implies, plus 5), or 'unindexed' (outside any entry's range, or no ToC
    at all); runs of
    non-document scans are reported as 'non-document'.
 
@@ -356,6 +357,7 @@ def align_toc(inv: InventoryData, s: np.ndarray, p: AlignParams, fixed: dict[int
     return placements
 
 
+SUBDOC_SPAN_FACTOR, SUBDOC_SPAN_SLACK = 1.5, 5  # a subdocument starts within 1.5x its parent's implied span + 5 scans
 REGISTER_LOOKBACK = 6  # scans before the numbered leaf where an unfoliated register may begin
 REGISTER_MOVE_TOLERANCE = 2.0  # a register is moved to its page unless the other entries then fit this much worse
 
@@ -815,12 +817,14 @@ def segment_inventory(inv: InventoryData, model: SegmentationModel, use_toc: boo
         num = numbers.number_at(a)
         row = owner
         while row is not None:  # innermost enclosing ToC entry whose range covers this start
-            start_f, end_eff = inv.toc.at[row, "folio_start"], inv.toc.at[row, "end_eff"]
+            end_eff = inv.toc.at[row, "end_eff"]
             same_run = numbers.run[placed_at[row]] == numbers.run[a]
             unknown = pd.isna(end_eff) or pd.isna(num)
-            in_range = not unknown and (pd.isna(start_f) or num >= start_f - 0.5) and num <= end_eff + 0.5
-            # within the scans the entry's page range implies (page numbers may be unread or misread)
-            in_span = a <= span_end.get(row, inv.n)
+            in_range = not unknown and num <= end_eff + 0.5
+            # not far beyond the scans the entry's page range implies: where the page numbers are
+            # unread or misread, the interpolated number says little (3588: a two-folio entry
+            # followed by 160 scans of "subdocuments")
+            in_span = a <= placed_at[row] + SUBDOC_SPAN_FACTOR * (span_end.get(row, inv.n) - placed_at[row]) + SUBDOC_SPAN_SLACK
             # after non-document scans the entry has ended, unless its range is known to cover this start
             if same_run and in_span and (in_range if not unknown else bt != "gap"):
                 kind, parent = "subdoc", row

@@ -687,3 +687,40 @@ def test_positions_follow_scan_order_despite_numbers_of_another_section():
     assert any(44 <= p <= 46 for p in at(54))  # between 53 and 67, not between 53 and the stray 57
     assert any(80 <= p <= 86 for p in at(89))  # extrapolated from 86 ...
     assert any(p > 150 for p in at(89))  # ... besides the position among the next section's numbers
+
+
+# ── inferred titles ───────────────────────────────────────────────────────────
+
+
+def test_inferred_title_format():
+    from segmentation.doc_titles import title
+
+    assert title("letter", "Cochin", "12 November 1748") == "Letter, Cochin, 12 November 1748"
+    assert title(None, "Cape of Good Hope", "2 May 1750") == "Unknown document, Cape of Good Hope, 2 May 1750"
+    assert title("register of papers", None, None) == "Register of papers"
+    assert title(None, None, None) == "Unknown document"
+
+
+def test_closing_place_and_date_from_entities():
+    from segmentation.doc_titles import closing, english_date
+
+    text = "… uw Ed. onderdanige dienaar (:was geteekent:) Aert Peper (:in margine:) Bantam den 16 maij 1743. "
+    p, d = text.index("Bantam"), text.index("den 16")
+    ents = [("ner:per_name", "Aert Peper", text.index("Aert")), ("ner:loc_name", "Bantam", p), ("ner:date", "den 16 maij 1743", d)]
+    place, date, _ = closing(ents, text)
+    assert place == "Bantam" and english_date(date) == "16 May 1743"
+    # a collation note is not the letter's closing
+    note = "Accordeert Cochim den 12 9ber 1708."
+    assert closing([("ner:loc_name", "Cochim", note.index("Cochim")), ("ner:date", "den 12 9ber 1708", note.index("den"))], note) is None
+    # written on board a ship
+    ship = "… onderdanige dienaren op 't schip 't Huijs Rhensburg den 28 maart 1736."
+    place, date, _ = closing([("ner:date", "den 28 maart 1736", ship.index("den 28"))], ship)
+    assert place == "on board the Huijs Rhensburg" and english_date(date) == "28 March 1736"
+
+
+def test_page_dates_join_and_borrow_the_year():
+    from segmentation.doc_titles import page_dates
+
+    ents = [("ner:date", "Ao. 1700", 0), ("ner:date", "den 7 Septemb:", 9), ("ner:date", "den 3 Octob:", 200)]
+    ds = [d.date.isoformat() for d, _, _ in page_dates(ents)]
+    assert ds == ["1700-09-07", "1700-10-03"]

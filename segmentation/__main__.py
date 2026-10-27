@@ -14,8 +14,14 @@ Command line for the segmentation metric.
       inventories without a ToC that have court cases in data/EMDCCR*.xlsx are
       segmented on those cases (court_records.py; --no-court to ignore them); inventories
       with neither use the ToC entries derived from other versions of their text, when
-      --derived (default derived_toc.csv) has them (versions.py; --derived "" to ignore);
+      --derived derived_toc.csv is given (versions.py; off by default: borrowing starts and titles from other
+      versions of a text proved unreliable, so the model segments these inventories itself);
       --resume continues an interrupted run, skipping inventories already in --out
+  uv run python -m segmentation title-fit
+      train the document type classifier for inferred titles on the documents with an index entry (data/titles/)
+  uv run python -m segmentation infer-titles [inv ...] [--segments segments.csv] [--out inferred_titles.csv]
+      English titles (type, place, date) for the segments without one (doc_titles.py); fetches the entity
+      annotations of their last pages into data/entities/; import uses the CSV when it exists
   uv run python -m segmentation split-texts [data/normalized_texts.parquet]
       split the full-text dump into one file per inventory (data/texts/; one-time)
   SEGMENTATION_PAGEXML_DIR=/Volumes/HDE0090 uv run python -m segmentation cache-layout [inv ...]
@@ -137,8 +143,14 @@ def main():
     rn.add_argument("--no-toc", action="store_true")
     rn.add_argument("--no-court", action="store_true", help="ignore the court cases of data/EMDCCR*.xlsx")
     rn.add_argument("--no-gm", action="store_true", help="ignore the General Missives identified by hand")
-    rn.add_argument("--derived", default="derived_toc.csv", help="ToC entries derived from other versions (derive-tocs)")
+    rn.add_argument("--derived", default="", help="use the ToC entries derived from other versions of the text (derive-tocs) as starts; "
+                    "off by default: the model segments inventories without a ToC of their own")
     rn.add_argument("--resume", action="store_true", help="skip inventories already in --out")
+    sub.add_parser("title-fit")
+    it = sub.add_parser("infer-titles")
+    it.add_argument("inventories", nargs="*")
+    it.add_argument("--segments", default="segments.csv")
+    it.add_argument("--out", default="inferred_titles.csv")
     st = sub.add_parser("split-texts")
     st.add_argument("source", nargs="?", default="data/normalized_texts.parquet")
     cl = sub.add_parser("cache-layout")
@@ -204,6 +216,15 @@ def main():
         for name, w in sorted(model.start.weights.items(), key=lambda kv: -abs(kv[1])):
             print(f"  start  {name:<26} {w:+.2f}")
         print(f"  start  {'(bias)':<26} {model.start.bias:+.2f}")
+    elif args.cmd == "title-fit":
+        from .doc_titles import fit_types
+
+        fit_types()
+    elif args.cmd == "infer-titles":
+        from .doc_titles import infer_titles
+
+        t = infer_titles(args.segments, args.inventories or None, args.out, connect())
+        logger.info("Wrote %d inferred titles to %s", len(t), args.out)
     elif args.cmd == "split-texts":
         from .texts import split_texts
 

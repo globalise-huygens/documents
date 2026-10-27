@@ -69,6 +69,7 @@ TITLE_VOC = "VOC"  # the VOC itself: the index, or a General Missive identified 
 TITLE_OTHER_VERSION = "VOC (other version)"  # the index entry of another version of the text
 TITLE_COURT = "Resilient Diversity"  # the court case dataset (EMDCCR)
 TITLE_INFERRED = "inferred"  # by this project, from the text
+INFERRED_TITLES = "inferred_titles.csv"  # infer-titles (doc_titles.py)
 COURT_CONTEXT = "EMDCCR"
 DERIVED_TOC = "derived_toc.csv"  # entries derived from other versions (versions.py)
 DOC_COLUMNS = (
@@ -198,9 +199,34 @@ def _toc_settlements(conn, inv_id: str) -> dict[str, list[str]]:
     return out
 
 
-def import_segments(csv_path: str, database_url: str, dry_run: bool = False, resume: bool = False):
+def _inferred_titles(path: str) -> dict[tuple[str, str], dict]:
+    """Inferred titles (doc_titles.py) by (inventory, segment), if the CSV exists."""
+    if not path or not os.path.exists(path):
+        return {}
+    t = pd.read_csv(path, dtype={"inventory": str, "segment": str}, keep_default_na=False, na_values=[""])
+    return {(r.inventory, r.segment): r._asdict() for r in t.itertuples(index=False)}
+
+
+def _date_range(iso: str | None, precision: str | None) -> tuple[str | None, str | None]:
+    """First and last day a date of this precision covers."""
+    if not isinstance(iso, str):
+        return None, None
+    d = pd.Timestamp(iso)
+    if precision == "year":
+        return f"{d.year}-01-01", f"{d.year}-12-31"
+    if precision == "month":
+        return d.strftime("%Y-%m-01"), (d + pd.offsets.MonthEnd(0)).strftime("%Y-%m-%d")
+    return iso, iso
+
+
+def import_segments(csv_path: str, database_url: str, dry_run: bool = False, resume: bool = False, titles_path: str = INFERRED_TITLES):
     """Import the segments; every committed inventory is recorded in <csv>.imported,
-    and with resume=True the inventories listed there are skipped."""
+    and with resume=True the inventories listed there are skipped. Documents without
+    a title from the index, a court case or a General Missive get their inferred
+    title (titles_path, from infer-titles) with title_source 'inferred'."""
+    inferred = _inferred_titles(titles_path)
+    if inferred:
+        logger.info("Inferred titles for %d segments (%s)", len(inferred), titles_path)
     seg = pd.read_csv(csv_path, dtype={"inventory": str, "toc_csv_ids": str}, low_memory=False)
     seg = seg[seg["kind"] != "non-document"]
     extra = ("court_case", "parent_court_case", "title", "date_begin", "date_end", "place", "entry_id", "parent_entry_id", "gm_ids", "parent_gm_id")
@@ -316,6 +342,11 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False, res
                         entry_doc[r.entry_id] = doc_id
                     if isinstance(r.parent_entry_id, str):
                         parent_entry[doc_id] = r.parent_entry_id
+                    inf = inferred.get((inv_number, str(r.segment)))
+                    if inf is not None and doc["title"] is None and not isinstance(r.court_case, str) and isinstance(inf.get("title"), str):
+                        doc["title"], doc["title_source"] = inf["title"], TITLE_INFERRED
+                        if doc.get("date_earliest_begin") is None:
+                            doc["date_earliest_begin"], doc["date_latest_end"] = _date_range(inf.get("date"), inf.get("date_precision"))
                     if isinstance(r.court_case, str):
                         doc["title"] = r.title if isinstance(r.title, str) else None
                         doc["title_source"] = TITLE_COURT if doc["title"] else None
