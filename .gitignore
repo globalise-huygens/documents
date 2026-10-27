@@ -214,6 +214,7 @@ data/*.csv
 data/*.json
 !data/inventories.json
 *.csv
+*.trig
 
 # ignore database
 *.db
