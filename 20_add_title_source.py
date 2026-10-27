@@ -2,10 +2,10 @@
 """
 Step 20: record who made each document title (document.title_source).
 
-  VOC                   the index entry (TANAP / typoscript): the VOC itself named the document
+  VOC                   a title the VOC itself gave: the index entry (TANAP / typoscript), or the
+                        title of a General Missive identified by hand
   VOC (other version)   the index entry of another version of the same text (derived ToC, versions.py)
   Resilient Diversity   the court case dataset (data/EMDCCR*.xlsx)
-  General Missives      the General Missives identified by hand
   page header           the first running header of a baseline document (step 16)
   inferred              made by this project from the text (set when inferred titles are imported)
 
@@ -25,7 +25,7 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///globalise_documents.db"
 
 BY_METHOD = {
     "TANAP Digitized Index": "VOC",
-    "General Missives Ground Truth": "General Missives",
+    "General Missives Ground Truth": "VOC",
     "Baseline: Empty Pages & Signatures": "page header",
 }
 SEGMENTATION = "Segmentation model"
@@ -33,7 +33,7 @@ SEGMENTATION = "Segmentation model"
 BY_EVIDENCE = (
     ("$.court_case", "Resilient Diversity"),
     ("$.derived_entry", "VOC (other version)"),
-    ("$.general_missives", "General Missives"),
+    ("$.general_missives", "VOC"),
 )
 
 

@@ -7,7 +7,7 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}{% imp
   {% if document.title and document.title_source %}
   <div class="info-row">
     <strong>Title by:</strong>
-    <span>{{ {'VOC': 'the VOC (index of this volume)', 'VOC (other version)': 'the VOC (index entry of another version of this text)', 'Resilient Diversity': 'Resilient Diversity (court case dataset)', 'General Missives': 'the General Missives identified by hand', 'page header': 'the running header of its first page', 'inferred': 'inferred by GLOBALISE from the text'}.get(document.title_source, document.title_source) }}</span>
+    <span>{{ {'VOC': 'the VOC (index of this volume, or the General Missives)', 'VOC (other version)': 'the VOC (index entry of another version of this text)', 'Resilient Diversity': 'Resilient Diversity (court case dataset)', 'page header': 'the running header of its first page', 'inferred': 'inferred by GLOBALISE from the text'}.get(document.title_source, document.title_source) }}</span>
   </div>
   {% endif %}
   <div class="info-row">

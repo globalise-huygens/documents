@@ -301,9 +301,9 @@ class Document(Base):
         String(32),
         index=True,
         comment=(
-            "Who made the title: 'VOC' (the index, i.e. the VOC itself), 'VOC (other version)' (the index "
-            "entry of another version of the text), 'Resilient Diversity' (the court case dataset), "
-            "'General Missives' (the hand-identified missives), 'inferred' (by this project from the text)"
+            "Who made the title: 'VOC' (the VOC itself: the index, or a General Missive), 'VOC (other version)' "
+            "(the index entry of another version of the text), 'Resilient Diversity' (the court case dataset), "
+            "'page header' (step 16), 'inferred' (by this project from the text)"
         ),
     )
     toc_folio_start_side: Mapped[Optional[RectoVerso]] = mapped_column(

@@ -65,10 +65,9 @@ METHOD_DESCRIPTION = (
 SOURCE = "SEGMENTATION_MODEL"
 NT_CONTEXT = "NT"
 # document.title_source: who made the title
-TITLE_VOC = "VOC"  # the index (the VOC itself)
+TITLE_VOC = "VOC"  # the VOC itself: the index, or a General Missive identified by hand
 TITLE_OTHER_VERSION = "VOC (other version)"  # the index entry of another version of the text
 TITLE_COURT = "Resilient Diversity"  # the court case dataset (EMDCCR)
-TITLE_GM = "General Missives"  # the missives identified by hand
 TITLE_INFERRED = "inferred"  # by this project, from the text
 COURT_CONTEXT = "EMDCCR"
 DERIVED_TOC = "derived_toc.csv"  # entries derived from other versions (versions.py)
@@ -293,7 +292,7 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False, res
                     if g is not None:  # identified by hand: its title and dates win
                         gm_doc[g] = doc_id
                         doc.update({c: gm_info[g][c] for c in GM_COLUMNS})
-                        doc["title_source"] = TITLE_GM if doc.get("title") else doc["title_source"]
+                        doc["title_source"] = TITLE_VOC if doc.get("title") else doc["title_source"]
                         if k > 0 and gm_info[g]["last_scan"] in pos:
                             scans_of[doc_id] = set(range(pos[r.start_scan], min(pos[gm_info[g]["last_scan"]], pos[r.end_scan]) + 1))
                         if cid is None:

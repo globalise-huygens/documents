@@ -331,7 +331,7 @@ Combines three ToC sources (see `toc_sources.py`): the OBP CSV (its `ID` is the 
 uv run python 20_add_title_source.py [--dry-run]
 ```
 
-Adds `document.title_source` and fills it: `VOC` (the index entry: the VOC itself named the document), `VOC (other version)` (the index entry of another version of the text), `Resilient Diversity` (the court case dataset), `General Missives` (the missives identified by hand), `page header` (baseline titles from step 16) and `inferred` (made by this project from the text). Segmentation documents get their source from their stored evidence; the segmentation import sets it from then on. **Run this before starting the app or importing a segmentation**: both expect the column.
+Adds `document.title_source` and fills it: `VOC` (a title the VOC itself gave: the index entry, or the title of a General Missive identified by hand), `VOC (other version)` (the index entry of another version of the text), `Resilient Diversity` (the court case dataset), `page header` (baseline titles from step 16) and `inferred` (made by this project from the text). Segmentation documents get their source from their stored evidence; the segmentation import sets it from then on. **Run this before starting the app or importing a segmentation**: both expect the column.
 
 ### Step 21: Merge Duplicate Index Entries
 
