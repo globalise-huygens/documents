@@ -341,6 +341,14 @@ uv run python 21_merge_duplicate_index_entries.py [--dry-run]
 
 The Digitized Indexes list some documents once per settlement they were linked to (e.g. inventory 3558, OBP 95419 *Batavia* and 95420 *Japan*). Entries in the same inventory with the same description, folios and dates are merged into the one with the lowest OBP id: it gets all settlements (table `document_settlement`), the index ids of the others (OBP, TANAP, typoscript) and the NT numbers of all, and the others are deleted (943 groups, 991 entries). Run the segmentation (`run` + `import`) again afterwards, so that its documents follow.
 
+### Step 22: Place GLOB ids
+
+```bash
+uv run python 22_add_place_glob_id.py [--dry-run]
+```
+
+Adds `document.place_glob_id`: the GLOB id of the document's place in the GLOBALISE places dataset (`data/GLOBALISE - Places in the Dutch East India Company Archives (1602-1799).xlsx`), and fills it for the documents with a settlement (`location_id`). Settlements whose GLOB id the dataset lacks are listed (now only Pontianak, `GLOB_PONTIANAK_PLACEHOLDER`) and get no `place_glob_id`. Run it before the segmentation `import`, which copies the column from the index entries and sets it for inferred titles.
+
 ## Document Segmentation (`segmentation/`)
 
 Finds, for every inventory, the best-scoring sequence of documents given all predictors and the ToC (when there is one).
@@ -362,8 +370,21 @@ To segment the whole archive with the fitted model (no refit needed unless predi
 ```bash
 cp segments.csv segments.csv.bak                                 # run --out without --resume deletes the existing file
 uv run python -m segmentation run --out segments.csv [--resume]  # all inventories
-uv run python -m segmentation import segments.csv [--resume]
+uv run python -m segmentation infer-titles                       # → inferred_titles.csv (fetches entity annotations into data/entities/)
+uv run python -m segmentation import segments.csv [--resume]     # uses inferred_titles.csv
 ```
+
+### Inferred titles
+
+Documents without a title from the VOC (an index entry or a General Missive) or from the court case dataset get one inferred from their text (`doc_titles.py`): `type, place, date` in English, e.g. *Letter, Cochin, 12 November 1748*; *Unknown document, place, date* when the type is uncertain; *Unknown document* when nothing is known. The volume's own registers of papers come out as *Register of papers*.
+
+- **Type**: the GLOBALISE document type (English label from `data/concepts.trig`), from a classifier on the opening of the first page and the end of the last page, trained on the documents with an index entry (`title-fit`; data/titles/); given from a confidence of 0.5 (cross-validated: 84% right for 78% of the documents).
+- **Place and date**: from the closing formula (*Bantam den 16 maij 1743*, *op 't schip ...*) on the last page or the page before, read with the GLOBALISE entity annotations; else the last full date on the last page; else the date in the running header. Places are named as in the VOC gazetteer (`data/organisational-structure-voc.xlsx`; English where it has an English form), else as in the GLOBALISE places dataset (exact matches of a name or spelling variant), others are left out; a year outside the inventory's period is left out.
+- Sender, addressee and subject are not attempted (a translator or copyist signs too).
+
+Titles not given by the VOC itself are stored in brackets: inferred titles and court case titles, e.g. *[Letter, Surat, 26 April 1723]* (`title_source` says who made the title, see step 20).
+
+**Identifiers stored with every segmentation document** (by `import`): the document type as GLOBALISE concept (`document2documenttype`; for ToC documents also the OBP/TANAP type of their index entry; court cases *court document*, General Missives without an index entry *letter*) and the place as GLOB id of the GLOBALISE places dataset (`place_glob_id`, see step 22: the settlement's for ToC and court documents, the closing place for inferred titles). When the place is one of the settlements, the document is also linked to it (`location_id`, `document_settlement`); no settlements are added. Places of inferred titles missing from the places dataset get no GLOB id: Godavaram (gazetteer GLOB3_191), Prome (GLOB3_192), Conjimere (GLOB3_194) and Pontianak (GLOB3_115); ships (*on board the ...*) neither.
 
 `import` creates one document per ToC entry, subdocument and unindexed document (non-document runs are skipped). ToC documents take their title, dates and page range from the ToC entry and are linked to its index ids (OBP_INDEX, TANAP, DIGITIZED TYPOSCRIPTS and NT, the entry's id in OBP NT_gecorrigeerd). Subdocuments and nested ToC entries point to their parent with `part_of_id`, and a parent's pages include its subdocuments'. All pages of the scans are linked (source `SEGMENTATION_MODEL`, confidence `CANDIDATE`), and how the model found each document is stored as JSON in `document_evidence`. Re-importing an inventory replaces its earlier "Segmentation model" documents.
 
@@ -560,6 +581,9 @@ documents/
 ├── 7_import_obp_index.py            # Import OBP index records (step 7)
 ├── 8_import_GM.py                   # Import GM data (step 8)
 ├── 9_import_annotation_pages_exist.py # Import annotation page flags (step 9)
+├── 20_add_title_source.py           # Record who made each title (step 20)
+├── 21_merge_duplicate_index_entries.py # Merge index entries listed once per settlement (step 21)
+├── 22_add_place_glob_id.py          # Place GLOB ids of the places dataset (step 22)
 ├── export.py                        # Linked Art JSON-LD serialization helpers
 ├── export_collection.py             # Export IIIF Collection
 ├── export_manifests.py              # Export IIIF Manifests

@@ -101,6 +101,11 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}{% imp
       {% endfor %}
     </span>
   </div>
+  {% endif %} {% if document.place_glob_id and document.place_glob_id not in settlements | map(attribute='glob_id') | list %}
+  <div class="info-row">
+    <strong>Place:</strong>
+    <span>{{ document.place_glob_id }} <small class="text-muted">(GLOBALISE places dataset)</small></span>
+  </div>
   {% endif %}
 </div>
 

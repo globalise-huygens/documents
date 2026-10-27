@@ -12,7 +12,9 @@ documents, the volume's own registers of papers), inferred from their text:
          Digitized Indexes); given only when it is at least TYPE_MIN sure.
   place  the place of the closing formula ("Bantam den 16 maij 1743"), named as
          in the VOC gazetteer (data/organisational-structure-voc.xlsx; English
-         where it has an English form) or a ship ("on board the ...").
+         where it has an English form), else as in the GLOBALISE places dataset
+         (exact matches of its names and spelling variants), or a ship ("on board
+         the ..."); with the place's GLOB id from the places dataset.
   date   the date of that closing; else the last full date on the last page;
          else the date in the running header of the first pages. A year outside
          the inventory's period is a misreading and left out.
@@ -53,6 +55,7 @@ ENTITY_URL = "https://objectstore.surf.nl/87435b768620494e8e911c83d1997f24:globa
 INDEX_XLSX = os.path.join(DATA_DIR, "GLOBALISE - Digitized Indexes of the Dutch East India Company OBP (1602-1799) - no linebreaks.xlsx")
 CONCEPTS = os.path.join(DATA_DIR, "concepts.trig")
 GAZETTEER = os.path.join(DATA_DIR, "organisational-structure-voc.xlsx")
+PLACES = os.path.join(DATA_DIR, "GLOBALISE - Places in the Dutch East India Company Archives (1602-1799).xlsx")
 OUT_CSV = "inferred_titles.csv"
 
 TYPE_MIN = 0.5  # type given from this classifier confidence (cross-validated: 84% right for 78% of documents)
@@ -193,46 +196,87 @@ SKIP_ORGS = re.compile(r"Raad|Council|Weeskamer|Orphan|Kamer|Chamber|Commissie|C
 
 
 class Gazetteer:
-    """Place names in closings → the VOC organisation's name, in English where the gazetteer has one."""
+    """Place names in closings → the VOC organisation: its name (in English where the
+    gazetteer has one) and the GLOB id of its place at a given year."""
 
     def __init__(self, path: str = GAZETTEER):
         lab = pd.read_excel(path, sheet_name="labels")
         org = pd.read_excel(path, sheet_name="organization_overview")
+        loc = pd.read_excel(path, sheet_name="locations")
         lab = lab[~lab["Refers To"].astype(str).str.contains(SKIP_ORGS)]
-        name = {}
+        self.name_of = {}
         for r in org.itertuples():
-            name[r.ORG_ID] = re.sub(r"\s*\((area|settlement)\)", "", str(r.organisation_label)).strip()
+            self.name_of[r.ORG_ID] = re.sub(r"\s*\((area|settlement)\)", "", str(r.organisation_label)).strip()
         for r in lab[lab.Language == "EN"].itertuples():  # "The Government of Malacca" → Malacca
             label = str(r.Label).strip()
             if EN_OFFICE.match(label):
-                name[r.ORG_ID] = EN_OFFICE.sub("", label).strip()
-        self.keys = {}
+                self.name_of[r.ORG_ID] = EN_OFFICE.sub("", label).strip()
+        self.keys = {}  # label key → organisation
         for r in lab.itertuples():
             k = self._key(str(r.Label))
             if len(k) >= 4:
-                self.keys.setdefault(k, name.get(r.ORG_ID, str(r.Label)))
-        self.english = {self._key(org_label): name[oid] for oid, org_label in zip(org.ORG_ID, org.organisation_label.astype(str)) if oid in name}
+                self.keys.setdefault(k, r.ORG_ID)
+        self.org_of_label = {self._key(str(lbl)): oid for oid, lbl in zip(org.ORG_ID, org.organisation_label)}
+        self.places = {}  # organisation → [(from year, to year, GLOB id)]
+        for r in loc.dropna(subset=["place_id"]).itertuples():
+            self.places.setdefault(r.ORG_ID, []).append((r.startDate, r.endDate, str(r.place_id)))
 
     @staticmethod
     def _key(s: str) -> str:
         s = PLACE_NOISE.sub("", s.strip()).lower()
         return re.sub(r"[^a-z]", "", re.sub(r"^fort\s+", "", s))
 
-    def name(self, raw: str) -> str | None:
-        if raw.startswith("on board the "):
-            return raw
+    def org(self, raw: str) -> str | None:
+        """The VOC organisation a place name as written refers to, or None."""
         k = self._key(raw)
         if not k:
             return None
         for alias, target in ALIASES.items():
             if k == alias or (len(alias) >= 6 and alias in k):
-                return self.english.get(self._key(target), target)
+                return self.org_of_label.get(self._key(target)) or self.keys.get(self._key(target))
         for cand in (k, "g" + k[1:] if k.startswith("s") else None):  # HTR reads G as S: Sale → Gale
             if cand and len(cand) >= 4:
                 hit = process.extractOne(cand, self.keys.keys(), scorer=fuzz.ratio, score_cutoff=85)
                 if hit:
                     return self.keys[hit[0]]
         return None  # not a VOC place the gazetteer knows: mostly HTR noise
+
+    def name(self, raw: str) -> str | None:
+        if raw.startswith("on board the "):
+            return raw
+        o = self.org(raw)
+        return self.name_of.get(o) if o else None
+
+    def glob_id(self, raw: str, year: int | None = None) -> str | None:
+        """GLOB id of the organisation's place, the one valid in `year` where it moved."""
+        o = None if raw.startswith("on board the ") else self.org(raw)
+        spans = self.places.get(o, []) if o else []
+        if not spans:
+            return None
+        if year is not None:
+            for start, end, pid in spans:
+                if (pd.isna(start) or start <= year) and (pd.isna(end) or year <= end):
+                    return pid
+        return spans[-1][2]
+
+
+class Places:
+    """The GLOBALISE places dataset: names and spelling variants → (GLOB id, preferred name).
+    For places in closings the VOC gazetteer does not know; exact matches only (no fuzzy
+    matching), so that misread words do not become places."""
+
+    def __init__(self, path: str = PLACES):
+        p = pd.read_excel(path, sheet_name="Sheet2 Places – Overview")
+        self.ids = set(p.glob_id.astype(str))
+        self.by_key = {}
+        for r in p.itertuples():
+            for label in [r.pref_label] + (str(r.alt_labels).split("|") if isinstance(r.alt_labels, str) else []):
+                k = Gazetteer._key(str(label))
+                if len(k) >= 5:
+                    self.by_key.setdefault(k, (str(r.glob_id), str(r.pref_label)))
+
+    def lookup(self, raw: str) -> tuple[str, str] | None:
+        return None if raw.startswith("on board the ") else self.by_key.get(Gazetteer._key(raw))
 
 
 # ── document types ────────────────────────────────────────────────────────────
@@ -301,7 +345,7 @@ def title(type_en: str | None, place: str | None, date: str | None) -> str:
     return ", ".join(x for x in (head, place, date) if x)
 
 
-def infer(doc: dict, texts: dict, headers: dict, model, labels: dict, gazetteer: Gazetteer, years: tuple) -> dict:
+def infer(doc: dict, texts: dict, headers: dict, model, labels: dict, gazetteer: Gazetteer, years: tuple, places: Places | None = None) -> dict:
     """Type, place, date and title of one document: doc has first, last, before_last, second (scan filenames)."""
     first, last = texts.get(doc["first"], ""), texts.get(doc["last"], "")
     proba = model.predict_proba([type_text(first, last)])[0]
@@ -313,15 +357,15 @@ def infer(doc: dict, texts: dict, headers: dict, model, labels: dict, gazetteer:
     def plausible(d):
         return lo is None or lo - YEAR_SLACK <= d.date.year <= hi + YEAR_SLACK
 
-    place = date = None
+    place = date = raw_place = None
     source = None
     for f in (doc["last"], doc.get("before_last")):  # the closing, on the last page or the one before
         if not f:
             continue
         found = closing(entities(f), texts.get(f, ""))
         if found:
-            raw, d, _ = found
-            place = gazetteer.name(raw)
+            raw_place, d, _ = found
+            place = gazetteer.name(raw_place)
             date = d if plausible(d) else None
             source = "closing"
             break
@@ -336,8 +380,19 @@ def infer(doc: dict, texts: dict, headers: dict, model, labels: dict, gazetteer:
                 date, source = d, source or "header"
                 break
     date_text = english_date(date) if date is not None else None
-    return {"title": title(type_en, place, date_text), "type": type_en, "type_nl": type_nl, "type_conf": round(conf, 2),
-            "place": place, "date": date.date.isoformat() if date is not None else None,
+    year = date.date.year if date is not None else (lo if lo == hi else None)
+    glob_id = None
+    if place and raw_place:  # a VOC place: the GLOB id of its location, when the places dataset has it
+        glob_id = gazetteer.glob_id(raw_place, year)
+        if places is not None and glob_id not in places.ids:
+            glob_id = None
+    elif raw_place and places is not None:  # another place the places dataset knows
+        hit = places.lookup(raw_place)
+        if hit:
+            glob_id, place = hit
+    return {"title": title(type_en, place, date_text), "type": type_en, "type_nl": type_nl if type_en else None, "type_conf": round(conf, 2),
+            "place": place, "place_glob_id": glob_id,
+            "date": date.date.isoformat() if date is not None else None,
             "date_precision": date.precision if date is not None else None, "date_text": date_text, "found_in": source}
 
 
@@ -347,6 +402,7 @@ def infer_titles(segments_csv: str = "segments.csv", inventories: list[str] | No
         model = pickle.load(f)
     labels = english_types()
     gazetteer = Gazetteer()
+    places = Places()
     seg = pd.read_csv(segments_csv, dtype=str)
     if inventories:
         seg = seg[seg.inventory.isin(inventories)]
@@ -373,7 +429,7 @@ def infer_titles(segments_csv: str = "segments.csv", inventories: list[str] | No
         texts = dict(zip(sorted(files), load_texts(inv, pd.Series(sorted(files)))))
         for r, d in docs:
             rows.append({"inventory": inv, "segment": r.segment, "kind": r.kind, "start_scan": r.start_scan, "end_scan": r.end_scan,
-                         **infer(d, texts, headers, model, labels, gazetteer, years.get(inv, (None, None)))})
+                         **infer(d, texts, headers, model, labels, gazetteer, years.get(inv, (None, None)), places)})
         if n % 100 == 0 or n == len(groups):
             logger.info("%d/%d inventories, %d titles", n, len(groups), len(rows))
     pd.DataFrame(rows).to_csv(out, index=False)

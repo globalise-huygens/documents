@@ -198,6 +198,7 @@ def main():
     im.add_argument("csv")
     im.add_argument("--dry-run", action="store_true")
     im.add_argument("--resume", action="store_true", help="skip the inventories listed in <csv>.imported")
+    im.add_argument("--titles", default="inferred_titles.csv", help="inferred titles (infer-titles) for documents without one")
     args = ap.parse_args()
 
     if args.cmd == "evaluate":
@@ -350,7 +351,7 @@ def main():
         from .db_import import import_segments
         from .inventory import DATABASE_URL
 
-        import_segments(args.csv, DATABASE_URL, dry_run=args.dry_run, resume=args.resume)
+        import_segments(args.csv, DATABASE_URL, dry_run=args.dry_run, resume=args.resume, titles_path=args.titles)
     else:
         run(args)
 

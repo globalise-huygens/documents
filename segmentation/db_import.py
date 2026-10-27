@@ -53,6 +53,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
 from models import Base, LinkConfidence
+from segmentation.doc_titles import Places
 
 logger = logging.getLogger("segmentation")
 
@@ -70,11 +71,14 @@ TITLE_OTHER_VERSION = "VOC (other version)"  # the index entry of another versio
 TITLE_COURT = "Resilient Diversity"  # the court case dataset (EMDCCR)
 TITLE_INFERRED = "inferred"  # by this project, from the text
 INFERRED_TITLES = "inferred_titles.csv"  # infer-titles (doc_titles.py)
+BRACKETED = {TITLE_INFERRED, TITLE_COURT}  # titles not given by the VOC itself are stored as [title]
+COURT_TYPE = "processtuk"  # GLOBALISE type (Dutch label) of a court case
+LETTER_TYPE = "brief"  # ... of a General Missive without an index entry
 COURT_CONTEXT = "EMDCCR"
 DERIVED_TOC = "derived_toc.csv"  # entries derived from other versions (versions.py)
 DOC_COLUMNS = (
     "folio_start", "folio_end", "date_earliest_begin", "date_latest_begin",
-    "date_earliest_end", "date_latest_end", "location_id",
+    "date_earliest_end", "date_latest_end", "location_id", "place_glob_id",
 )
 
 
@@ -184,6 +188,31 @@ def _toc_entries(conn, inv_id: str) -> tuple[pd.DataFrame, dict[int, list[str]]]
     return toc, {cid: by_doc.get(r.toc_doc_id, []) for cid, r in toc.iterrows()}
 
 
+def _toc_types(conn, inv_id: str) -> dict[str, list[str]]:
+    """Document types (GLOBALISE and OBP/TANAP concepts) of the inventory's index entries."""
+    rows = conn.execute(
+        text(
+            "SELECT x.document_id, x.document_type_id FROM document2documenttype x JOIN document d ON d.id = x.document_id "
+            "JOIN document_identification_method m ON m.id = d.method_id AND m.name = 'TANAP Digitized Index' WHERE d.inventory_id = :i"
+        ),
+        {"i": inv_id},
+    ).fetchall()
+    out: dict[str, list[str]] = {}
+    for doc, t in rows:
+        out.setdefault(doc, []).append(t)
+    return out
+
+
+def _globalise_types(session: Session) -> dict[str, str]:
+    """GLOBALISE document type concepts by Dutch label."""
+    return {r[0]: r[1] for r in session.execute(text("SELECT pref_label_nl, id FROM document_type WHERE scheme = 'GLOBALISE'"))}
+
+
+def _settlement_globs(session: Session) -> dict[str, str]:
+    """GLOB id -> settlement id. Settlements are only looked up: other places get just a place_glob_id."""
+    return {r[0]: r[1] for r in session.execute(text("SELECT glob_id, id FROM settlement WHERE glob_id IS NOT NULL"))}
+
+
 def _toc_settlements(conn, inv_id: str) -> dict[str, list[str]]:
     """All settlements of the inventory's index entries (step 21 merges entries listed once per settlement)."""
     rows = conn.execute(
@@ -253,6 +282,9 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False, res
     with Session(engine) as session:
         method_id = _method_id(session)
         settlements = _settlements(session)
+        settlement_ids = _settlement_globs(session)  # GLOB id -> settlement id
+        settlement_glob = {v: k for k, v in settlement_ids.items() if k in Places().ids}  # settlement id -> GLOB id of the places dataset
+        type_ids = _globalise_types(session)  # Dutch GLOBALISE type -> document_type id
         court_ext = _external_ids(session, COURT_CONTEXT, {c for c in seg["court_case"].dropna()}, dry_run)
         totals = defaultdict(int)
         for inv_number, rows in seg.groupby("inventory", sort=False):
@@ -268,6 +300,7 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False, res
             pages_by_scan = pages.sort_values(["scan_id", "side"]).groupby("scan_id")["page_id"].apply(list).to_dict()
             toc, toc_ext = _toc_entries(conn, inv_id)
             toc_settlements = _toc_settlements(conn, inv_id)
+            toc_types = _toc_types(conn, inv_id)
             nt_ext = _nt_external_ids(session, {int(v) for v in toc["nt_index"].dropna()}, dry_run)
             gm_info, gm_ext = _general_missives(conn, inv_id)
             stale = {g for v in rows["gm_ids"].dropna() for g in str(v).split(";") if g and g not in gm_info}
@@ -278,6 +311,7 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False, res
                 totals["replaced"] += _delete_previous(session, method_id, inv_id)
 
             docs: list[dict] = []
+            doc_type: dict[str, str] = {}  # document -> Dutch GLOBALISE type (inferred, court case, missive)
             scans_of: dict[str, set[int]] = {}
             parent_csv: dict[str, int] = {}
             parent_doc: dict[str, str] = {}  # document -> the first document starting on the same scan
@@ -323,6 +357,7 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False, res
                             scans_of[doc_id] = set(range(pos[r.start_scan], min(pos[gm_info[g]["last_scan"]], pos[r.end_scan]) + 1))
                         if cid is None:
                             gm_links.append((doc_id, g))
+                            doc_type[doc_id] = LETTER_TYPE  # a missive without an index entry of its own
                     if cid is not None:
                         doc_by_csv[cid] = doc_id
                     if k > 0:
@@ -347,7 +382,13 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False, res
                         doc["title"], doc["title_source"] = inf["title"], TITLE_INFERRED
                         if doc.get("date_earliest_begin") is None:
                             doc["date_earliest_begin"], doc["date_latest_end"] = _date_range(inf.get("date"), inf.get("date_precision"))
+                        if isinstance(inf.get("type_nl"), str):
+                            doc_type[doc_id] = inf["type_nl"]
+                        if isinstance(inf.get("place_glob_id"), str) and doc.get("location_id") is None:
+                            doc["place_glob_id"] = inf["place_glob_id"]
+                            doc["location_id"] = settlement_ids.get(inf["place_glob_id"])
                     if isinstance(r.court_case, str):
+                        doc_type[doc_id] = COURT_TYPE
                         doc["title"] = r.title if isinstance(r.title, str) else None
                         doc["title_source"] = TITLE_COURT if doc["title"] else None
                         doc["date_earliest_begin"] = r.date_begin if isinstance(r.date_begin, str) else None
@@ -403,10 +444,18 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False, res
                 ext_links.append({"id": str(uuid.uuid4()), "document_id": doc_id, "external_id": court_ext[case_id]})
             seen = set()  # a merged index entry carries its NT numbers both as nt_index and as ids
             ext_links = [x for x in ext_links if (x["document_id"], x["external_id"]) not in seen and not seen.add((x["document_id"], x["external_id"]))]
+            for d in docs:  # court cases (and ToC entries imported before step 22): the GLOB id of their settlement
+                if d.get("location_id") and not d.get("place_glob_id"):
+                    d["place_glob_id"] = settlement_glob.get(d["location_id"])
             settlement_rows = {(d["id"], d["location_id"]) for d in docs if d.get("location_id")}
+            type_rows = {(doc_id, type_ids[t]) for doc_id, t in doc_type.items() if t in type_ids}
             for cid, doc_id in doc_by_csv.items():
                 if cid in toc.index:
                     settlement_rows |= {(doc_id, x) for x in toc_settlements.get(toc.at[cid, "toc_doc_id"], [])}
+                    type_rows |= {(doc_id, x) for x in toc_types.get(toc.at[cid, "toc_doc_id"], [])}  # GLOBALISE and OBP (TANAP) types
+            for d in docs:  # titles not given by the VOC itself are marked as ours (or another project's)
+                if d.get("title") and d.get("title_source") in BRACKETED and not d["title"].startswith("["):
+                    d["title"] = f"[{d['title']}]"
             ev_rows = [{"document_id": k, "evidence": v} for k, v in evidence.items()]
 
             totals["documents"] += len(docs)
@@ -417,6 +466,9 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False, res
             totals["subdocuments"] += sum(1 for d in docs if d["part_of_id"])
             totals["page links"] += len(links)
             totals["index id links"] += len(ext_links)
+            totals["document type links"] += len(type_rows)
+            totals["settlement links"] += len(settlement_rows)
+            totals["inferred titles"] += sum(d.get("title_source") == TITLE_INFERRED for d in docs)
             totals["inventories"] += 1
             logger.info("%d/%d %s: %d documents (%d ToC, %d part of another), %d page links, %d index id links (%.0fs)",
                         totals["inventories"], n_inv, inv_number, len(docs), len(doc_by_csv), sum(1 for d in docs if d["part_of_id"]),
@@ -432,6 +484,9 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False, res
             if settlement_rows:
                 session.execute(text("INSERT OR IGNORE INTO document_settlement (document_id, settlement_id) VALUES (:d, :s)"),
                                 [{"d": d, "s": x} for d, x in settlement_rows])
+            if type_rows:
+                session.execute(text("INSERT INTO document2documenttype (id, document_id, document_type_id) VALUES (:id, :d, :t)"),
+                                [{"id": str(uuid.uuid4()), "d": d, "t": t} for d, t in type_rows])
             if links:
                 session.execute(text('INSERT INTO page2document (id, page_id, document_id, "index", source, confidence) '
                                      "VALUES (:id, :page_id, :document_id, :index, :source, :confidence)"), links)
@@ -451,21 +506,12 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False, res
 
 
 def _stale_warnings(seg: pd.DataFrame, csv_path: str) -> list[str]:
-    """Warnings for inventories whose court cases or derived ToC entries this CSV would replace."""
+    """Warnings for inventories whose court cases this CSV would replace. (Derived ToC
+    entries are no longer used by default: the model segments those inventories.)"""
     out = []
     without_cases = _court_inventories_without_cases(seg)
     if without_cases:
         out.append(_court_warning(without_cases, csv_path))
-    if os.path.exists(DERIVED_TOC) and os.path.abspath(csv_path) != os.path.abspath(DERIVED_TOC):
-        derived = set(pd.read_csv(DERIVED_TOC, usecols=["inventory"], dtype=str)["inventory"])
-        has = set(seg.loc[seg["entry_id"].notna() | seg["court_case"].notna(), "inventory"])  # court cases take precedence
-        missing = sorted((set(seg["inventory"]) & derived) - has, key=lambda n: (len(n), n))
-        if missing:
-            shown = ", ".join(missing[:10]) + (f" … ({len(missing)} in all)" if len(missing) > 10 else "")
-            out.append(f"{csv_path} has no derived ToC entries for {len(missing)} inventories that have them in {DERIVED_TOC} ({shown}); "
-                       "importing it replaces their derived ToC documents with model-only documents. Re-import the derived "
-                       "segments afterwards (uv run python -m segmentation import derived_segments.csv) or re-run "
-                       "`segmentation run` for these inventories.")
     return out
 
 

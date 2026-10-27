@@ -256,6 +256,14 @@ class Document(Base):
         index=True,
         comment="FK to Settlement; populated from location_index.csv via OBP import",
     )
+    place_glob_id: Mapped[Optional[str]] = mapped_column(
+        String(32),
+        index=True,
+        comment=(
+            "GLOB id of the document's place in the GLOBALISE places dataset: its settlement's, "
+            "or the closing place of an inferred title (step 22)"
+        ),
+    )
     folio_start: Mapped[Optional[int]] = mapped_column(
         Integer,
         index=True,
