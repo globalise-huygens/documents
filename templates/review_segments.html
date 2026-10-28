@@ -449,7 +449,8 @@ document.querySelectorAll('.pane').forEach(pane => {
 // per pane; kept while stepping through scans, reset for another document
 const zoom = { item: null, start: { s: 1, x: 0, y: 0 }, end: { s: 1, x: 0, y: 0 } };
 let dragged = false;
-function mainWidth(which, scan) { return zoom[which].s >= 1.5 ? 3000 : scan.double ? 1600 : 1000; }
+// zoomed: 3000 px wide; '^' lets the server upscale the scans that are narrower (else it answers 400)
+function mainWidth(which, scan) { return zoom[which].s >= 1.5 ? '^3000' : scan.double ? 1600 : 1000; }
 function applyZoom(which) {
   const pane = $('#pane-' + which), z = zoom[which], frame = $('.frame', pane);
   const w = frame.offsetWidth, h = frame.offsetHeight;
@@ -475,6 +476,10 @@ function zoomAt(which, factor, cx, cy) {
 function resetZoom(which) { zoom[which] = { s: 1, x: 0, y: 0 }; applyZoom(which); }
 document.querySelectorAll('.pane').forEach(pane => {
   const which = pane.dataset.which, main = $('.main', pane);
+  $('img', main).addEventListener('error', e => {  // a zoomed image that fails: back to the normal size
+    const scan = SCANS[state[which].pos], src = img(scan, scan.double ? 1600 : 1000);
+    if (src && e.target.getAttribute('src') !== src) e.target.src = src;
+  });
   main.addEventListener('wheel', e => {
     if (e.ctrlKey || e.metaKey) {  // also a trackpad pinch
       e.preventDefault();

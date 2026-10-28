@@ -254,7 +254,10 @@ class Document(Base):
         String(36),
         ForeignKey("settlement.id"),
         index=True,
-        comment="FK to Settlement; populated from location_index.csv via OBP import",
+        comment=(
+            "FK to Settlement (the first one; all in document_settlement): from the OBP index, "
+            "or for segmentation documents their index entry's, court case's or inferred title's place when it is a settlement"
+        ),
     )
     place_glob_id: Mapped[Optional[str]] = mapped_column(
         String(32),
