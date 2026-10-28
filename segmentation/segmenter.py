@@ -26,7 +26,9 @@ Find the best segmentation of one inventory.
 
 Hard rules, whatever the model scores say: no document starts on a blank
 scan (forced starts move to the next scan with text), and every scan with
-text belongs to a document, so non-document runs hold blank scans only.
+text belongs to a document, so non-document runs hold blank scans only; the
+exception are scans whose text mostly recurs on nearby scans (a small sheet
+over a larger page, RecurringTextPredictor), which may lie outside documents.
 
 General Missives identified by hand (segment_inventory(gm=...)) override the
 alignment: their start is a forced start (their ToC entry, when there is one,
@@ -47,7 +49,7 @@ import pandas as pd
 from .header_dates import HeaderDate
 from .inventory import InventoryData
 from .model import AlignParams, SegmentationModel
-from .predictors import REGISTER_TITLE_RE, ToCNumberPredictor, ToCTextPredictor, compute_features, register_heading
+from .predictors import RECUR_SKIP, REGISTER_TITLE_RE, ToCNumberPredictor, ToCTextPredictor, compute_features, register_heading
 
 BIG = 1e6
 
@@ -508,6 +510,7 @@ def segment_scans(
     use_prior: np.ndarray | None = None,
     blank: np.ndarray | None = None,
     no_start: np.ndarray | None = None,
+    skippable: np.ndarray | None = None,
 ):
     """
     Semi-Markov DP over scans. A segmentation is a sequence of documents
@@ -519,7 +522,7 @@ def segment_scans(
     first and after the last document).
 
     With `blank` (per scan) two hard rules hold: no document starts on a blank
-    scan, and only blank scans lie outside the documents. No document starts on
+    scan, and only blank scans (and `skippable` ones) lie outside the documents. No document starts on
     a `no_start` scan either (inside a General Missive identified by hand).
     Forced starts override both; callers move them off blank scans first. When
     no document beats leaving everything out (all blank), the result is empty.
@@ -535,7 +538,7 @@ def segment_scans(
     nondoc = sc.nondoc.astype(float).copy()
     if blank is not None:
         start[blank] -= BIG
-        nondoc[~blank] -= BIG
+        nondoc[~(blank | skippable) if skippable is not None else ~blank] -= BIG
     if no_start is not None:
         start[no_start] -= BIG
     for f_ in forced:
@@ -600,6 +603,14 @@ def _longest_run(mask: np.ndarray | None) -> int:
     return int((np.flatnonzero(edges == -1) - np.flatnonzero(edges == 1)).max())
 
 
+def skippable_scans(inv: InventoryData) -> np.ndarray:
+    """Scans with text that may lie outside the documents: their text mostly recurs on nearby scans."""
+    f = inv.features
+    if f is None or "_recurring_share" not in f:
+        return np.zeros(inv.n, dtype=bool)
+    return f["_recurring_share"].to_numpy() >= RECUR_SKIP
+
+
 def scan_rule_violations(inv: InventoryData, result: "Result") -> list[str]:
     """Breaches of the hard rules: documents starting on a blank scan, scans
     with text outside every document."""
@@ -611,7 +622,7 @@ def scan_rule_violations(inv: InventoryData, result: "Result") -> list[str]:
         covered[sg.start : sg.end + 1] = True
         if blank[sg.start]:
             out.append(f"{sg.kind} document starts on blank scan {fn.iat[sg.start]}")
-    out += [f"scan with text {fn.iat[i]} is in no document" for i in np.flatnonzero(~covered & ~blank)]
+    out += [f"scan with text {fn.iat[i]} is in no document" for i in np.flatnonzero(~covered & ~blank & ~skippable_scans(inv))]
     return out
 
 
@@ -766,6 +777,7 @@ def segment_inventory(inv: InventoryData, model: SegmentationModel, use_toc: boo
         compute_features(inv)
     sc = scan_scores(inv, model, use_toc)
     blank = inv.scans["is_blank"].to_numpy(dtype=bool)
+    skippable = skippable_scans(inv)
     gm, fixed, blocked = gm_overrides(inv, gm)
     if not use_toc:
         fixed = {}
@@ -778,7 +790,7 @@ def segment_inventory(inv: InventoryData, model: SegmentationModel, use_toc: boo
         use_prior = np.ones(inv.n, dtype=bool)
         for a, b in _entry_spans(inv, placements) + list(zip(gm["start"], gm["end"])):
             use_prior[a : b + 1] = False
-    raw, dp_score = segment_scans(sc, model.length_prior, model.max_length, forced, use_prior, blank, blocked)
+    raw, dp_score = segment_scans(sc, model.length_prior, model.max_length, forced, use_prior, blank, blocked, skippable)
     gm_at: dict[int, list[dict]] = {}
     for r in gm.itertuples():
         gm_at.setdefault(int(r.start), []).append(_gm_info(r))

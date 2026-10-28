@@ -367,6 +367,44 @@ class TextLengthPredictor(Predictor):
         )
 
 
+RECUR_WORDS = 15  # a repeated stretch is at least this long (longer than the usual formulas)
+RECUR_WINDOW = 8  # ... and found on a scan at most this many scans away
+RECUR_SKIP = 0.6  # a scan with at least this share of repeated text may lie outside the documents
+
+
+class RecurringTextPredictor(Predictor):
+    """
+    Text that recurs on nearby scans: a small sheet scanned on top of a larger
+    page shows part of that page again, so its text is read on several scans
+    (e.g. inventory 3996, 0124-0130). Share of a scan's words in stretches of
+    RECUR_WORDS words or more that also occur within RECUR_WINDOW scans.
+    """
+
+    name = "recurring_text"
+
+    def compute(self, inv):
+        words = [re.findall(r"\w+", (t or "").lower()) for t in scan_texts(inv)]
+        grams = [{hash(tuple(w[k : k + RECUR_WORDS])) for k in range(len(w) - RECUR_WORDS + 1)} for w in words]
+        share = np.zeros(inv.n)
+        for i, w in enumerate(words):
+            if not grams[i]:
+                continue
+            near = set().union(*(grams[j] for j in range(max(0, i - RECUR_WINDOW), min(inv.n, i + RECUR_WINDOW + 1)) if j != i))
+            covered = np.zeros(len(w), dtype=bool)
+            for k in range(len(w) - RECUR_WORDS + 1):
+                if hash(tuple(w[k : k + RECUR_WORDS])) in near:
+                    covered[k : k + RECUR_WORDS] = True
+            share[i] = covered.mean()
+        return pd.DataFrame(
+            {
+                "recurring_share": share,
+                "prev_recurring_share": np.concatenate([[0.0], share[:-1]]),
+                "mostly_recurring": (share >= 0.5).astype(int),
+                "_recurring_share": share,
+            }
+        )
+
+
 class PositionPredictor(Predictor):
     """Distance to the start and end of the inventory (covers, fly-leaves)."""
 
@@ -752,6 +790,7 @@ def default_predictors() -> list[Predictor]:
         LanguagePredictor(),
         MarginaliaPredictor(),
         TextLengthPredictor(),
+        RecurringTextPredictor(),
         PositionPredictor(),
         ToCNumberPredictor(),
         TextFormulaPredictor(),
