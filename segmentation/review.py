@@ -29,6 +29,7 @@ import pandas as pd
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SEGMENTS_CSV = os.environ.get("SEGMENTS_CSV", os.path.join(ROOT, "segments.csv"))
 SEGMENT_DIR = os.path.join(ROOT, "data", "segments")
+TITLES_CSV = os.environ.get("TITLES_CSV", os.path.join(ROOT, "inferred_titles.csv"))  # infer-titles
 MARKER = "_source.json"
 
 VERDICTS = {"not_document", "merge_previous", "not_in_inventory", "unsure"}
@@ -183,8 +184,26 @@ def load_scans(conn, inventory_number: str) -> tuple[str, list[dict]]:
     return inv_id, scans
 
 
-def model_items(seg: pd.DataFrame, toc: pd.DataFrame) -> list[dict]:
-    """The model's segments as review items, in scan order."""
+_titles_cache: dict = {}
+
+
+def inferred_titles(inventory_number: str, path: str = TITLES_CSV) -> dict[int, str]:
+    """Inferred titles of the inventory's segments, as stored in the database ("[title]"); read again when the file changes."""
+    if not os.path.exists(path):
+        return {}
+    stamp = os.path.getmtime(path)
+    if _titles_cache.get("stamp") != stamp:
+        t = pd.read_csv(path, usecols=["inventory", "segment", "title"], dtype=str).dropna()
+        by_inv: dict[str, dict[int, str]] = {}
+        for inv, seg, title in t.itertuples(index=False):
+            by_inv.setdefault(inv, {})[int(seg)] = f"[{title}]"
+        _titles_cache.update(stamp=stamp, by_inv=by_inv)
+    return _titles_cache["by_inv"].get(inventory_number, {})
+
+
+def model_items(seg: pd.DataFrame, toc: pd.DataFrame, inferred: dict[int, str] | None = None) -> list[dict]:
+    """The model's segments as review items, in scan order; inferred: titles of segments without one, by segment."""
+    inferred = inferred or {}
     by_id = {str(int(r.csv_id)): r for r in toc.itertuples() if not pd.isna(r.csv_id)}
     items = []
     for r in seg.itertuples():
@@ -217,7 +236,7 @@ def model_items(seg: pd.DataFrame, toc: pd.DataFrame) -> list[dict]:
             items.append({**common, "key": f"case:{r.court_case}", "kind": "case", "title": r.title, "placed_by": "case"})
         else:
             label = "Subdocument" if r.kind == "subdoc" else "Unindexed document"
-            items.append({**common, "key": f"{r.kind}:{r.start_scan}", "kind": r.kind, "title": r.title or label,
+            items.append({**common, "key": f"{r.kind}:{r.start_scan}", "kind": r.kind, "title": r.title or inferred.get(int(r.segment)) or label,
                           "placed_by": "model"})
     return items
 
@@ -301,7 +320,7 @@ def load_review(conn, inventory_number: str) -> dict:
     seg = pd.read_parquet(os.path.join(SEGMENT_DIR, f"{inventory_number}.parquet"))
     seg = seg.assign(segment=pd.to_numeric(seg["segment"])).sort_values("segment")
     toc = load_toc(conn, inv_id)
-    items = insert_unplaced(model_items(seg, toc), toc)
+    items = insert_unplaced(model_items(seg, toc, inferred_titles(inventory_number)), toc)
     reviews = {k: v for (_, k), v in current_reviews(conn, inventory_number).items()}
     items = attach_reviews(items, reviews, position)
     for it in items:
