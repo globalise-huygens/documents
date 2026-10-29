@@ -79,6 +79,7 @@ from .inventory import connect, load_gm_overrides, load_inventory
 from .model import DEFAULT_MODEL_PATH, SegmentationModel
 from .court_records import load_court_cases, segment_court_inventory
 from .explain import document_evidence, scan_evidence
+from .runner import init_worker, segment_one
 from .segmenter import scan_rule_violations, segment_inventory
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -146,6 +147,7 @@ def main():
     rn.add_argument("--derived", default="", help="use the ToC entries derived from other versions of the text (derive-tocs) as starts; "
                     "off by default: the model segments inventories without a ToC of their own")
     rn.add_argument("--resume", action="store_true", help="skip inventories already in --out")
+    rn.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 2), help="processes segmenting in parallel")
     sub.add_parser("title-fit")
     it = sub.add_parser("infer-titles")
     it.add_argument("inventories", nargs="*")
@@ -357,13 +359,15 @@ def main():
 
 
 def run(args):
-    """Segment inventories; with --out, append each inventory's rows to the CSV as it is done."""
-    model = SegmentationModel.load(args.model)
+    """Segment inventories, in --workers processes; with --out, append each inventory's rows to the CSV (in
+    inventory order) as it is done."""
+    from concurrent.futures import ProcessPoolExecutor
+
     conn = connect()
     cases, court_ranges = ({}, {}) if args.no_court else load_court_cases()
     if court_ranges:
         logger.info("Court records: %d cases in %d inventories", len(cases), len(court_ranges))
-    from .versions import load_derived_toc, segment_with_derived
+    from .versions import load_derived_toc
 
     derived = load_derived_toc(args.derived)
     if derived:
@@ -379,37 +383,22 @@ def run(args):
     scan_counts = dict(conn.execute("SELECT i.inventory_number, count(*) FROM scan s JOIN inventory i ON i.id = s.inventory_id GROUP BY 1").fetchall())
     total_scans = sum(scan_counts.get(n, 0) for n in todo)
     printed, t0, scans_done, n_segments = [], time.time(), 0, 0
-    for k, n in enumerate(todo, 1):
-        try:
-            inv = load_inventory(conn, n)
-        except KeyError:
-            logger.warning("%s: inventory not found in the database; skipped", n)
-            continue
-        try:
-            gm = None if args.no_gm else load_gm_overrides(conn, inv)
-            if court_ranges.get(n) and inv.toc.empty:
-                res = segment_court_inventory(inv, model, cases, court_ranges[n])
-            elif n in derived and inv.toc.empty and not args.no_toc and (gm is None or gm.empty):
-                res = segment_with_derived(inv, model, derived[n])
+    workers = max(1, min(args.workers, len(todo)))
+    logger.info("Segmenting %d inventories in %d processes", len(todo), workers)
+    with ProcessPoolExecutor(workers, initializer=init_worker, initargs=(args,)) as pool:
+        for k, (n, out) in enumerate(pool.map(segment_one, todo, chunksize=1), 1):
+            if out is None:
+                continue
+            rows, n_scans, n_placed, n_toc, kinds = out
+            scans_done += n_scans
+            n_segments += len(rows)
+            if args.out:
+                pd.DataFrame(rows).to_csv(args.out, mode="a", header=not os.path.exists(args.out), index=False)
             else:
-                res = segment_inventory(inv, model, use_toc=not args.no_toc, gm=gm)
-            rows = result_rows(inv, res, model)
-            broken = scan_rule_violations(inv, res)
-            if broken:
-                logger.warning("%s: %d breaches of the hard rules, e.g. %s", n, len(broken), "; ".join(broken[:3]))
-        except Exception:
-            logger.exception("%s: segmentation failed; skipped", n)
-            continue
-        scans_done += inv.n
-        n_segments += len(rows)
-        if args.out:
-            pd.DataFrame(rows).to_csv(args.out, mode="a", header=not os.path.exists(args.out), index=False)
-        else:
-            printed += rows
-        kinds = pd.Series([s.kind for s in res.segments]).value_counts().to_dict()
-        eta = (time.time() - t0) / max(scans_done, 1) * (total_scans - scans_done) / 60
-        logger.info("%d/%d %s: %d scans, %d ToC entries placed of %d, segments %s (about %.0f min to go)",
-                    k, len(todo), n, inv.n, len(res.placements), len(inv.toc), kinds, eta)
+                printed += rows
+            eta = (time.time() - t0) / max(scans_done, 1) * (total_scans - scans_done) / 60
+            logger.info("%d/%d %s: %d scans, %d ToC entries placed of %d, segments %s (about %.0f min to go)",
+                        k, len(todo), n, n_scans, n_placed, n_toc, kinds, eta)
     if args.out:
         logger.info("Wrote %d segments to %s", n_segments, args.out)
     else:

@@ -724,3 +724,53 @@ def test_page_dates_join_and_borrow_the_year():
     ents = [("ner:date", "Ao. 1700", 0), ("ner:date", "den 7 Septemb:", 9), ("ner:date", "den 3 Octob:", 200)]
     ds = [d.date.isoformat() for d, _, _ in page_dates(ents)]
     assert ds == ["1700-09-07", "1700-10-03"]
+
+
+def test_announced_parts():
+    from segmentation.segmenter import announced_parts
+
+    assert announced_parts("Vier brieven van Ternaten na Banda") == 4
+    assert announced_parts("Vijff brieven onder diverse datums") == 5
+    assert announced_parts("31 Resolutien over schipper Hendrick Jurriaensz.") == 31
+    assert announced_parts("1718 maart missive") is None  # a year
+    assert announced_parts("2. Register der papieren") is None  # a numbered entry
+    assert announced_parts("Missive van twee gecommitteerdens") is None
+    assert announced_parts("Ses en twintig stux rendementen") == 26
+    assert announced_parts("Twe brieven van Japara") == 2 and announced_parts("Thien stucx brieven") == 10
+    assert announced_parts("-20 Missive van de heer gouverneur") is None  # an entry number
+    assert announced_parts("40 Een missive door den schipper") is None
+    assert announced_parts("12 stux maendelijxe rendementen") == 12
+    assert announced_parts("Copie van drie missiven van Claes Cornelisz. Comans") == 3
+    assert announced_parts("Translaet van twee Moorsche brieven door Occon") == 2
+    assert announced_parts("Dito van twee diverse brieven door de superintendant") == 2
+    assert announced_parts("Idem van veertien personen beijde van de slegt") is None  # not documents
+    assert announced_parts("Copie dito van 30 December 1701.") is None  # a date
+    assert announced_parts("Copie van twee memoriën, d'eene gelaten bij den gouverneur") == 2
+    assert announced_parts("Extract uijt twee factura's in dato ultimo September") is None  # one extract
+    assert announced_parts("Translaet missive door de drie princen gebroeders") is None  # persons
+    assert announced_parts("Translaten van twee Javaanse brieven door den commandeur Crul") == 2
+    assert announced_parts("Missive van de gecommitteerdens annex twee translaten (ontfangen den 23 December)") == 3
+    assert announced_parts("Missive in dato 10 Januarij 1741 met vijf stuks bijlagen daartoe gehorende") == 6
+    assert announced_parts("Vier brieven van Ternaten annex twee translaten") == 6
+    assert announced_parts("Extract uijt twee brieven door den commissaris") is None  # documents mentioned only
+
+
+def test_parse_page_numbers_with_punctuation():
+    from segmentation.inventory import _parse_folios
+
+    assert _parse_folios("4.") == [4]
+    assert _parse_folios("12:, 13„") == [12, 13]
+    assert _parse_folios("No. 9") == [] and _parse_folios("12 13") == [] and _parse_folios("Copia") == []
+
+
+def test_one_scan_document_on_a_shared_scan_gets_no_second_end():
+    # a certain end on scan 2 and a weak start there: no one-scan document after the one ending on 2
+    sc = ScanScores(
+        start=np.array([5.0, -5.0, -1.2, -5.0]),
+        end=np.array([-5.0, -5.0, 7.0, 5.0]),
+        log_shared=np.log(np.array([0.5, 0.5, 0.34, 0.5])),
+        log_not_shared=np.log(np.array([0.5, 0.5, 0.66, 0.5])),
+        nondoc=np.full(4, -5.0),
+    )
+    segs, _ = segment_scans(sc, lambda L: np.zeros(len(L)), 10)
+    assert (2, 2) not in [(a, e) for a, e, _ in segs]

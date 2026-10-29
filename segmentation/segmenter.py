@@ -41,6 +41,7 @@ the missive.
 
 import datetime
 import math
+import re
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -757,6 +758,104 @@ def gm_overrides(inv: InventoryData, gm: pd.DataFrame | None) -> tuple[pd.DataFr
     return gm.reset_index(drop=True), fixed, blocked
 
 
+COUNT_UNITS = {
+    "twee": 2, "twe": 2, "drie": 3, "drij": 3, "vier": 4, "vijf": 5, "vijff": 5, "vyf": 5, "vyff": 5, "ses": 6, "zes": 6,
+    "seven": 7, "zeven": 7, "acht": 8, "agt": 8, "negen": 9, "tien": 10, "thien": 10, "elf": 11, "elff": 11,
+    "twaalf": 12, "twaalff": 12, "twaelf": 12, "dertien": 13, "veertien": 14, "vijftien": 15, "sestien": 16, "zestien": 16,
+    "seventien": 17, "zeventien": 17, "achtien": 18, "agtien": 18, "negentien": 19,
+}
+COUNT_TENS = {"twintig": 20, "twingtig": 20, "dertig": 30, "veertig": 40, "vijftig": 50}  # also spelled -tigh
+_UNIT = "|".join(sorted(COUNT_UNITS, key=len, reverse=True))
+_TENS = "|".join(COUNT_TENS)
+_NUMBER = rf"(?:({_UNIT})(?:\s+en\s+({_TENS})h?)?|({_TENS})h?|(\d{{1,2}}))"
+_DOCS = (  # plural document words
+    r"(?:stu[ck]x|stuks|stu[ck]ken|brieven|briefjes|brieffjes|missiven|missives|copi[ej]?n|copijen|extracten|translaten|"
+    r"translaeten|rapporten|raporten|resoluti[eë]n|verklaringen|lijsten|memori[eë]n|memories|papieren|requesten|acten|"
+    r"attestati[eë]n|rendementen|berigten|registers|notiti[eë]n|rollen|reekeningen|rekeningen|sententi[eë]n|olas|"
+    r"contracten|instructi[eë]n|processen|protesten|factura'?s|facturen|bijlagen|bylagen)(?!\w)"
+)
+# "Vier brieven", "Ses en twintig stux", "Dertig ...": a written number at the start counts as it is
+COUNT_WORDS_RE = re.compile(rf"^\W{{0,2}}(?:({_UNIT})(?:\s+en\s+({_TENS})h?)?|({_TENS})h?)\s+\w", re.I)
+# digits at the start only before a plural document word ("31 Resolutien", "12 stux"): "-20 Missive" and
+# "40 Een missive" are entry numbers
+COUNT_DIGITS_RE = re.compile(rf"^[^\w-]{{0,2}}(\d{{1,2}})\s+(?:\S+\s+){{0,2}}?{_DOCS}", re.I)
+# after copy words ("Copie van drie missiven", "Translaet van twee Moorsche brieven", "Dito van twee diverse
+# brieven"), also only before a plural document word: "Idem van veertien personen" is not about documents
+COUNT_AFTER_COPY_RE = re.compile(
+    r"^\W{0,2}(?:(?:een|copia|copie|copij|copije|copien|translaat|translaet|translaten|translaeten|extract|extracten|dito|idem|"
+    r"authenticque|authentique|"
+    rf"originele|origineele|origineel|secrete|secreete)\s+)+(?:van\s+)?{_NUMBER}\s+(?:\S+\s+){{0,2}}?{_DOCS}",
+    re.I,
+)
+# enclosures announced after the main document ("... annex twee translaten", "met vijf stuks bijlagen", "nevens twee
+# requesten"): that many parts more; "uijt twee brieven" or "den ontfang van twee brieven" mention documents only
+COUNT_ENCLOSED_RE = re.compile(
+    rf"\b(?:annex|nevens|benevens|met(?:\s+daar\s+agter)?|item|mitsgaders|alsmede)\s+{_NUMBER}\s+(?:\S+\s+){{0,2}}?{_DOCS}", re.I
+)
+COUNT_BONUS_MAX = 8.0  # the most a title's count may add to the start log-odds inside its entry
+
+
+def announced_parts(title) -> int | None:
+    """The number of documents a ToC title announces ("Vier brieven van Ternaten ...", "Ses en twintig stux
+    rendementen ...", "31 Resolutien ...", "Copie van drie missiven ..."), plus the enclosures it announces
+    ("Missive ... annex twee translaten" = 3), if more than one."""
+    t = str(title or "")
+    if (m := COUNT_WORDS_RE.match(t)):
+        n = _number(*m.groups(), None)
+    elif (m := COUNT_DIGITS_RE.match(t)):
+        n = int(m.group(1))
+    elif (m := COUNT_AFTER_COPY_RE.match(t)):
+        n = _number(*m.groups())
+    else:
+        n = 1  # one main document, unless enclosures follow
+    n += sum(_number(*e.groups()) for e in COUNT_ENCLOSED_RE.finditer(t))
+    return n if 2 <= n <= 60 else None
+
+
+def _number(unit, tens, tens_only, digits) -> int:
+    if unit or tens_only:
+        return COUNT_TENS[tens_only.lower()] if tens_only else COUNT_UNITS[unit.lower()] + (COUNT_TENS[tens.lower()] if tens else 0)
+    return int(digits)
+
+
+def _count_bonus(inv: InventoryData, sc: ScanScores, model: SegmentationModel, placements: list[Placement], blank: np.ndarray,
+                 max_bonus: float | None = None) -> ScanScores:
+    """
+    Start scores raised inside the entries whose title announces n documents
+    and where the model alone finds fewer: the entry's span is segmented on its
+    own, and the smallest bonus (up to max_bonus) that gives n parts is added to
+    the start log-odds of its scans after the first. Strong evidence against a
+    split still wins; a title that announces fewer parts than the model finds
+    changes nothing.
+    """
+    max_bonus = COUNT_BONUS_MAX if max_bonus is None else max_bonus
+    if max_bonus <= 0 or not placements:
+        return sc
+    start = sc.start.copy()
+    for pl, (a, b) in zip(placements, _entry_spans(inv, placements)):
+        n = announced_parts(inv.toc.at[pl.entry, "title"])
+        if n is None or b - a + 1 < n:
+            continue
+        bl = blank[a : b + 1]
+        prior = None if model.length_prior_in_toc else np.zeros(b - a + 1, dtype=bool)
+
+        def parts(bonus):
+            st = sc.start[a : b + 1].copy()
+            st[1:] += bonus
+            part = ScanScores(st, sc.end[a : b + 1], sc.log_shared[a : b + 1], sc.log_not_shared[a : b + 1], sc.nondoc[a : b + 1])
+            return len(segment_scans(part, model.length_prior, model.max_length, {0}, prior, bl)[0])
+
+        if parts(0.0) >= n:
+            continue
+        lo, hi = 0.0, max_bonus
+        if parts(hi) >= n:
+            for _ in range(6):  # the smallest bonus that gives n parts
+                mid = (lo + hi) / 2
+                lo, hi = (lo, mid) if parts(mid) >= n else (mid, hi)
+        start[a + 1 : b + 1] += hi
+    return ScanScores(start, sc.end, sc.log_shared, sc.log_not_shared, sc.nondoc)
+
+
 def _gm_subdocs(sc: ScanScores, model: SegmentationModel, blank: np.ndarray, g: dict, b: int, forced: set[int], row: int | None) -> list[Segment]:
     """Subdocuments inside a hand-identified missive starting at g['start'] (up
     to scan b): the model segments the span on its own; every document starting
@@ -795,6 +894,7 @@ def segment_inventory(inv: InventoryData, model: SegmentationModel, use_toc: boo
         fixed = {}
     placements = align_toc(inv, sc.start, model.align, fixed, blocked) if use_toc else []
     forced = {pl.scan for pl in placements} | set(gm["start"])
+    sc_dp = _count_bonus(inv, sc, model, placements, blank)  # reported scores stay the model's own
     use_prior = None
     if (placements or len(gm)) and not model.length_prior_in_toc:
         # inside a placed ToC entry its length is explained by the ToC; the
@@ -802,7 +902,7 @@ def segment_inventory(inv: InventoryData, model: SegmentationModel, use_toc: boo
         use_prior = np.ones(inv.n, dtype=bool)
         for a, b in _entry_spans(inv, placements) + list(zip(gm["start"], gm["end"])):
             use_prior[a : b + 1] = False
-    raw, dp_score = segment_scans(sc, model.length_prior, model.max_length, forced, use_prior, blank, blocked, skippable)
+    raw, dp_score = segment_scans(sc_dp, model.length_prior, model.max_length, forced, use_prior, blank, blocked, skippable)
     gm_at: dict[int, list[dict]] = {}
     for r in gm.itertuples():
         gm_at.setdefault(int(r.start), []).append(_gm_info(r))

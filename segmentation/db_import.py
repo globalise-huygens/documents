@@ -49,7 +49,7 @@ import uuid
 from collections import defaultdict
 
 import pandas as pd
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session
 
 from models import Base, LinkConfidence
@@ -70,6 +70,7 @@ TITLE_VOC = "VOC"  # the VOC itself: the index, or a General Missive identified 
 TITLE_OTHER_VERSION = "VOC (other version)"  # the index entry of another version of the text
 TITLE_COURT = "Resilient Diversity"  # the court case dataset (EMDCCR)
 TITLE_INFERRED = "inferred"  # by this project, from the text
+SQLITE_CACHE_MB = 2000  # page cache of the import's connection
 INFERRED_TITLES = "inferred_titles.csv"  # infer-titles (doc_titles.py)
 BRACKETED = {TITLE_INFERRED, TITLE_COURT}  # titles not given by the VOC itself are stored as [title]
 COURT_TYPE = "processtuk"  # GLOBALISE type (Dutch label) of a court case
@@ -115,11 +116,16 @@ def _nt_external_ids(session: Session, nt_indexes: set[int], dry_run: bool) -> d
     return {int(k): v for k, v in ids.items()}
 
 
+_known_ids: dict[str, dict[str, str]] = {}  # context -> identifier -> ExternalID id, read once per import
+
+
 def _external_ids(session: Session, context: str, identifiers: set[str], dry_run: bool) -> dict[str, str]:
     """ExternalID id per identifier in `context`, created where missing."""
-    have = {}
-    for r in session.execute(text("SELECT identifier, id FROM external_id WHERE context = :c"), {"c": context}):
-        have[str(r[0])] = r[1]
+    if context not in _known_ids:
+        _known_ids[context] = {
+            str(r[0]): r[1] for r in session.execute(text("SELECT identifier, id FROM external_id WHERE context = :c"), {"c": context})
+        }
+    have = _known_ids[context]
     new = [{"id": str(uuid.uuid4()), "identifier": i, "context": context} for i in identifiers if i not in have]
     if new and not dry_run:
         session.execute(text('INSERT INTO external_id (id, "URL", identifier, context) VALUES (:id, NULL, :identifier, :context)'), new)
@@ -277,6 +283,16 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False, res
     seg = seg[~seg["inventory"].isin(done)]
     t0, n_inv = time.time(), seg["inventory"].nunique()
     engine = create_engine(database_url)
+    _known_ids.clear()
+    if engine.dialect.name == "sqlite":
+        # the database is large (12 GB): a big page cache keeps the indexes the deletes and inserts touch in memory
+        # (about twice as fast as the 2 MB default); synchronous=NORMAL syncs less often, still safe in rollback mode
+        @event.listens_for(engine, "connect")
+        def _pragmas(con, _):
+            con.execute(f"PRAGMA cache_size = -{SQLITE_CACHE_MB * 1000}")
+            con.execute("PRAGMA synchronous = NORMAL")
+            con.execute("PRAGMA temp_store = MEMORY")
+
     if not dry_run:
         Base.metadata.create_all(engine)  # document_evidence
     with Session(engine) as session:
