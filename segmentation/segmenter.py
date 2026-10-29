@@ -519,7 +519,9 @@ def segment_scans(
     'gap' (non-document scans in between). Score = sum over documents of
     start[a] + end[e] + length prior, plus log P(shared)/log P(not shared) per
     boundary, plus nondoc[i] for every scan in a gap (including before the
-    first and after the last document).
+    first and after the last document). A one-scan document on a shared scan
+    gets no end[e]: that end is already the previous document's (counted twice,
+    a certain end would add a one-scan document on every closing page).
 
     With `blank` (per scan) two hard rules hold: no document starts on a blank
     scan, and only blank scans (and `skippable` ones) lie outside the documents. No document starts on
@@ -552,6 +554,8 @@ def segment_scans(
     D = np.full(n, NEG)  # best score with a document ending at e
     D2 = np.full(n, NEG)  # ... of length >= 2
     d_single = np.zeros(n, dtype=bool)
+    stype = np.zeros(n, dtype=np.int8)  # btype/bprev of a one-scan document at x (may differ from B's)
+    sprev = np.full(n, -1)
     bp2 = np.zeros(n, dtype=int)
     M = np.full(n, NEG)  # max over e' <= x of D[e'] - C[e'+1]  (for gaps)
     Marg = np.full(n, -1)
@@ -571,7 +575,10 @@ def segment_scans(
             opts.append((M[x - 2] + C[x] + sc.log_not_shared[x], 3, Marg[x - 2]))
         best = max(opts, key=lambda o: o[0])
         B[x], btype[x], bprev[x] = start[x] + best[0], best[1], best[2]
-        single = B[x] + lp[1] * prior_on[x] + sc.end[x]
+        # a one-scan document: its end is scored unless it shares the scan with the previous document's end
+        single, stype[x], sprev[x] = max(
+            (start[x] + o[0] + lp[1] * prior_on[x] + (0.0 if o[1] == 1 else sc.end[x]), o[1], o[2]) for o in opts
+        )
         D[x], d_single[x] = (single, True) if single > D2[x] else (D2[x], False)
         cand = D[x] - C[x + 1]
         if x == 0 or cand > M[x - 1]:
@@ -586,12 +593,14 @@ def segment_scans(
     segs = []
     table = "D"
     while e >= 0:
-        a = e if table == "D" and d_single[e] else int(bp2[e])
-        t = ("first", "shared", "adjacent", "gap")[btype[a]]
+        one = table == "D" and d_single[e]
+        a = e if one else int(bp2[e])
+        kind, prev = (stype[a], sprev[a]) if one else (btype[a], bprev[a])
+        t = ("first", "shared", "adjacent", "gap")[kind]
         segs.append((a, e, t))
         if t == "first":
             break
-        e, table = (a, "D2") if t == "shared" else (int(bprev[a]), "D")
+        e, table = (a, "D2") if t == "shared" else (int(prev), "D")
     segs.reverse()
     return segs, total
 
@@ -658,7 +667,9 @@ class Result:
 
 
 def _nesting(inv, placements: list[Placement]) -> dict[int, int]:
-    """Placed ToC entries whose page range lies within an earlier entry's range."""
+    """Placed ToC entries whose page range lies within an earlier entry's range. An entry
+    that only starts on the earlier one's last folio (f. 357-360, then f. 360) is the next
+    document on the same leaf, not a part of it (4,882 of the 8,096 nestings in the index)."""
     parent: dict[int, int] = {}
     stack: list[int] = []
     for pl in placements:
@@ -672,6 +683,7 @@ def _nesting(inv, placements: list[Placement]) -> dict[int, int]:
                 and top.folio_start <= e.folio_start
                 and e.end_eff <= top.end_eff
                 and (e.folio_start, e.end_eff) != (top.folio_start, top.end_eff)
+                and not (e.folio_start == top.end_eff and top.folio_start < e.folio_start)
             ):
                 parent[pl.entry] = stack[-1]
                 break

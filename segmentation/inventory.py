@@ -51,10 +51,13 @@ def _parse_list(raw) -> str:
     return str(raw).strip()
 
 
+PAGE_NUMBER_RE = re.compile(r"\s*(\d{1,4})\s*[.:„]?\s*")  # "12", also "12." "12:" "12„" (a third of the numbers read)
+
+
 def _parse_folios(raw) -> list[int]:
     if not raw:
         return []
-    return [int(p) for p in str(raw).split(",") if re.fullmatch(r"\s*\d{1,4}\s*", p)]
+    return [int(m.group(1)) for p in str(raw).split(",") if (m := PAGE_NUMBER_RE.fullmatch(p))]
 
 
 @dataclass
