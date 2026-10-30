@@ -41,10 +41,13 @@ TOKEN_RE = re.compile(r"\d+(?:e|en|ste|sten|de|den)?\b|[A-Za-zÀ-ÿ]+\.?|[,&\[\]
 # words that may stand between days, months and their year
 DAY_GLUE = {",", "en", "tot", "met", "&", "a", "à", "den", "de", "t", "m", "/", "-", "of", "als", "ook", "op"}
 YEAR_GLUE = {",", "anno", "ao", "a", "des", "der", "jaars", "jaers", "jaar", "jaer", "deses", "dezes", "loopende", "lopende", "[", "]"}
-# a bare year counts only after one of these (quantities like "1700 ponden" do not)
+# a bare year counts only after one of these (quantities like "1700 ponden" do not); in a description
+# without other dates also after a comma or at its end ("Amonitie van oorloge op Amboijna, 1620.")
 YEAR_CUE = {"anno", "ao", "a", "jaar", "jaer", "jaare", "jaere", "jare", "jaars", "jaers", "jaren", "jaaren", "jaeren",
-            "gedurende", "geduurende", "tegen", "in", "van", "tot", "en", "sedert",
-            "zedert", "seedert", "over", "na", "voor", "[", "-", "/", "t", "m", "den", "het", "'t", "ultimo", "primo", "medio"}
+            "gedurende", "geduurende", "tegen", "tegens", "in", "van", "tot", "en", "sedert",
+            "zedert", "seedert", "zeedert", "sint", "sints", "sinds", "over", "na", "voor", "uit", "uijt", "uyt", "dato", "datis", "data",
+            "gedateerd", "gedateert", "gedagtekend", "gedagteekend", "gedagteekent", "ontfangen", "ontvangen", "onfangen",
+            "[", "-", "/", "t", "m", "den", "het", "'t", "ultimo", "primo", "medio"}
 ORDINALS = {"eersten": 1, "eerste": 1, "tweeden": 2, "tweede": 2, "derden": 3, "derde": 3, "vierden": 4, "vierde": 4,
             "vijfden": 5, "vijfde": 5, "sesden": 6, "zesden": 6, "sevenden": 7, "zevenden": 7, "achsten": 8, "agsten": 8,
             "achtsten": 8, "negenden": 9, "tienden": 10, "laatsten": "ult", "laetsten": "ult", "laatste": "ult", "laetste": "ult"}
@@ -91,7 +94,8 @@ def title_dates(text: str | None) -> list[tuple[datetime.date, datetime.date]]:
     """Every date of a description outside its receipt parentheticals, in text order, as (first day, last day)."""
     if not isinstance(text, str):
         return []
-    return _dates(RECEIPT_RE.sub(" ", text))
+    body = RECEIPT_RE.sub(" ", text)
+    return _dates(body) or _dates(body, loose=True)
 
 
 def receipt_dates(text: str | None) -> list[tuple[datetime.date, datetime.date]]:
@@ -107,7 +111,7 @@ def yearless_dates(text: str | None) -> list[tuple[int, object]]:
     if not isinstance(text, str):
         return []
     yearless: list[tuple[int, object]] = []
-    return yearless if not _dates(RECEIPT_RE.sub(" ", text), yearless) else []
+    return yearless if not title_dates(text) and not _dates(RECEIPT_RE.sub(" ", text), yearless) else []
 
 
 def date_in_year(year: int, month: int, day) -> tuple[datetime.date, datetime.date] | None:
@@ -115,7 +119,7 @@ def date_in_year(year: int, month: int, day) -> tuple[datetime.date, datetime.da
     return _interval(year, month, day)
 
 
-def _dates(text: str, yearless: list | None = None) -> list[tuple[datetime.date, datetime.date]]:
+def _dates(text: str, yearless: list | None = None, loose: bool = False) -> list[tuple[datetime.date, datetime.date]]:
     toks = TOKEN_RE.findall(text)
     out: list[tuple[datetime.date, datetime.date]] = []
     days: list = []  # days (or "ult"/"primo") waiting for their month
@@ -130,7 +134,8 @@ def _dates(text: str, yearless: list | None = None) -> list[tuple[datetime.date,
             if waiting:
                 out += [iv for m, d in waiting if (iv := _interval(y, m, d))]
                 waiting, days, idle = [], [], 0
-            elif (prev is not None and prev.lower().rstrip(".") in YEAR_CUE or nxt in ("en", "tot", "-", "/")) and (nxt or "").lower() not in UNITS:
+            elif (prev is not None and prev.lower().rstrip(".") in YEAR_CUE or nxt in ("en", "tot", "-", "/")
+                  or loose and (prev == "," or nxt in (None, "["))) and (nxt or "").lower() not in UNITS:
                 out.append(_interval(y, None, None))
             continue
         if (m := _month(tok, prev, nxt)) is not None:
