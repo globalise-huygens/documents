@@ -227,6 +227,7 @@ def model_items(seg: pd.DataFrame, toc: pd.DataFrame, inferred: dict[int, str] |
                     "toc_order": float(e.toc_order) if e is not None and not pd.isna(e.toc_order) else None,
                     "placed_by": placed[k] if k < len(placed) else "",
                     "shared_span": len(csv_ids) > 1,
+                    "date": str(e.date_begin) if e is not None and not pd.isna(e.date_begin) else common["date"],
                 })
         elif r.kind == "toc" and r.entry_id:
             items.append({**common, "key": f"entry:{r.entry_id}", "kind": "derived", "title": r.title, "placed_by": "derived"})

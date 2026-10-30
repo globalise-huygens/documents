@@ -349,6 +349,18 @@ uv run python 22_add_place_glob_id.py [--dry-run]
 
 Adds `document.place_glob_id`: the GLOB id of the document's place in the GLOBALISE places dataset (`data/GLOBALISE - Places in the Dutch East India Company Archives (1602-1799).xlsx`), and fills it for the documents with a settlement (`location_id`). Settlements whose GLOB id the dataset lacks are listed (now only Pontianak, `GLOB_PONTIANAK_PLACEHOLDER`) and get no `place_glob_id`. Run it before the segmentation `import`, which copies the column from the index entries and sets it for inferred titles.
 
+### Step 23: Dates from the Index Descriptions
+
+```bash
+uv run python 23_add_title_dates.py [--dry-run]
+```
+
+The enriched index of step 7 dates about 146,000 of the 226,000 index entries; the typoscripts themselves give only years. For the entries without any date this reads the dates in the description (`segmentation/title_dates.py`): NT's corrected text (`INHOUD` of `OBP NT_gecorrigeerd.xlsx`) where the entry has one, else the title, and NT's `JAAR` dates when the text has none. Begin is the first date, end the last (`sedert 10 Januarij tot den 15 October 1739`; `Maart 1783` runs from 1 to 31 March); dates in receipt and shipping parentheticals (`(ontfangen den 15 Julij 1713 per ...)`) are skipped, and a description whose only date is one of these gets only an end, as in the enriched index. On the dated entries the parser agrees with the enriched dates for 97% of begins and ends. It dated 26,812 entries (7,791 with only an end); 42,612 have no date in their text.
+
+A description with a day and month but no year (`dato 14 September`) gets the typoscript's year (`YEAR (EARLIEST)`) or the year before: with a receipt date the typoscript year, unless the date would fall after receipt; otherwise the year before when it fits the dated entries next to it (up to 3 entries away) better by more than 270 days (`title_dates.guess_year`). Tested by hiding the years of dated descriptions, this gets 99.3% right with a receipt date and 92.1% without (the typoscript year alone: 83.2%; the true year is one of the two for 94.9%). This dated 965 more entries and replaced the dates of 2,360 for which the enriched index had made up a year, often decades off (inventory 8655, fo. 3: *dato 14 September* was 1685, now 1765; 2,715 entries changed in all).
+
+The segmentation documents of the changed entries get the same dates, and later imports copy them from the entries, so the segmentation need not be run again. Other existing dates are not changed; running it again changes nothing.
+
 ## Document Segmentation (`segmentation/`)
 
 Finds, for every inventory, the best-scoring sequence of documents given all predictors and the ToC (when there is one).
@@ -381,7 +393,7 @@ uv run python -m segmentation import segments.csv [--resume]     # uses inferred
 Documents without a title from the VOC (an index entry or a General Missive) or from the court case dataset get one inferred from their text (`doc_titles.py`): `type, place, date` in English, e.g. *Letter, Cochin, 12 November 1748*; *Unknown document, place, date* when the type is uncertain; *Unknown document* when nothing is known. The volume's own registers of papers come out as *Register of papers*.
 
 - **Type**: the GLOBALISE document type (English label from `data/concepts.trig`), from a classifier on the opening of the first page and the end of the last page, trained on the documents with an index entry (`title-fit`; data/titles/); given from a confidence of 0.5 (cross-validated: 84% right for 78% of the documents).
-- **Place and date**: from the closing formula (*Bantam den 16 maij 1743*, *op 't schip ...*) on the last page or the page before, read with the GLOBALISE entity annotations; else the last full date on the last page; else the date in the running header. Places are named as in the VOC gazetteer (`data/organisational-structure-voc.xlsx`; English where it has an English form), else as in the GLOBALISE places dataset (exact matches of a name or spelling variant), others are left out; a year outside the inventory's period is left out.
+- **Place and date**: from the closing formula (*Bantam den 16 maij 1743*, *op 't schip ...*) on the last page or the page before, read with the GLOBALISE entity annotations; else the last full date on the last page; else the date in the running header. Places are found with the VOC gazetteer (`data/organisational-structure-voc.xlsx`), else with the GLOBALISE places dataset (exact matches of a name or spelling variant), others are left out; they are named by the places dataset's preferred label (*Banten*, *Jakarta*, *Semarang*: modern names, see the portal's reference-data page), and as in the gazetteer only when the dataset lacks the place; a year outside the inventory's period is left out.
 - Sender, addressee and subject are not attempted (a translator or copyist signs too).
 
 Titles not given by the VOC itself are stored in brackets: inferred titles and court case titles, e.g. *[Letter, Surat, 26 April 1723]* (`title_source` says who made the title, see step 20).

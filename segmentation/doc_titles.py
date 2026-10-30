@@ -10,11 +10,13 @@ documents, the volume's own registers of papers), inferred from their text:
          classifier on the opening of the first page and the end of the last page,
          trained on documents with an index entry (their type comes from the
          Digitized Indexes); given only when it is at least TYPE_MIN sure.
-  place  the place of the closing formula ("Bantam den 16 maij 1743"), named as
-         in the VOC gazetteer (data/organisational-structure-voc.xlsx; English
-         where it has an English form), else as in the GLOBALISE places dataset
-         (exact matches of its names and spelling variants), or a ship ("on board
-         the ..."); with the place's GLOB id from the places dataset.
+  place  the place of the closing formula ("Bantam den 16 maij 1743"): found
+         with the VOC gazetteer (data/organisational-structure-voc.xlsx), else
+         with the GLOBALISE places dataset (exact matches of its names and
+         spelling variants), or a ship ("on board the ..."); named by the
+         preferred label of the places dataset ("Banten", "Jakarta"), with the
+         place's GLOB id, else as in the gazetteer (English where it has an
+         English form).
   date   the date of that closing; else the last full date on the last page;
          else the date in the running header of the first pages. A year outside
          the inventory's period is a misreading and left out.
@@ -268,6 +270,7 @@ class Places:
     def __init__(self, path: str = PLACES):
         p = pd.read_excel(path, sheet_name="Sheet2 Places – Overview")
         self.ids = set(p.glob_id.astype(str))
+        self.label = dict(zip(p.glob_id.astype(str), p.pref_label.astype(str)))  # GLOB id → preferred label
         self.by_key = {}
         for r in p.itertuples():
             for label in [r.pref_label] + (str(r.alt_labels).split("|") if isinstance(r.alt_labels, str) else []):
@@ -390,6 +393,8 @@ def infer(doc: dict, texts: dict, headers: dict, model, labels: dict, gazetteer:
         hit = places.lookup(raw_place)
         if hit:
             glob_id, place = hit
+    if glob_id is not None and places is not None:  # the places dataset's name: modern, not the VOC's (Banten, not Bantam)
+        place = places.label.get(glob_id, place)
     return {"title": title(type_en, place, date_text), "type": type_en, "type_nl": type_nl if type_en else None, "type_conf": round(conf, 2),
             "place": place, "place_glob_id": glob_id,
             "date": date.date.isoformat() if date is not None else None,

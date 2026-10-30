@@ -774,3 +774,57 @@ def test_one_scan_document_on_a_shared_scan_gets_no_second_end():
     )
     segs, _ = segment_scans(sc, lambda L: np.zeros(len(L)), 10)
     assert (2, 2) not in [(a, e) for a, e, _ in segs]
+
+
+def test_title_dates():
+    from segmentation.title_dates import date_range, nt_dates, receipt_dates, title_dates
+
+    D = datetime.date
+
+    def rng(t):
+        return date_range(title_dates(t))
+
+    assert rng("Copie missive ... in dato 28 Januarij 1608.") == (D(1608, 1, 28),) * 4
+    assert rng("Dagregister gehouden ten comptoire Jambij sedert den 10 Januarij tot den 15 October 1739.") == (
+        D(1739, 1, 10), D(1739, 1, 10), D(1739, 10, 15), D(1739, 10, 15))
+    assert rng("Drie circulaire brieven ... afgesonden op 8, 24 November en 18 December 1738.")[::3] == (D(1738, 11, 8), D(1738, 12, 18))
+    assert rng("Copie register ... zedert primo Januarij tot ultimo September 1791.")[::3] == (D(1791, 1, 1), D(1791, 9, 30))
+    assert rng("Missive ... in dato 26 Julij 1669 met een apendix van 28 ditto.")[::3] == (D(1669, 7, 26), D(1669, 7, 28))
+    assert rng("Copia corte factura ..., gedateerd Februarij 1657.") == (D(1657, 2, 1), D(1657, 2, 28), D(1657, 2, 1), D(1657, 2, 28))
+    assert rng("Relaas van het voornaamste dat er op de laaste hongij togt [in 1738] is voorgevallen.")[::3] == (D(1738, 1, 1), D(1738, 12, 31))
+    assert rng("Dito dito door den commandeur en raad tot Gale ... den derden January 1739.")[0] == D(1739, 1, 3)
+    assert rng("Briefje ... op Poelo Aij den laatsten Maij 1688.")[0] == D(1688, 5, 31)
+    assert rng("Brief ... op den 6 Februarij 1731 afgevairdigt, g'accompagneert van twee in datis 17 en 26 Januarij bevestigt")[::3] == (
+        D(1731, 1, 17), D(1731, 2, 6))
+    assert rng("Rapport ... overgelevert dato 5 Decemher 1715.")[0] == D(1715, 12, 5)
+    # quantities, names and years without a cue are no dates
+    assert rng("Eijsch van 1700 ponden buskruijt voor Jan Coerten.") is None
+    assert rng("Missive van den resident aen haer Eds. dato 29 Junij.") is None
+    # receipt and shipping parentheticals are not the document's dates
+    t = "Extract missive ... van de 18 November 1712 (ontfangen den 15 Julij 1713 per de pantjalling de Veerman)."
+    assert rng(t) == (D(1712, 11, 18),) * 4
+    assert receipt_dates(t) == [(D(1713, 7, 15), D(1713, 7, 15))]
+    assert title_dates("Register der papieren (den 16 Junij 1713 per het schip Noortbeeck).") == []
+    assert receipt_dates("Register der papieren (den 16 Junij 1713 per het schip Noortbeeck).") == [(D(1713, 6, 16),) * 2]
+    assert nt_dates("20-10-1736 | 29-10-1736") == [(D(1736, 10, 20),) * 2, (D(1736, 10, 29),) * 2]
+    assert nt_dates("??-03-1620 | 1638") == [(D(1620, 3, 1), D(1620, 3, 31)), (D(1638, 1, 1), D(1638, 12, 31))]
+
+
+def test_guess_year():
+    from segmentation.title_dates import guess_year, yearless_dates, yearless_range
+
+    D = datetime.date
+    items = yearless_dates("Missive van den gouverneur Schippers en raad ... de dato 14 September.")
+    assert items == [(9, 14)]
+    assert guess_year(items, 1765) == 1765
+    # the neighbours were written the year before
+    assert guess_year(items, 1765, neighbours=[(D(1764, 8, 30),) * 2, (D(1764, 10, 2),) * 2]) == 1764
+    assert guess_year(items, 1765, neighbours=[(D(1765, 8, 30),) * 2]) == 1765
+    # not after its receipt
+    assert guess_year(items, 1765, receipt=(D(1765, 3, 1),) * 2) == 1764
+    assert guess_year(items, 1765, receipt=(D(1765, 1, 1), D(1765, 12, 31))) == 1765
+    assert yearless_range(yearless_dates("Rendement van Bassoura sedert primo April tot ultimo dito."), 1734) == (
+        D(1734, 4, 1), D(1734, 4, 1), D(1734, 4, 30), D(1734, 4, 30))
+    assert yearless_range(yearless_dates("Memorie der processen sedert 12 November tot 7 Januarij."), 1716)[::3] == (
+        D(1716, 11, 12), D(1717, 1, 7))
+    assert yearless_dates("Missive dato 26 September 1700.") == []
