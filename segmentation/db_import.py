@@ -25,8 +25,8 @@ as documents of the identification method "Segmentation model".
     (ExternalID context "EMDCCR"); the ranges of individual accused are
     subdocuments of their case.
   - Subdocuments get part_of_id = their parent's document; a parent's pages
-    include those of all its descendants. ToC documents are never part of
-    another document.
+    include those of all its descendants, and the blank scans between them
+    (scans of no document). ToC documents are never part of another document.
   - Page2Document rows for every page, in scan order (verso before recto on
     double scans), source SEGMENTATION_MODEL, confidence CANDIDATE.
   - The model's evidence per document goes into document_evidence (JSON).
@@ -441,10 +441,19 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False, res
                         out |= all_scans(c, seen + (doc_id,))
                 return out
 
+            # scans of no document (blank: non-document runs) between a parent's first and last scan belong to the parent
+            owned = set().union(*scans_of.values()) if scans_of else set()
+
+            def pages_of(doc_id):
+                own = all_scans(doc_id)
+                if not children[doc_id] or not own:
+                    return own
+                return own | {x for x in range(min(own), max(own) + 1) if x not in owned}
+
             links, ext_links, ev_rows = [], [], []
             for d in docs:
                 idx = 0
-                for p in sorted(all_scans(d["id"])):
+                for p in sorted(pages_of(d["id"])):
                     for page_id in pages_by_scan.get(scans.at[p, "scan_id"], []):
                         links.append({"id": str(uuid.uuid4()), "page_id": page_id, "document_id": d["id"], "index": idx,
                                       "source": SOURCE, "confidence": LinkConfidence.CANDIDATE.value})

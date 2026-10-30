@@ -399,7 +399,7 @@ def _align_in_order(toc: pd.DataFrame, cands: list, fs_arr: np.ndarray, numbers:
                     v = best[tp][cpi] + local + p.skip * (t - tp - 1)
                     f1, restart = next_folio(kp, k)
                     if ppos == pos:
-                        v += share_cost(fs_arr[kp], f1, p)
+                        v += share_cost(fs_arr[kp], f1, p, end_eff[kp])
                     v += _length_term(fs_arr[kp], f1, ppos, pos, numbers, p, across_runs=restart)
                     if v > scores[ci]:
                         scores[ci], bp[ci] = v, (tp, cpi)
@@ -424,10 +424,18 @@ def _align_in_order(toc: pd.DataFrame, cands: list, fs_arr: np.ndarray, numbers:
     return objective, placements
 
 
-def share_cost(f0: float, f1: float, p: AlignParams) -> float:
+SHARE_FORBIDDEN = -50.0  # sharing a start scan after an entry of more than one folio: only when there is no other room
+
+
+def share_cost(f0: float, f1: float, p: AlignParams, end0: float = np.nan) -> float:
     """Score of two consecutive ToC entries starting on the same scan: cheap for
     entries with the same start folio (a letter and its enclosures), more
-    expensive the further apart the ToC puts them."""
+    expensive the further apart the ToC puts them. Not after an entry whose
+    range covers more than one folio (end0 > f0): the next starts on a later
+    leaf (in the validated inventories all 12 entries sharing a start scan
+    follow a one-folio entry)."""
+    if not np.isnan(f0) and not np.isnan(end0) and end0 > f0:
+        return SHARE_FORBIDDEN
     if np.isnan(f0) or np.isnan(f1):
         return p.same_start
     return p.same_start - p.same_start_folio * math.log1p(max(0.0, abs(f1 - f0) - 1))
@@ -460,6 +468,7 @@ def _place_unnumbered(inv, toc, placed: list[Placement], s, dterms, p: AlignPara
     placed_rows = {pl.entry for pl in placed}
     row_to_k = {int(r): k for k, r in enumerate(toc["index"])}
     fs = toc["folio_start"].to_numpy(dtype=float)
+    end = toc["end_eff"].to_numpy(dtype=float) if "end_eff" in toc else np.full(len(toc), np.nan)
     anchors = [(-1, -1)] + sorted((row_to_k[pl.entry], pl.scan) for pl in placed) + [(len(toc), inv.n)]
     out = []
     for (ka, ca), (kb, cb) in zip(anchors, anchors[1:]):
@@ -475,7 +484,8 @@ def _place_unnumbered(inv, toc, placed: list[Placement], s, dterms, p: AlignPara
         evidence, gain = [], []
         for k in todo:
             ev = p.w_start * s[lo : hi + 1] + dterms[k][lo : hi + 1]
-            ev = ev + np.where(pos == ca, share_cost(fa, fs[k], p), 0.0) + np.where(pos == cb, share_cost(fs[k], fb, p), 0.0)
+            ea = end[ka] if ka >= 0 else np.nan
+            ev = ev + np.where(pos == ca, share_cost(fa, fs[k], p, ea), 0.0) + np.where(pos == cb, share_cost(fs[k], fb, p, end[k]), 0.0)
             g = ev - FIXED_BONUS * avoid[lo : hi + 1]
             if interp and not np.isnan(fs[k]) and p.index_interp_weight:
                 expected = ca + (fs[k] - fa) / (fb - fa) * (cb - ca)
@@ -491,7 +501,7 @@ def _place_unnumbered(inv, toc, placed: list[Placement], s, dterms, p: AlignPara
         for u in range(1, U):
             prefix = np.maximum.accumulate(best[u - 1])  # best previous position <= j
             earlier = np.concatenate([[-np.inf], prefix[:-1]])  # previous position < j
-            same = best[u - 1] + share_cost(fs[todo[u - 1]], fs[todo[u]], p)
+            same = best[u - 1] + share_cost(fs[todo[u - 1]], fs[todo[u]], p, end[todo[u - 1]])
             from_same[u] = same > earlier
             best[u] = gain[u] + np.maximum(earlier, same)
         j = int(np.argmax(best[U - 1]))

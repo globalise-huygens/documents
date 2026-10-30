@@ -850,3 +850,11 @@ def test_section_start_extrapolated_from_first_numbers():
         number[i] = v
     numbers = NumberIndex(number, np.zeros(120, dtype=int), pd.Series(["double"] * 120))
     assert any(abs(pos - 14) <= 2 for _, pos in numbers.positions(1.0))
+
+
+def test_no_shared_start_after_an_entry_of_several_folios():
+    from segmentation.segmenter import SHARE_FORBIDDEN, share_cost
+    p = AlignParams()
+    assert share_cost(10, 10, p, end0=10) == p.same_start  # a one-folio letter and its enclosure
+    assert share_cost(10, 10, p) == p.same_start  # end unknown
+    assert share_cost(10, 16, p, end0=15) == SHARE_FORBIDDEN  # fo. 10-15: the next starts on a later leaf
