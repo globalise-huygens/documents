@@ -18,10 +18,13 @@ Sets on every document linked to an OBP_INDEX id:
                           it follows the CSV id.
   - toc_folio_sequence    1-based foliation sequence (physical section): a new
                           sequence starts, in toc_order, where the start folio
-                          drops to <= RESTART_MAX_FOLIO after the running
-                          maximum reached >= RESTART_MIN_PREVIOUS. The katern
-                          label is not used: in many volumes documents of
-                          several settlements share one foliation.
+                          drops to <= RESTART_MAX_FOLIO, below the folios
+                          covered so far (start and end folios), when these
+                          reached >= RESTART_MIN_PREVIOUS or the katern label
+                          changes (Makassar 8 fo. 1-4, then Makassar 9 fo. 1-17).
+                          The katern label alone does not start one: in many
+                          volumes documents of several settlements share one
+                          foliation.
 
 Order and sequences are computed per inventory over the "TANAP Digitized
 Index" documents, so run script 7.5 first. Safe to rerun.
@@ -74,20 +77,27 @@ def ensure_columns(engine):
                 logger.info("Added '%s' column to document table", name)
 
 
-def folio_sequences(folio_starts) -> list[int]:
-    """Number the foliation sequences of folio_starts (already in physical order)."""
-    seq, running_max, out = 1, None, []
-    for fs in folio_starts:
+def folio_sequences(folio_starts, folio_ends=None, katerns=None) -> list[int]:
+    """Number the foliation sequences of entries (already in physical order). The end
+    folios count: "Makassar 1 fo. 1-90" followed by "Makassar 2 fo. 1-172" restarts
+    (3598; with the start folios alone both sequences stayed one)."""
+    n = len(folio_starts)
+    folio_ends = list(folio_ends) if folio_ends is not None else [None] * n
+    katerns = list(katerns) if katerns is not None else [None] * n
+    seq, covered, prev_katern, out = 1, None, None, []
+    for fs, fe, k in zip(folio_starts, folio_ends, katerns):
         if pd.notna(fs):
+            end = fe if fe is not None and pd.notna(fe) and fe >= fs else fs
             if (
-                running_max is not None
-                and running_max >= RESTART_MIN_PREVIOUS
+                covered is not None
                 and fs <= RESTART_MAX_FOLIO
-                and fs < running_max
+                and fs < covered
+                and (covered >= RESTART_MIN_PREVIOUS or k != prev_katern)
             ):
                 seq += 1
-                running_max = None
-            running_max = fs if running_max is None else max(running_max, fs)
+                covered = None
+            covered = end if covered is None else max(covered, end)
+            prev_katern = k
         out.append(seq)
     return out
 
@@ -115,7 +125,7 @@ def compute_entries(session: Session) -> pd.DataFrame:
     ).drop_duplicates("csv_id")
 
     e = (
-        db.merge(csv[["csv_id", "folio_start", "deel"]], on="csv_id", how="left")
+        db.merge(csv[["csv_id", "folio_start", "folio_end", "deel"]], on="csv_id", how="left")
         .merge(
             nt.dropna(subset=["csv_id"]).astype({"csv_id": int})[
                 ["csv_id", "nt_index", "nt_katern"]
@@ -131,12 +141,12 @@ def compute_entries(session: Session) -> pd.DataFrame:
     e["toc_order"] = e.groupby("inventory")["order_key"].rank(method="first")
     e = e.sort_values(["inventory", "toc_order"])
     ordered = e["toc_order"].notna()
+    e["toc_katern"] = e["nt_katern"].fillna(e["tanap_katern"])
     e.loc[ordered, "toc_folio_sequence"] = (
         e[ordered]
-        .groupby("inventory", group_keys=False)["folio_start"]
-        .apply(lambda s: pd.Series(folio_sequences(s), index=s.index))
+        .groupby("inventory", group_keys=False)[["folio_start", "folio_end", "toc_katern"]]
+        .apply(lambda g: pd.Series(folio_sequences(g["folio_start"], g["folio_end"], g["toc_katern"]), index=g.index))
     )
-    e["toc_katern"] = e["nt_katern"].fillna(e["tanap_katern"])
 
     logger.info(
         "%d entries in %d inventories: %d ordered by NT, %d by CSV id, %d unordered "

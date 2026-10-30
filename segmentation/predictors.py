@@ -141,12 +141,23 @@ def clean_numbers(folio_lists: pd.Series) -> tuple[np.ndarray, np.ndarray]:
     vals, counts = np.unique(value[~np.isnan(value)], return_counts=True)
     value[np.isin(value, vals[counts > REPEAT_MAX])] = np.nan
 
+    # a number that fits neither neighbour where these fit each other is a misread
+    # (11 | 1701 1781 | 51 53: years; 8 | 2 | 10 14), not a restart
+    kept = [i for i in range(n) if not np.isnan(value[i])]
+    outliers = []
+    for k, i in enumerate(kept):
+        around = [(a, b) for a in kept[max(0, k - 2) : k] for b in kept[k + 1 : k + 3]]
+        if any(consistent(a, value[a], b, value[b]) and not consistent(a, value[a], i, value[i]) and not consistent(i, value[i], b, value[b])
+               for a, b in around):
+            outliers.append(i)
+    value[outliers] = np.nan
+
     # restarts: a small number after the run reached RESTART_MIN_PREVIOUS,
     # confirmed by a consistent following observation; or, when the first
     # numbers of the new run were not read, a drop to below half the run's
-    # recent level (the lowest of its last three numbers, so that one misread
-    # high number such as 935 for 435 does not count) confirmed by the next
-    # two observations (255 → 11, 13, 15)
+    # recent level (the median of its last three numbers, so that one misread
+    # high number such as 935 for 435 does not count) confirmed by two of the
+    # next three observations (255 → 11, 13, 15; 87 → 8, 2, 10, 14 in 3598)
     run = np.zeros(n, dtype=int)
     current, running_max = 0, None
     recent: list[float] = []
@@ -154,16 +165,17 @@ def clean_numbers(folio_lists: pd.Series) -> tuple[np.ndarray, np.ndarray]:
     for k, i in enumerate(kept):
         v = value[i]
         nxt = kept[k + 1 : k + 3]
+        nxt3 = kept[k + 1 : k + 4]
         small = running_max is not None and running_max >= RESTART_MIN_PREVIOUS and v <= RESTART_MAX
-        level = min(recent[-3:]) if recent else None
+        level = float(np.median(recent[-3:])) if recent else None
         drop = (
             level is not None
             and v < level / 2
             and level - v >= RESTART_MIN_DROP
-            and len(nxt) == 2
-            and all(consistent(i, v, j, value[j]) for j in nxt)
-            # the old level does not come back (1653 | 418 420 1668: misreads, not a restart) ...
-            and all(value[j] < level for j in kept[k + 1 : k + 7])
+            and sum(consistent(i, v, j, value[j]) for j in nxt3) >= 2
+            # the old level does not come back (1653 | 418 420 1668: misreads, not a restart),
+            # other than by the new numbering climbing to it (51 53 | 18 24 ... 53: 3598) ...
+            and not any(value[j] >= level and not consistent(i, v, j, value[j]) for j in kept[k + 1 : k + 7])
             # ... and v does not continue the numbers before a stretch of misread
             # high ones (63 64 65 166 168 169 | 71)
             and not any(consistent(kept[k - 1 - m], value[kept[k - 1 - m]], i, v) for m in range(3, min(6, k)))

@@ -828,3 +828,25 @@ def test_guess_year():
     assert yearless_range(yearless_dates("Memorie der processen sedert 12 November tot 7 Januarij."), 1716)[::3] == (
         D(1716, 11, 12), D(1717, 1, 7))
     assert yearless_dates("Missive dato 26 September 1700.") == []
+
+
+def test_clean_numbers_restarts_and_misreads():
+    # 3598: a section ending at fo. 87, then fo. 8 (a misread 2 after it), 10, 14 ...: the restart is at the 8;
+    # years read as numbers (1701, 1781) between fo. 11 and 51 are dropped and do not block the restart at fo. 11
+    seq = {0: 51, 2: 53, 6: 57, 34: 87, 72: 8, 76: 2, 77: 10, 81: 14, 83: 16, 87: 20, 89: 22, 110: 60, 112: 62, 114: 64,
+           130: 11, 167: 1701, 169: 1781, 172: 51, 174: 53}
+    folios = pd.Series([[seq[i]] if i in seq else [] for i in range(180)])
+    value, run = clean_numbers(folios)
+    assert run[72] == run[77] != run[34]  # the run with fo. 8 starts at scan 72
+    assert np.isnan(value[76]) and np.isnan(value[167]) and np.isnan(value[169])
+    assert run[130] == run[172] != run[114]
+
+
+def test_section_start_extrapolated_from_first_numbers():
+    from segmentation.segmenter import NumberIndex
+    # a section whose first numbers were not read: fo. 51 is the first, on scan 64; fo. 1 lies about 50 scans earlier
+    number = np.full(120, np.nan)
+    for i, v in zip(range(64, 100, 2), range(51, 87, 2)):
+        number[i] = v
+    numbers = NumberIndex(number, np.zeros(120, dtype=int), pd.Series(["double"] * 120))
+    assert any(abs(pos - 14) <= 2 for _, pos in numbers.positions(1.0))

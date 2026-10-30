@@ -17,14 +17,16 @@ as documents of the identification method "Segmentation model".
     Missives Ground Truth") take title, date text and dates from that
     document, and its index ids when it has no ToC entry in the inventory;
     further missives starting on the same scan (a secret letter with the
-    general one) span their own scans and are part of the first. Subdocuments
+    general one) span their own scans and are part of the first, unless they
+    have an index entry of their own (ToC documents are never parts). Subdocuments
     found inside a missive (parent_gm_id) are part of its document.
   - Court cases (kind 'case', from the EMDCCR dataset; court_records.py) take
     title, dates and place from the CSV and are linked to their case id
     (ExternalID context "EMDCCR"); the ranges of individual accused are
     subdocuments of their case.
-  - Subdocuments and nested ToC entries get part_of_id = their parent's
-    document; a parent's pages include those of all its descendants.
+  - Subdocuments get part_of_id = their parent's document; a parent's pages
+    include those of all its descendants. ToC documents are never part of
+    another document.
   - Page2Document rows for every page, in scan order (verso before recto on
     double scans), source SEGMENTATION_MODEL, confidence CANDIDATE.
   - The model's evidence per document goes into document_evidence (JSON).
@@ -376,8 +378,8 @@ def import_segments(csv_path: str, database_url: str, dry_run: bool = False, res
                             doc_type[doc_id] = LETTER_TYPE  # a missive without an index entry of its own
                     if cid is not None:
                         doc_by_csv[cid] = doc_id
-                    if k > 0:
-                        parent_doc[doc_id] = first_doc  # another entry or missive starting on the same scan
+                    if k > 0 and cid is None:
+                        parent_doc[doc_id] = first_doc  # a further missive starting on the same scan; ToC entries are never parts
                     elif isinstance(r.parent_gm_id, str):
                         parent_gm[doc_id] = r.parent_gm_id
                     elif not pd.isna(r.parent_csv_id):

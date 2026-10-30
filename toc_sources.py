@@ -65,7 +65,7 @@ def base_inventory(s: pd.Series) -> pd.Series:
 
 
 def load_obp_csv(path: str | None = None) -> pd.DataFrame:
-    """The CSV behind script 7, with csv_id, inventory_number and folio_start added."""
+    """The CSV behind script 7, with csv_id, inventory_number, folio_start and folio_end added."""
     path = path or next((p for p in CSV_CANDIDATES if os.path.exists(p)), None)
     if path is None:
         raise FileNotFoundError(f"OBP CSV not found; tried {CSV_CANDIDATES}")
@@ -84,6 +84,7 @@ def load_obp_csv(path: str | None = None) -> pd.DataFrame:
         lambda v: str(int(v)) if pd.notna(v) else None
     )
     df["folio_start"] = pd.to_numeric(df["FOLIONUMBER (START OF DOCUMENT)"], errors="coerce")
+    df["folio_end"] = pd.to_numeric(df["FOLIONUMBER (END OF DOCUMENT)"], errors="coerce")
     df["deel"] = pd.to_numeric(df["SECTION"], errors="coerce")
     logger.info("Loaded %d CSV rows", len(df))
     return df

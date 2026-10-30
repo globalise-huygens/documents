@@ -73,6 +73,7 @@ def next_text_scan(blank: np.ndarray) -> np.ndarray:
 
 
 EXTRAPOLATE_MAX = 10  # also extrapolate from a page number this close to the one sought
+SECTION_START, SECTION_REACH = 3, 100  # the first folios of a section: extrapolated back from a run's first numbers up to this high
 
 
 class NumberIndex:
@@ -125,7 +126,9 @@ class NumberIndex:
         out = []
         for r, (idx, val) in self.points.items():
             lo, hi = val.min(), val.max()
-            if not (lo - margin <= number <= hi + margin):
+            # the start of a section whose first numbers were not read (fo. 1 when fo. 51 is the first read: 3598)
+            section_start = number <= SECTION_START and lo <= SECTION_REACH
+            if not (lo - margin <= number <= hi + margin or section_start):
                 continue
             rate = self.rate(r)
             run_scans = np.flatnonzero(self.run == r)
@@ -369,6 +372,16 @@ def _align_in_order(toc: pd.DataFrame, cands: list, fs_arr: np.ndarray, numbers:
     """The monotone DP over the entries in this order: the placements of the
     entries it places, and its objective (to compare orders)."""
     placeable = [k for k in range(len(toc)) if cands[k]]
+    seq = toc["folio_sequence"].to_numpy(dtype=float) if "folio_sequence" in toc else np.full(len(toc), np.nan)
+    end_eff = toc["end_eff"].to_numpy(dtype=float) if "end_eff" in toc else np.full(len(toc), np.nan)
+
+    def next_folio(kp, k):
+        """Start folio of entry k counted in kp's foliation, and whether k starts a new one: after
+        "Makassar 1, fo. 1-90" a new sequence's fo. 1 lies 90 folios on, not on the same leaf (3598)."""
+        if not (np.isnan(seq[kp]) or np.isnan(seq[k])) and seq[k] != seq[kp]:
+            return (end_eff[kp] + 1 if not np.isnan(end_eff[kp]) else np.nan), True
+        return fs_arr[k], False
+
     # DP over (placeable entry, candidate): best[t][c]
     best: list[np.ndarray] = []
     back: list[list[tuple[int, int] | None]] = []
@@ -384,9 +397,10 @@ def _align_in_order(toc: pd.DataFrame, cands: list, fs_arr: np.ndarray, numbers:
                     if ppos > pos or not np.isfinite(best[tp][cpi]):
                         continue
                     v = best[tp][cpi] + local + p.skip * (t - tp - 1)
+                    f1, restart = next_folio(kp, k)
                     if ppos == pos:
-                        v += share_cost(fs_arr[kp], fs_arr[k], p)
-                    v += _length_term(fs_arr[kp], fs_arr[k], ppos, pos, numbers, p)
+                        v += share_cost(fs_arr[kp], f1, p)
+                    v += _length_term(fs_arr[kp], f1, ppos, pos, numbers, p, across_runs=restart)
                     if v > scores[ci]:
                         scores[ci], bp[ci] = v, (tp, cpi)
         best.append(scores)
@@ -419,8 +433,11 @@ def share_cost(f0: float, f1: float, p: AlignParams) -> float:
     return p.same_start - p.same_start_folio * math.log1p(max(0.0, abs(f1 - f0) - 1))
 
 
-def _length_term(fs0: float, fs1: float, ppos: int, pos: int, numbers: NumberIndex, p: AlignParams) -> float:
-    if np.isnan(fs0) or np.isnan(fs1) or fs1 < fs0 or numbers.run[ppos] != numbers.run[pos]:
+def _length_term(fs0: float, fs1: float, ppos: int, pos: int, numbers: NumberIndex, p: AlignParams, across_runs: bool = False) -> float:
+    """How well the scan distance fits the folio distance (at the first entry's run rate); only within
+    one numbering run, unless the second entry starts a new foliation sequence (then fs1 is the folio
+    after the first entry's end)."""
+    if np.isnan(fs0) or np.isnan(fs1) or fs1 < fs0 or (numbers.run[ppos] != numbers.run[pos] and not across_runs):
         return 0.0
     expected = (fs1 - fs0) * numbers.rate(numbers.run[ppos])
     return -p.length_weight * abs(math.log((pos - ppos + 1) / (expected + 1)))
@@ -667,32 +684,6 @@ class Result:
         return [sg for sg in self.segments if sg.kind != "non-document"]
 
 
-def _nesting(inv, placements: list[Placement]) -> dict[int, int]:
-    """Placed ToC entries whose page range lies within an earlier entry's range. An entry
-    that only starts on the earlier one's last folio (f. 357-360, then f. 360) is the next
-    document on the same leaf, not a part of it (4,882 of the 8,096 nestings in the index)."""
-    parent: dict[int, int] = {}
-    stack: list[int] = []
-    for pl in placements:
-        e = inv.toc.loc[pl.entry]
-        while stack:
-            top = inv.toc.loc[stack[-1]]
-            if (
-                not pd.isna(e.folio_start)
-                and not pd.isna(top.end_eff)
-                and top.folio_sequence == e.folio_sequence
-                and top.folio_start <= e.folio_start
-                and e.end_eff <= top.end_eff
-                and (e.folio_start, e.end_eff) != (top.folio_start, top.end_eff)
-                and not (e.folio_start == top.end_eff and top.folio_start < e.folio_start)
-            ):
-                parent[pl.entry] = stack[-1]
-                break
-            stack.pop()
-        stack.append(pl.entry)
-    return parent
-
-
 def _entry_spans(inv: InventoryData, placements: list[Placement]) -> list[tuple[int, int]]:
     """Scan span of each placed entry: to the next placement, capped at the
     span its page range implies (with some slack)."""
@@ -912,7 +903,6 @@ def segment_inventory(inv: InventoryData, model: SegmentationModel, use_toc: boo
     span_end = {pl.entry: e for pl, (_, e) in zip(placements, _entry_spans(inv, placements))}
     for pl in placements:
         by_scan.setdefault(pl.scan, []).append(pl)
-    parent_of = _nesting(inv, placements)
     f = inv.features
     numbers = NumberIndex(f["_number"].to_numpy(), f["_run"].to_numpy(), inv.scans["layout"])
 
@@ -927,7 +917,9 @@ def segment_inventory(inv: InventoryData, model: SegmentationModel, use_toc: boo
         if here:
             owner = here[-1].entry
             segments.append(
-                Segment(a, e, "toc", bt, float(sc.start[a]), float(sc.end[e]), [pl.entry for pl in here], parent_of.get(here[0].entry),
+                # a ToC entry is never part of another one: an index range inside an earlier one is a typo in the
+                # index (fo 2287-2888) or, mostly, a misread foliation sequence (step 18)
+                Segment(a, e, "toc", bt, float(sc.start[a]), float(sc.end[e]), [pl.entry for pl in here], None,
                         sum(pl.score for pl in here), gm=gm_at.get(a, []))
             )
         elif a in gm_at:  # a missive without a ToC entry in this inventory
@@ -940,7 +932,7 @@ def segment_inventory(inv: InventoryData, model: SegmentationModel, use_toc: boo
         kind, parent = "unindexed", None
         num = numbers.number_at(a)
         row = owner
-        while row is not None:  # innermost enclosing ToC entry whose range covers this start
+        if row is not None:  # the latest ToC entry, when its range covers this start
             end_eff = inv.toc.at[row, "end_eff"]
             same_run = numbers.run[placed_at[row]] == numbers.run[a]
             unknown = pd.isna(end_eff) or pd.isna(num)
@@ -952,8 +944,6 @@ def segment_inventory(inv: InventoryData, model: SegmentationModel, use_toc: boo
             # after non-document scans the entry has ended, unless its range is known to cover this start
             if same_run and in_span and (in_range if not unknown else bt != "gap"):
                 kind, parent = "subdoc", row
-                break
-            row = parent_of.get(row)
         segments.append(Segment(a, e, kind, bt, float(sc.start[a]), float(sc.end[e]), parent_row=parent))
     if prev_end < inv.n - 1:
         segments.append(Segment(prev_end + 1, inv.n - 1, "non-document", "gap", float(sc.start[prev_end + 1]), float(sc.end[-1])))
