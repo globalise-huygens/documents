@@ -125,6 +125,8 @@ def main():
         for h, n in how.most_common():
             print(f"  {h}: {n:,}")
         print(f"entries whose dates change: {len(rows):,}")
+        if not rows:  # nothing to change (a run after the import has copied the dates already)
+            return
         if args.dry_run:
             titles = entries.set_index("id")["title"]
             for r in rows[:: max(1, len(rows) // 20)]:
