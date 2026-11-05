@@ -11,12 +11,17 @@ documents, the volume's own registers of papers), inferred from their text:
          trained on documents with an index entry (their type comes from the
          Digitized Indexes); given only when it is at least TYPE_MIN sure.
   place  the place of the closing formula ("Bantam den 16 maij 1743"): found
-         with the VOC gazetteer (data/organisational-structure-voc.xlsx), else
-         with the GLOBALISE places dataset (exact matches of its names and
-         spelling variants), or a ship ("on board the ..."); named by the
-         preferred label of the places dataset ("Banten", "Jakarta"), with the
-         place's GLOB id, else as in the gazetteer (English where it has an
-         English form).
+         with the VOC gazetteer (data/organisational-structure-voc.xlsx) by
+         its exact labels, else with the GLOBALISE places dataset (exact
+         matches of its names and spelling variants), else with the gazetteer
+         again by the closest label (fuzzy, for misreadings), or a ship ("on
+         board the ..."). An exact name goes before a close one: Manaar is a
+         variant of Mannar Island, though closer to the gazetteer's Manapaar;
+         but not a name of more than one place in the places dataset.
+         Written as in the text with its standard name in brackets where they
+         differ ("Bantam (Banten)", "Batavia (Jakarta)"): the preferred label of
+         the places dataset, with the place's GLOB id, else as in the gazetteer
+         (English where it has an English form).
   date   the date of that closing; else the last full date on the last page;
          else the date in the running header of the first pages. A year outside
          the inventory's period is a misreading and left out.
@@ -187,6 +192,7 @@ def closing(ents, text):
 # ── places: the VOC gazetteer ─────────────────────────────────────────────────
 
 PLACE_NOISE = re.compile(r"^(in\s*'?\s*t|int|in het|ten|op\s*'?\s*t|opt|in de)?\s*(casteel|comptoire?|compt\W*r|fort|gouvernement|gouvernem\W*|commandement|directie|negotie)?\s*(van|de)?\s*", re.I)
+PLACE_PREFIX = re.compile(r"^((in\s*'?\s*t|int|in het|ten|op\s*'?\s*t|opt|in de)\b\W*)?((casteel|comptoire?|compt\W*r|fort|gouvernement|gouvernem\W*|commandement|directie|negotie)\b\W*)?((van|de)\b\s*)?", re.I)  # PLACE_NOISE whole words only: Deshima keeps its De
 EN_OFFICE = re.compile(r"^the\s+(government|directorate|commandement|commandment|governorate|office|factory|residency|settlement)\s+of\s+", re.I)
 ALIASES = {"victoria": "Ambon", "nieuwvictoria": "Ambon", "rotterdam": "Makassar", "nassau": "Banda", "nassauw": "Banda",
            "speelwijk": "Bantam", "orange": "Ternate", "oranje": "Ternate", "goedehoop": "Kaap de Goede Hoop",
@@ -201,7 +207,8 @@ class Gazetteer:
     """Place names in closings → the VOC organisation: its name (in English where the
     gazetteer has one) and the GLOB id of its place at a given year."""
 
-    def __init__(self, path: str = GAZETTEER):
+    def __init__(self, path: str = GAZETTEER, places: "Places | None" = None):
+        self.exact = set(places.by_key) - places.ambiguous if places is not None else set()  # names of one place in the places dataset: not fuzzy-matched here
         lab = pd.read_excel(path, sheet_name="labels")
         org = pd.read_excel(path, sheet_name="organization_overview")
         loc = pd.read_excel(path, sheet_name="locations")
@@ -236,6 +243,10 @@ class Gazetteer:
         for alias, target in ALIASES.items():
             if k == alias or (len(alias) >= 6 and alias in k):
                 return self.org_of_label.get(self._key(target)) or self.keys.get(self._key(target))
+        if k in self.keys:
+            return self.keys[k]
+        if k in self.exact:  # Manaar is Mannar in the places dataset, not the closer label Manapaar
+            return None
         for cand in (k, "g" + k[1:] if k.startswith("s") else None):  # HTR reads G as S: Sale → Gale
             if cand and len(cand) >= 4:
                 hit = process.extractOne(cand, self.keys.keys(), scorer=fuzz.ratio, score_cutoff=85)
@@ -272,11 +283,13 @@ class Places:
         self.ids = set(p.glob_id.astype(str))
         self.label = dict(zip(p.glob_id.astype(str), p.pref_label.astype(str)))  # GLOB id → preferred label
         self.by_key = {}
+        self.ambiguous = set()  # names of more than one place (Patani: Halmahera and Thailand)
         for r in p.itertuples():
             for label in [r.pref_label] + (str(r.alt_labels).split("|") if isinstance(r.alt_labels, str) else []):
                 k = Gazetteer._key(str(label))
                 if len(k) >= 5:
-                    self.by_key.setdefault(k, (str(r.glob_id), str(r.pref_label)))
+                    if self.by_key.setdefault(k, (str(r.glob_id), str(r.pref_label)))[1] != str(r.pref_label):
+                        self.ambiguous.add(k)
 
     def lookup(self, raw: str) -> tuple[str, str] | None:
         return None if raw.startswith("on board the ") else self.by_key.get(Gazetteer._key(raw))
@@ -343,6 +356,24 @@ def fit_types(segments_csv: str = "segments.csv", n: int = 40000):
 # ── titles ────────────────────────────────────────────────────────────────────
 
 
+def written_place(raw: str) -> str:
+    """The place name as written, without the office ("in 't Casteel Batavia") and transcription marks ("Ma= „kasser")."""
+    w = PLACE_PREFIX.sub("", raw.strip()) or raw.strip()
+    w = re.sub(r"(?<=\w)(\s*[=„¬:])+\s*(?=\w)", "", w)  # a word broken over two lines
+    w = re.sub(r"^[\W\d_]+|[\W\d_]+$", "", w) or raw.strip()  # "Manaar:", "Manaar 6"
+    return w[:1].upper() + w[1:]
+
+
+def place_text(raw: str | None, place: str | None) -> str | None:
+    """The place as written, with its standard name where that differs: "Bantam (Banten)"."""
+    if not place or not raw or raw.startswith("on board the "):
+        return place
+    written = written_place(raw)
+    if Gazetteer._key(written) in (Gazetteer._key(place), Gazetteer._key(re.sub(r" \(.*\)$", "", place))):  # Banda (VOC area)
+        return place
+    return f"{written} ({re.sub(r' \((.*)\)$', r', \1', place)})"  # Makassar (Maccassar, VOC area)
+
+
 def title(type_en: str | None, place: str | None, date: str | None) -> str:
     head = type_en[:1].upper() + type_en[1:] if type_en else UNKNOWN
     return ", ".join(x for x in (head, place, date) if x)
@@ -395,8 +426,9 @@ def infer(doc: dict, texts: dict, headers: dict, model, labels: dict, gazetteer:
             glob_id, place = hit
     if glob_id is not None and places is not None:  # the places dataset's name: modern, not the VOC's (Banten, not Bantam)
         place = places.label.get(glob_id, place)
-    return {"title": title(type_en, place, date_text), "type": type_en, "type_nl": type_nl if type_en else None, "type_conf": round(conf, 2),
-            "place": place, "place_glob_id": glob_id,
+    shown = place_text(raw_place, place)
+    return {"title": title(type_en, shown, date_text), "type": type_en, "type_nl": type_nl if type_en else None, "type_conf": round(conf, 2),
+            "place": place, "place_text": written_place(raw_place) if place and raw_place and not raw_place.startswith("on board the ") else None, "place_glob_id": glob_id,
             "date": date.date.isoformat() if date is not None else None,
             "date_precision": date.precision if date is not None else None, "date_text": date_text, "found_in": source}
 
@@ -406,8 +438,8 @@ def infer_titles(segments_csv: str = "segments.csv", inventories: list[str] | No
     with open(os.path.join(TITLE_DIR, "doctype.pkl"), "rb") as f:
         model = pickle.load(f)
     labels = english_types()
-    gazetteer = Gazetteer()
     places = Places()
+    gazetteer = Gazetteer(places=places)
     seg = pd.read_csv(segments_csv, dtype=str)
     if inventories:
         seg = seg[seg.inventory.isin(inventories)]
