@@ -361,6 +361,16 @@ A description with a day and month but no year (`dato 14 September`) gets the ty
 
 The segmentation documents of the changed entries get the same dates, and later imports copy them from the entries, so the segmentation need not be run again. Other existing dates are not changed; running it again changes nothing.
 
+### Step 24: New Inferred Titles
+
+```bash
+uv run python -m segmentation infer-titles --out inferred_titles.new.csv
+uv run python 24_update_inferred_titles.py --old inferred_titles.csv --new inferred_titles.new.csv [--dry-run]
+mv inferred_titles.new.csv inferred_titles.csv
+```
+
+Gives the documents with an inferred title the titles of a new `infer-titles` run without importing the segmentation again (inferred titles come from the text only). A document is found by its inventory, first scan and previous title, and gets the new title, place GLOB id and settlement; dates and types are left as they are. Used for the place as written with its standard name (*Batavia (Jakarta)*) and exact names before fuzzy ones (*Manaar*: Mannar Island, not Manappād).
+
 ## Document Segmentation (`segmentation/`)
 
 Finds, for every inventory, the best-scoring sequence of documents given all predictors and the ToC (when there is one).
@@ -393,7 +403,7 @@ uv run python -m segmentation import segments.csv [--resume]     # uses inferred
 Documents without a title from the VOC (an index entry or a General Missive) or from the court case dataset get one inferred from their text (`doc_titles.py`): `type, place, date` in English, e.g. *Letter, Cochin, 12 November 1748*; *Unknown document, place, date* when the type is uncertain; *Unknown document* when nothing is known. The volume's own registers of papers come out as *Register of papers*.
 
 - **Type**: the GLOBALISE document type (English label from `data/concepts.trig`), from a classifier on the opening of the first page and the end of the last page, trained on the documents with an index entry (`title-fit`; data/titles/); given from a confidence of 0.5 (cross-validated: 84% right for 78% of the documents).
-- **Place and date**: from the closing formula (*Bantam den 16 maij 1743*, *op 't schip ...*) on the last page or the page before, read with the GLOBALISE entity annotations; else the last full date on the last page; else the date in the running header. Places are found with the VOC gazetteer (`data/organisational-structure-voc.xlsx`), else with the GLOBALISE places dataset (exact matches of a name or spelling variant), others are left out; they are named by the places dataset's preferred label (*Banten*, *Jakarta*, *Semarang*: modern names, see the portal's reference-data page), and as in the gazetteer only when the dataset lacks the place; a year outside the inventory's period is left out.
+- **Place and date**: from the closing formula (*Bantam den 16 maij 1743*, *op 't schip ...*) on the last page or the page before, read with the GLOBALISE entity annotations; else the last full date on the last page; else the date in the running header. Places are found by an exact label of the VOC gazetteer (`data/organisational-structure-voc.xlsx`), else by an exact name or spelling variant of the GLOBALISE places dataset, else by the closest gazetteer label (fuzzy, for misreadings); others are left out. An exact name goes first: *Manaar* is a variant of Mannar Island in the places dataset, though closer to the gazetteer's *Manapaar* (Manappād). The title gives the place as written with its standard name in brackets where they differ (*Bantam (Banten)*, *Batavia (Jakarta)*): the places dataset's preferred label (modern names, see the portal's reference-data page), as in the gazetteer only when the dataset lacks the place; a year outside the inventory's period is left out.
 - Sender, addressee and subject are not attempted (a translator or copyist signs too).
 
 Titles not given by the VOC itself are stored in brackets: inferred titles and court case titles, e.g. *[Letter, Surat, 26 April 1723]* (`title_source` says who made the title, see step 20).
@@ -442,9 +452,12 @@ The probes are fitted by `fit` and saved to `segmentation/embedding_probe.npz` (
 | --- | --- | --- | --- | --- |
 | without embeddings | 59.9 / 28.6 | 56.6 / 29.3 | 83.2% / 48.0% | 0.25 / 0.50 |
 | with embeddings | 64.9 / 50.6 | 61.0 / 49.6 | 86.6% / 59.3% | 0.15 / 0.15 |
-| with embeddings and the ToC alignment changes (step 3 above; current model) | 65.1 / 50.6 | 61.2 / 49.5 | 87.6% / 59.6% | 0.15 / 0.14 |
+| with embeddings and the ToC alignment changes (step 3 above) | 65.1 / 50.6 | 61.2 / 49.5 | 87.6% / 59.6% | 0.15 / 0.14 |
+| with no shared start after a multi-folio entry, blank scans kept in parents, refitted (current model, 5 Nov 2026) | 69.2 / 53.4 | 63.6 / 52.2 | 88.9% / 64.9% | 0.14 / 0.15 |
 
 The probes contribute most; the kNN scores add a little on top. The probe settings were chosen on the validated inventories: more than 256 components did not help, and C=10 beat C=3 on starts in 12 inventories against 4 worse.
+
+The current model places 79.4% of the validated ToC entries on the right scan (91.2% within one scan) and finds top-level starts with F1 80.6% with the ToC, 47.0% without (`evaluate-20261105.log`).
 
 **Court records** (`court_records.py`): inventories without a ToC that have cases in `data/EMDCCR*.xlsx` (Early Modern Dutch Colonial Court Records: Raad van Justitie of Batavia and the Cape, one row per accused) are segmented on those cases instead (`run --no-court` to ignore them). A case with a start and end scan is a fixed document (kind `case`), and the ranges of individual accused within it are its subdocuments. A case with only a start scan (the Cape volumes) runs to the next known case, and covers and blanks at the open end are left out. References to another inventory (`656 (9354)`) continue a case across volumes, and starts or ends inside another case's range are dropped. The model segments everything else as usual. Titles are Dutch: claimant contra defendants; court, place, date, e.g. *Advocaat-fiscaal van India mr. Adrianus Bergsma contra Jacobus Bunnegam en Pieter Hildernisse; Raad van Justitie, Batavia, 1733*; the charges are not part of the title (they stay in the case information of the document evidence). The prosecutor's name is taken from the case's text when it names a known advocaat-fiscaal or fiscaal, and in civil disputes the claimant is unknown (*Onbekende eiser*). `import` stores title, dates and place and links each case to its id (ExternalID context `EMDCCR`).
 
@@ -600,6 +613,8 @@ documents/
 ├── 20_add_title_source.py           # Record who made each title (step 20)
 ├── 21_merge_duplicate_index_entries.py # Merge index entries listed once per settlement (step 21)
 ├── 22_add_place_glob_id.py          # Place GLOB ids of the places dataset (step 22)
+├── 23_add_title_dates.py            # Dates from the index descriptions (step 23)
+├── 24_update_inferred_titles.py     # New inferred titles without a new import (step 24)
 ├── export.py                        # Linked Art JSON-LD serialization helpers
 ├── export_collection.py             # Export IIIF Collection
 ├── export_manifests.py              # Export IIIF Manifests
