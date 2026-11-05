@@ -288,9 +288,15 @@ def evaluate(item: Item, result: Result | None, counts: Counts, label: str, base
 
     if item.source == "validated":
         flat = flat_segments(t, item.inv.n)
+        top = set(t.loc[t["part_of_id"].isna(), "start"])
+        sub = set(flat["start"]) - top
+        nesting_unknown = not any(sg.kind == "toc" for sg in docs)  # without a ToC every document is unindexed
         for tol in (0, 1):
             counts.add(f"{label}|all starts|±{tol}", *_match(pred_all, set(flat["start"]), tol))
-            counts.add(f"{label}|top-level starts|±{tol}", *_match(pred_top, set(t.loc[t["part_of_id"].isna(), "start"]), tol))
+            # a subdocument start found without a ToC is right, only not known to be nested: left out, not counted as an error
+            near = lambda x, starts: any(abs(x - y) <= tol for y in starts)
+            p_top = {x for x in pred_top if near(x, top) or not near(x, sub)} if nesting_unknown else pred_top
+            counts.add(f"{label}|top-level starts|±{tol}", *_match(p_top, top, tol))
             counts.add(f"{label}|all ends|±{tol}", *_match({sg.end for sg in docs}, set(flat["end"]), tol))
         # end and boundary type of documents whose start is exactly right
         by_start = {sg.start: sg for sg in docs}
