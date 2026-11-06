@@ -231,3 +231,4 @@ Icon[]
 data/*.parquet
 data/texts/
 data/layout/
+deposit/
