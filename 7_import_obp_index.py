@@ -196,7 +196,7 @@ def get_or_create_method(session: Session) -> str:
             "typoscript indexes."
         ),
         date=datetime.now().date(),
-        url="https://datasets.iisg.amsterdam/dataset.xhtml?persistentId=hdl:10622/APNBFT",
+        url="https://doi.org/10.34894/OP20NM",
     )
     session.add(method)
     session.commit()
