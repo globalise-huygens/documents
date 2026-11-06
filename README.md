@@ -388,6 +388,24 @@ mv inferred_titles.new.csv inferred_titles.csv
 
 Gives the documents with an inferred title the titles of a new `infer-titles` run without importing the segmentation again (inferred titles come from the text only). A document is found by its inventory, first scan and previous title, and gets the new title, place GLOB id and settlement; dates and types are left as they are. Used for the place as written with its standard name (*Batavia (Jakarta)*) and exact names before fuzzy ones (*Manaar*: Mannar Island, not Manappād).
 
+### Step 25: Check and Correct Index Dates
+
+```bash
+uv run python 25_correct_index_dates.py review     # → date_review.csv (needs deposit/results/documents.csv.gz)
+uv run python 25_correct_index_dates.py apply [--approved-only] [--dry-run]
+```
+
+The dates of the index entries come from their descriptions (step 7's enriched index, step 23), so a check against the description finds the same date. `review` checks the dates that lie more than 2 years outside the inventory's or typoscript's years (1,499) against evidence independent of the description: the document's own text (closing formula, last full date, running header, first date: on the General Missives right within a year for 93.5%), the previous index entry for "Dito" entries, and the typoscript and inventory years. It keeps 1,194 (mostly periods covered or older acts the description names), fixes 217 (the previous entry's date for 132 "Dito" entries, the text's year for 85; day and month kept where the description names them), clears 1 and flags 87, which are left alone. The enriched index gives 16 entries whose description names no year the range 1739-01-01 – 1740-12-31; those are treated as spurious. `apply` sets the fixed and cleared dates on the index entries and the segmentation documents that copied them (436 documents) and records old and new values in `date_corrections.csv`; the database itself only gets the new dates. Running it again changes nothing.
+
+### Step 26: Clean Spacing and Hyphenation in Index Titles
+
+```bash
+uv run python 26_clean_titles.py review     # → title_review.csv
+uv run python 26_clean_titles.py apply [--dry-run]
+```
+
+The titles of the Digitized Indexes were read by OCR from typoscripts. This corrects only their spacing and hyphenation, not their wording: spaces before punctuation and inside brackets (*haer Eds .tot Batavia* → *haer Eds. tot Batavia*; 232 titles), split words where one part hardly ever occurs as a word in the index titles and the joined form does (*Brie fje* → *Briefje*, *Am sterdam* → *Amsterdam*; 460), and hyphens that cut off one or two letters (*No-vember* → *November*, *Cop-ie* → *Copie*; 237). Left alone: the editors' ellipses, the VOC's colon abbreviations (*ult:o*, *Ed:s*), initials, hyphenated compounds (*gesag-hebber*), *be-eedigde*, function words (*Bossch en Hoven*). `apply` sets the new titles on the 921 index entries and the 919 segmentation documents that copied them, and records the old titles in `title_corrections.csv`; running it again changes nothing.
+
 ## Document Segmentation (`segmentation/`)
 
 Finds, for every inventory, the best-scoring sequence of documents given all predictors and the ToC (when there is one).
@@ -617,8 +635,8 @@ The application uses SQLite with the following main tables:
 documents/
 ├── app.py                           # Flask application (browsing and review pages)
 ├── models.py                        # SQLAlchemy database models
-├── 1_import_scans_and_inventories.py … 24_update_inferred_titles.py
-│                                    # database steps 1–24 (see Database Setup)
+├── 1_import_scans_and_inventories.py … 26_clean_titles.py
+│                                    # database steps 1–26 (see Database Setup)
 ├── toc_sources.py                   # matching of the OBP CSV, TANAP Excel and NT (steps 7.5, 18)
 ├── segmentation/                    # document segmentation and inferred titles (see Document Segmentation)
 ├── tests/                           # uv run python -m pytest tests
