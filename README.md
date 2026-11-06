@@ -81,6 +81,25 @@ data/
 └── globalise_digitized_indexes.csv
 ```
 
+The later steps, the segmentation and the inferred titles also read:
+
+| File in `data/` | Used by |
+| --- | --- |
+| `normalized_texts.parquet` (and `htr_texts.parquet`) | step 3.5; split into `data/texts/` by `segmentation split-texts` |
+| `language_data_per_scan.parquet` | step 17 (`scan.languages`, a feature of the segmentation model) |
+| `GLOBALISE - Digitized Indexes of the Dutch East India Company OBP (1602-1799) - no linebreaks.xlsx` and `.csv.zip` | steps 7, 19, 23; type classifier of the inferred titles |
+| `OBP NT_gecorrigeerd.xlsx` | steps 7.5, 18, 23 |
+| `TANAP VOC OBP Nationaal Archief.xlsx` | step 18 |
+| `<inv> - Document Segmentation.csv` (22 validated inventories) | step 15; ground truth of the segmentation |
+| `EMDCCR - ResDiv - Eindversie v1.2.2 - Public - 2025-09-18.xlsx` | court records (`segmentation/court_records.py`) |
+| `organisational-structure-voc.xlsx` | places of inferred titles (VOC gazetteer) |
+| `GLOBALISE - Places in the Dutch East India Company Archives (1602-1799).xlsx` | step 22; places of inferred titles |
+| `concepts.trig` | English document types of inferred titles |
+| `layout/` | PageXML layout per inventory (`segmentation cache-layout`) |
+| `entities/` | entity annotations, fetched by `infer-titles` |
+
+The page embeddings and kNN start scores are read from `SEGMENTATION_EMBEDDINGS_DIR` (see [Page embeddings](#page-embeddings)).
+
 ## Database Setup
 
 The database is `globalise_documents.db` (about 12 GB). All scripts and the app find it through `DATABASE_URL` (default `sqlite:///globalise_documents.db`, relative to the repository). In this setup the file lives on the external drive, `/Volumes/storage/globalise/globalise_documents.db`, and `globalise_documents.db` in the repository is a symbolic link to it; the drive must be mounted to use the app or run the scripts. SQLite writes its journal next to the real file, so imports need free space on that drive (keep 5–10 GB free). To put it elsewhere, move the file and either update the link or set `DATABASE_URL=sqlite:////path/to/globalise_documents.db`.
@@ -114,8 +133,6 @@ This script:
 - Links pages to scans
 - Maps folio numbers and recto/verso positions
 - Expected runtime: 5-10 minutes
-
-Some inventories currently have scans but no page rows; see [TO DO](#to-do).
 
 ### Step 3: Import Archival Hierarchy
 
@@ -598,48 +615,23 @@ The application uses SQLite with the following main tables:
 ```
 
 documents/
-├── app.py # Main Flask application
-├── models.py # SQLAlchemy database models
-├── db_utils.py # Database management utilities
-├── 1_import_scans_and_inventories.py # Import script (step 1)
-├── 2_import_pages.py # Import script (step 2)
-├── 3_import_hierarchy.py # Import script (step 3)
-├── 4_identify_documents_baseline.py # Document identification (baseline method)
-├── 5_import_document_types.py       # Import document types from thesaurus (step 5)
-├── 6_import_settlements.py          # Import settlements (step 6)
-├── 7_import_obp_index.py            # Import OBP index records (step 7)
-├── 8_import_GM.py                   # Import GM data (step 8)
-├── 9_import_annotation_pages_exist.py # Import annotation page flags (step 9)
-├── 20_add_title_source.py           # Record who made each title (step 20)
-├── 21_merge_duplicate_index_entries.py # Merge index entries listed once per settlement (step 21)
-├── 22_add_place_glob_id.py          # Place GLOB ids of the places dataset (step 22)
-├── 23_add_title_dates.py            # Dates from the index descriptions (step 23)
-├── 24_update_inferred_titles.py     # New inferred titles without a new import (step 24)
+├── app.py                           # Flask application (browsing and review pages)
+├── models.py                        # SQLAlchemy database models
+├── 1_import_scans_and_inventories.py … 24_update_inferred_titles.py
+│                                    # database steps 1–24 (see Database Setup)
+├── toc_sources.py                   # matching of the OBP CSV, TANAP Excel and NT (steps 7.5, 18)
+├── segmentation/                    # document segmentation and inferred titles (see Document Segmentation)
+├── tests/                           # uv run python -m pytest tests
 ├── export.py                        # Linked Art JSON-LD serialization helpers
 ├── export_collection.py             # Export IIIF Collection
 ├── export_manifests.py              # Export IIIF Manifests
+├── export_documents.py              # Export Linked Art records of inventories and documents (JSON-LD)
+├── export_documents_csv.py          # Export documents (CSV)
 ├── Dockerfile                       # Container configuration
 ├── requirements.txt                 # Python dependencies (for pip)
 ├── pyproject.toml                   # UV/project configuration
 ├── data/                            # Data files (not in repo)
-└── templates/                       # HTML templates
-    ├── base.html
-    ├── index.html
-    ├── inventories.html
-    ├── inventory_detail.html
-    ├── documents.html
-    ├── document_detail.html
-    ├── document_types.html
-    ├── document_type_detail.html
-    ├── scans.html
-    ├── scan_detail.html
-    ├── pages.html
-    ├── page_detail.html
-    ├── settlements.html
-    ├── settlement_detail.html
-    ├── methods.html
-    ├── method_detail.html
-
+└── templates/                       # Jinja templates of the app
 ```
 
 ### Adding Dependencies
@@ -653,48 +645,6 @@ uv add --dev package-name
 
 # Update all packages
 uv sync --upgrade
-```
-
-## TO DO
-
-### Inventories without page rows
-
-These 20 inventories have scans in the database but no page rows (status of
-October 2026), presumably because they are missing from the page metadata files
-used in step 2:
-
-| Inv. nr. | Scans | | Inv. nr. | Scans |
-|---|---|---|---|---|
-| 1295 | 1893 | | 4022A | 780 |
-| 1684 | 767 | | 4025A | 623 |
-| 1713 | 595 | | 7577 | 264 |
-| 1887 | 1222 | | 8616 | 368 |
-| 1994 | 994 | | 8618 | 410 |
-| 2230 | 1210 | | 8770 | 1506 |
-| 2770 | 473 | | 9809 | 598 |
-| 10090 | 95 | | 9817 | 1 |
-| 10148 | 158 | | 10149B | 87 |
-| 10149A | 107 | | 10149C | 172 |
-
-12,323 scans in all. Consequences until this is fixed:
-
-- Documents of these inventories have no pages: Page2Document links pages, not
-  scans. This holds for the General Missives in 1684, 1887 and 2770 (step 8
-  reports their 1314 scans as `scans_without_pages`), and for the segmentation
-  documents.
-- The General Missives there have no scan range, so they do not override the
-  segmentation.
-- The segmentation decides which scans are blank from the length of the scan's
-  text (fewer than 20 characters) instead of `page.is_blank`, and has no folio
-  numbers, headers or signatures to go on for these inventories.
-
-To fix: add their page metadata, re-run step 2 and step 3.5 for them, then step
-8 (General Missives) and the segmentation (`run` and `import`). To list the
-inventories that still lack page rows:
-
-```bash
-sqlite3 globalise_documents.db "SELECT i.inventory_number, count(*) FROM scan s JOIN inventory i ON i.id = s.inventory_id \
-  WHERE NOT EXISTS (SELECT 1 FROM page p WHERE p.inventory_id = i.id) GROUP BY 1 ORDER BY 1"
 ```
 
 ## License
