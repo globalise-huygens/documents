@@ -1,0 +1,44 @@
+{% extends "base.html" %} {% block title %}Translation review - GLOBALISE Documents{% endblock %}
+{% block content %}
+<style>
+  .review-stats { border-collapse: collapse; font-size: 0.85em; font-variant-numeric: tabular-nums; }
+  .review-stats th, .review-stats td { border-bottom: 1px solid var(--border); padding: 3px 8px; text-align: right; }
+  .review-stats th:first-child, .review-stats td:first-child, .review-stats td.inv { text-align: left; }
+  .inv-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .inv-list a { border: 1px solid var(--border); border-radius: 8px; padding: 2px 9px; text-decoration: none; }
+</style>
+<h1>Review: translations</h1>
+
+<div class="card">
+  <p>Read the machine translation next to the Dutch transcription, document by document, and rate it.
+    Reviews are stored per run, so translation runs with different settings can be compared.</p>
+  {% if not runs %}
+  <div class="alert alert-info" style="margin-top: 0.75rem">No translations found in <code>{{ translations_dir }}</code>.
+    Set <code>TRANSLATIONS_DIR</code> to the <code>translations/output</code> folder of globalise-translation-experiments.</div>
+  {% endif %}
+  {% for r in runs %}
+  <h3 style="margin-top: 0.75rem">Run <code>{{ r.run }}</code></h3>
+  <div class="inv-list">{% for inv in r.inventories %}<a href="{{ base_url }}/review/translations/{{ r.run }}/{{ inv }}">{{ inv }}</a>{% endfor %}</div>
+  {% endfor %}
+</div>
+
+{% if reviewed %}
+<div class="card">
+  <h2>Reviewed so far</h2>
+  <table class="review-stats">
+    <thead><tr><th>Run</th><th>Inventory</th><th>Documents</th>{% for v in verdicts %}<th>{{ v }}</th>{% endfor %}<th>Last review</th></tr></thead>
+    <tbody>{% for d in reviewed %}
+      <tr><td><code>{{ d.run }}</code></td><td class="inv"><a href="{{ base_url }}/review/translations/{{ d.run }}/{{ d.inventory }}">{{ d.inventory }}</a></td><td>{{ d.n }}</td>
+        {% for v in verdicts %}<td>{{ d[v] or "" }}</td>{% endfor %}<td>{{ d.last.replace("T", " ") }}</td></tr>
+    {% endfor %}</tbody>
+  </table>
+  {% if issues %}
+  <h3 style="margin-top: 1rem">Issues reported</h3>
+  <table class="review-stats">
+    <tbody>{% for label, n in issues %}<tr><td>{{ label }}</td><td>{{ n }}</td></tr>{% endfor %}</tbody>
+  </table>
+  {% endif %}
+  <p style="margin-top: 0.75rem"><a class="btn" href="{{ base_url }}/review/translations/export.csv">Download all reviews (CSV)</a></p>
+</div>
+{% endif %}
+{% endblock %}

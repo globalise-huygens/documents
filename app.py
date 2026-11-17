@@ -872,6 +872,88 @@ def review_segments_export():
                     headers={"Content-Disposition": "attachment; filename=segment_reviews.csv"})
 
 
+# ── translation review ────────────────────────────────────────────────────────
+
+
+@app.route("/review/translations")
+def review_translations_index():
+    """Translation runs and inventories to review, and the reviews so far."""
+    import translation_review as tr
+
+    run, inv = (request.args.get("run") or "").strip(), (request.args.get("inventory") or "").strip()
+    if run and inv:
+        return redirect(url_for("review_translations", run=run, inventory_number=inv))
+    reviews = list(tr.current_reviews(_segment_conn()).values())
+    summary = {}
+    for rv in reviews:
+        d = summary.setdefault((rv["run"], rv["inventory"]), {"run": rv["run"], "inventory": rv["inventory"], "n": 0, "last": "", **{v: 0 for v in tr.VERDICTS}})
+        d["n"] += 1
+        if rv["verdict"]:
+            d[rv["verdict"]] += 1
+        d["last"] = max(d["last"], rv["created_at"])
+    issues = {}
+    for rv in reviews:
+        for i in (rv["issues"] or "").split(","):
+            if i:
+                issues[i] = issues.get(i, 0) + 1
+    return render_template(
+        "review_translations_index.html", runs=tr.runs(), translations_dir=tr.TRANSLATIONS_DIR,
+        reviewed=sorted(summary.values(), key=lambda d: d["last"], reverse=True), verdicts=tr.VERDICTS,
+        issues=sorted(((tr.ISSUES.get(k, k), n) for k, n in issues.items()), key=lambda x: -x[1]),
+    )
+
+
+@app.route("/review/translations/<run>/<inventory_number>")
+def review_translations(run, inventory_number):
+    """Dutch and English side by side, document by document (table translation_review)."""
+    import translation_review as tr
+
+    try:
+        data = tr.load(_segment_conn(), run, inventory_number)
+    except KeyError:
+        abort(404, f"No translations for inventory {inventory_number} in run {run}")
+    return render_template("review_translations.html", data=data, issues=tr.ISSUES, verdicts=tr.VERDICTS)
+
+
+@app.route("/review/translations/<run>/<inventory_number>/rows/<path:key>")
+def review_translations_rows(run, inventory_number, key):
+    """Dutch and English of the scans of one document."""
+    import translation_review as tr
+
+    data = tr.load(_segment_conn(), run, inventory_number)
+    it = next((x for x in data["items"] if x["key"] == key), None)
+    if it is None:
+        abort(404)
+    texts = tr.source_texts(run, inventory_number) or _inventory_texts(inventory_number)
+    return {"rows": tr.document_rows(data["scans"], it["lo"], it["hi"], texts, tr.translations(run, inventory_number))}
+
+
+@app.route("/review/translations/<run>/<inventory_number>/save", methods=["POST"])
+def review_translations_save(run, inventory_number):
+    from models import TranslationReview
+    import translation_review as tr
+
+    conn = _segment_conn()
+    data = tr.load(conn, run, inventory_number)
+    try:
+        row = tr.build_row(data, request.get_json())
+    except (KeyError, ValueError) as e:
+        return {"error": str(e)}, 400
+    db_session = Session()
+    db_session.add(TranslationReview(**row))
+    db_session.commit()
+    data = tr.load(conn, run, inventory_number)
+    return {"items": data["items"], "saved": row["item_key"]}
+
+
+@app.route("/review/translations/export.csv")
+def review_translations_export():
+    import translation_review as tr
+
+    return Response(tr.export_rows(_segment_conn()).to_csv(index=False), mimetype="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=translation_reviews.csv"})
+
+
 @app.route("/scans")
 def scans():
     """List all scans."""

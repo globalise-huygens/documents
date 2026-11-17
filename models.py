@@ -771,6 +771,35 @@ class SegmentReview(Base):
     created_at: Mapped[str] = mapped_column(String(32))
 
 
+class TranslationReview(Base):
+    """
+    Machine translations checked by hand, per document (/review/translations;
+    translation_review.py). Append-only: the latest row per (run, inventory,
+    item_key) is the current one.
+    item_key: doc:<document id> or gap:<first scan> (scans outside documents).
+    verdict: good | minor | major | unusable | unsure | NULL.
+    issues: comma-separated keys of translation_review.ISSUES.
+    flagged_scans: comma-separated filenames of scans with a problem.
+    """
+
+    __tablename__ = "translation_review"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run: Mapped[str] = mapped_column(String(64), index=True)
+    inventory: Mapped[str] = mapped_column(String(10), index=True)
+    item_key: Mapped[str] = mapped_column(String(255), index=True)
+    kind: Mapped[Optional[str]] = mapped_column(String(16))
+    title: Mapped[Optional[str]] = mapped_column(Text)
+    first_scan: Mapped[Optional[str]] = mapped_column(String(255))
+    last_scan: Mapped[Optional[str]] = mapped_column(String(255))
+    verdict: Mapped[Optional[str]] = mapped_column(String(16))
+    issues: Mapped[Optional[str]] = mapped_column(Text)
+    flagged_scans: Mapped[Optional[str]] = mapped_column(Text)
+    note: Mapped[Optional[str]] = mapped_column(Text)
+    reviewer: Mapped[Optional[str]] = mapped_column(String(64))
+    created_at: Mapped[str] = mapped_column(String(32))
+
+
 class Page2Document(Base):
     __tablename__ = "page2document"
 

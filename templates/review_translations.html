@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Translation review · {{ data.inventory }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&family=Noto+Serif:wght@400;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --font-sans: "Noto Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --font-serif: "Noto Serif", Georgia, serif;
+    --ink: #1d1c1a; --muted: #6b6a66; --bg: #f4f6f5; --panel: #ffffff; --line: rgba(29, 28, 26, 0.12);
+    --mint: #bfeeca; --blue: #bde6fe; --coral: #ff9f84; --lilac: #e7d3ff; --sel: #fff3d6;
+    --good: #1f8a4c; --minor: #c9a000; --major: #c77700; --unusable: #c0392b; --unsure: #7b4fc9;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { font-family: var(--font-sans); color: var(--ink); background: var(--bg); font-size: 14px; display: flex; flex-direction: column; overflow: hidden; }
+  a { color: inherit; }
+  button { font: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 3px 9px; }
+  button:hover { background: var(--bg); }
+  button.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+  button.primary:hover { background: #3a3936; }
+  input, select { font: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 3px 7px; background: var(--panel); }
+  kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: var(--panel); }
+
+  .topbar { display: flex; align-items: center; gap: 14px; padding: 6px 14px; background: var(--ink); color: #fff; flex: none; }
+  .topbar a { text-decoration: none; opacity: .8; }
+  .topbar a:hover { opacity: 1; }
+  .topbar .grow { flex: 1; }
+  .topbar input { background: #33322f; color: #fff; border-color: #555; width: 9em; }
+  .topbar label { font-size: 13px; }
+
+  .layout { flex: 1; display: grid; grid-template-columns: minmax(280px, 26%) 1fr; min-height: 0; }
+
+  /* documents */
+  .toc { display: flex; flex-direction: column; border-right: 1px solid var(--line); background: var(--panel); min-height: 0; }
+  .toc-tools { padding: 8px 10px; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+  .toc-tools input[type=search] { flex: 1; min-width: 8em; }
+  .toc-tools label { font-size: 12px; color: var(--muted); }
+  .progress { font-size: 12px; color: var(--muted); width: 100%; display: flex; gap: 10px; }
+  .progress .bar { flex: 1; height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; align-self: center; }
+  .progress .bar span { display: block; height: 100%; background: var(--good); }
+  #toc-list { list-style: none; overflow-y: auto; flex: 1; }
+  .item { display: grid; grid-template-columns: 14px 74px 1fr; gap: 0 6px; padding: 4px 10px; border-bottom: 1px solid var(--line); cursor: pointer; line-height: 1.35; }
+  .item:hover { background: var(--bg); }
+  .item.current { background: var(--sel); box-shadow: inset 3px 0 0 var(--coral); }
+  .item .scans { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--muted); }
+  .item .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item .meta { grid-column: 3; font-size: 11px; color: var(--muted); }
+  .item.kind-gap .title { font-style: italic; color: var(--muted); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid #b9b8b4; margin-top: 4px; }
+  .dot.good { background: var(--good); border-color: var(--good); }
+  .dot.minor { background: var(--minor); border-color: var(--minor); }
+  .dot.major { background: var(--major); border-color: var(--major); }
+  .dot.unusable { background: var(--unusable); border-color: var(--unusable); }
+  .dot.unsure { background: var(--unsure); border-color: var(--unsure); }
+  .dot.noted { border-color: var(--ink); }
+  .warn { color: var(--unusable); }
+
+  /* document */
+  .viewer { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+  .doc-head { padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; gap: 12px; align-items: flex-start; }
+  .doc-head .grow { flex: 1; min-width: 0; }
+  .doc-head h2 { font-size: 15px; font-weight: 600; line-height: 1.3; }
+  .doc-head .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .doc-head label { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  #rows { flex: 1; overflow-y: auto; padding: 0 14px 20px; }
+  .cols, .scan-body { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
+  body.images .cols, body.images .scan-body { grid-template-columns: minmax(180px, 22%) 1fr 1fr; }
+  .cols { position: sticky; top: 0; z-index: 2; background: var(--bg); font-size: 11px; font-weight: 700; letter-spacing: .06em; color: var(--muted); padding: 8px 0 4px; border-bottom: 1px solid var(--line); }
+  .cols .img-col { display: none; }
+  body.images .cols .img-col { display: block; }
+  .scan { border-bottom: 1px solid var(--line); padding: 10px 0 12px; }
+  .scan.flagged { background: linear-gradient(90deg, rgba(192,57,43,.07), transparent 40%); box-shadow: inset 3px 0 0 var(--unusable); padding-left: 8px; }
+  .scan-head { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .scan-head .no { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .scan-head .grow { flex: 1; }
+  .scan-head button { font-size: 12px; padding: 1px 7px; }
+  .scan-head button.on { background: var(--unusable); color: #fff; border-color: var(--unusable); }
+  .chip { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 9px; background: var(--bg); border: 1px solid var(--line); white-space: nowrap; }
+  .chip.translated { background: var(--mint); }
+  .chip.skipped { background: var(--blue); }
+  .chip.missing, .chip.not-in-run { background: #ffd1cb; }
+  .text { white-space: pre-wrap; line-height: 1.55; overflow-wrap: anywhere; }
+  .nl { font-family: var(--font-serif); font-size: 13.5px; color: #3b3a37; }
+  .en { font-size: 14px; }
+  .none { color: var(--muted); font-style: italic; }
+  .img { display: none; }
+  body.images .img { display: block; }
+  .img img { width: 100%; border: 1px solid var(--line); background: #ddd; cursor: zoom-in; }
+  .placeholder { color: var(--muted); padding: 40px 0; text-align: center; }
+  mark { background: #ffe6a6; padding: 0 1px; border-radius: 2px; }
+  .margin-note { display: block; margin-top: 6px; padding: 2px 0 2px 8px; border-left: 3px solid var(--lilac); font-size: 12.5px; color: var(--muted); }
+  .margin-note::before { content: "margin: "; font-family: var(--font-sans); font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+
+  /* rating */
+  .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 7px 14px; background: var(--panel); border-top: 1px solid var(--line); }
+  .verdicts { display: flex; gap: 4px; }
+  .verdicts button.on { color: #fff; }
+  .verdicts button[data-v=good].on { background: var(--good); border-color: var(--good); }
+  .verdicts button[data-v=minor].on { background: var(--minor); border-color: var(--minor); }
+  .verdicts button[data-v=major].on { background: var(--major); border-color: var(--major); }
+  .verdicts button[data-v=unusable].on { background: var(--unusable); border-color: var(--unusable); }
+  .verdicts button[data-v=unsure].on { background: var(--unsure); border-color: var(--unsure); }
+  .issues { display: flex; flex-wrap: wrap; gap: 3px 10px; width: 100%; font-size: 12px; }
+  .issues label { white-space: nowrap; cursor: pointer; }
+  .actions .note { flex: 1; min-width: 12em; }
+  .actions .msg { font-size: 12px; color: var(--muted); }
+  .actions .msg.err { color: var(--unusable); }
+  .keys { font-size: 11px; color: var(--muted); padding: 3px 14px 5px; background: var(--panel); }
+
+  @media (max-width: 900px) {
+    body { overflow: auto; }
+    .layout { grid-template-columns: 1fr; }
+    .toc { max-height: 35vh; }
+    .cols, .scan-body, body.images .cols, body.images .scan-body { grid-template-columns: 1fr; }
+    .cols { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="{{ base_url }}/review/translations">← Translation review</a>
+  <strong>Inventory {{ data.inventory }}</strong>
+  <span style="opacity:.7">run <code>{{ data.run }}</code></span>
+  <a href="{{ base_url }}/inventory/{{ data.inventory }}" target="_blank">inventory page ↗</a>
+  <span class="grow"></span>
+  <label>Reviewer <input id="reviewer" placeholder="your name" /></label>
+</div>
+
+<div class="layout">
+  <aside class="toc">
+    <div class="toc-tools">
+      <select id="filter" aria-label="Show">
+        <option value="all">All documents</option>
+        <option value="todo">To review</option>
+        <option value="done">Reviewed</option>
+        <option value="problems">Rated minor, major or unusable</option>
+        <option value="missing">With untranslated scans</option>
+      </select>
+      <input type="search" id="search" placeholder="Search title or scan" />
+      <label title="Hide documents in which no scan was translated"><input type="checkbox" id="only-en" checked /> only with English</label>
+      <label><input type="checkbox" id="show-gap" checked /> scans outside documents</label>
+      <div class="progress"><span id="progress-text"></span><span class="bar"><span id="progress-bar"></span></span></div>
+    </div>
+    <ol id="toc-list"></ol>
+  </aside>
+
+  <section class="viewer">
+    <div class="doc-head">
+      <div class="grow"><h2 id="doc-title">Select a document</h2><div class="sub" id="doc-sub"></div></div>
+      <input type="search" id="find" placeholder="Highlight words" style="width:11em" title="Highlight a word in both columns" />
+      <label title="Show the scan images in a third column (i)"><input type="checkbox" id="images" /> scan images</label>
+    </div>
+    <div id="rows"><div class="placeholder">Select a document on the left.</div></div>
+    <div class="actions">
+      <div class="verdicts">
+        {% for v in verdicts %}<button type="button" data-v="{{ v }}" title="{{ loop.index }}">{{ {"good": "✓ Good", "minor": "Minor issues", "major": "Major issues", "unusable": "Unusable", "unsure": "Unsure"}[v] }}</button>{% endfor %}
+      </div>
+      <input class="note" id="note" placeholder="Note (optional): what is wrong, an example…" />
+      <button type="button" class="primary" id="save" title="Enter">Save</button>
+      <button type="button" id="clear">Clear review</button>
+      <label style="font-size:12px"><input type="checkbox" id="advance" checked /> next after saving</label>
+      <span class="msg" id="msg"></span>
+      <div class="issues">{% for k, label in issues.items() %}<label><input type="checkbox" value="{{ k }}" /> {{ label }}</label>{% endfor %}</div>
+    </div>
+    <div class="keys">
+      <kbd>j</kbd>/<kbd>k</kbd> next/previous document · <kbd>n</kbd> next to review · <kbd>1</kbd>–<kbd>5</kbd> rating · <kbd>Enter</kbd> save ·
+      <kbd>i</kbd> scan images · <kbd>f</kbd> highlight · flag a scan with ⚑ to point out where the problem is
+    </div>
+  </section>
+</div>
+
+<script>
+const BASE = {{ base_url|tojson }};
+const DATA = {{ data|tojson }};
+const RUN = DATA.run, INV = DATA.inventory, SCANS = DATA.scans;
+const ISSUES = {{ issues|tojson }};
+const LABEL = { good: 'good', minor: 'minor issues', major: 'major issues', unusable: 'unusable', unsure: 'unsure' };
+let items = DATA.items;
+let current = null, rows = [], verdict = null, flagged = new Set();
+const cache = {};
+
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
+const num = f => String(f).split('_').pop();
+const span = it => it.start === it.end ? num(it.start) : `${num(it.start)}–${num(it.end)}`;
+const isDone = it => !!(it.review && it.review.verdict && it.review.verdict !== 'unsure');
+
+// ── documents ────────────────────────────────────────────────────────────────
+function visible(it) {
+  const f = $('#filter').value, q = $('#search').value.trim().toLowerCase();
+  if (it.kind === 'gap' && !$('#show-gap').checked && it !== current) return false;
+  if ($('#only-en').checked && !it.translated && it !== current) return false;
+  if (f === 'todo' && isDone(it)) return false;
+  if (f === 'done' && !isDone(it)) return false;
+  if (f === 'problems' && !(it.review && ['minor', 'major', 'unusable'].includes(it.review.verdict))) return false;
+  if (f === 'missing' && !it.missing) return false;
+  if (q && !`${it.title} ${num(it.start)} ${num(it.end)}`.toLowerCase().includes(q)) return false;
+  return true;
+}
+function renderToc() {
+  $('#toc-list').innerHTML = items.filter(visible).map(it => {
+    const rv = it.review, k = items.indexOf(it);
+    const meta = [
+      `${it.n} scan${it.n > 1 ? 's' : ''}`,
+      it.translated < it.n ? `${it.translated} translated` : '',
+      it.missing ? `<span class="warn">${it.missing} not translated</span>` : '',
+      rv && rv.verdict ? LABEL[rv.verdict] : '',
+      rv && rv.flagged_scans ? `⚑ ${rv.flagged_scans.split(',').length}` : '',
+      rv && rv.note ? '✎' : '',
+    ].filter(Boolean).join(' · ');
+    return `<li class="item kind-${it.kind}${it === current ? ' current' : ''}" data-k="${k}">
+      <span class="dot ${rv ? (rv.verdict || 'noted') : ''}"></span><span class="scans">${span(it)}</span>
+      <span class="title" title="${esc(it.title)}">${esc(it.title)}</span><span class="meta">${meta}</span></li>`;
+  }).join('');
+  const docs = items.filter(it => it.kind === 'doc' && (it.translated || !$('#only-en').checked)), done = docs.filter(isDone).length;
+  $('#progress-text').textContent = `${done} / ${docs.length} documents rated`;
+  $('#progress-bar').style.width = `${docs.length ? 100 * done / docs.length : 0}%`;
+  const cur = $('.item.current');
+  if (cur) cur.scrollIntoView({ block: 'nearest' });
+}
+$('#toc-list').addEventListener('click', e => { const li = e.target.closest('.item'); if (li) select(items[+li.dataset.k]); });
+['filter', 'search', 'show-gap', 'only-en'].forEach(id => $('#' + id).addEventListener('input', renderToc));
+
+// ── one document ─────────────────────────────────────────────────────────────
+async function select(it) {
+  if (!it) return;
+  current = it;
+  const rv = it.review || {};
+  verdict = rv.verdict || null;
+  flagged = new Set((rv.flagged_scans || '').split(',').filter(Boolean));
+  $('#note').value = rv.note || '';
+  const issues = new Set((rv.issues || '').split(',').filter(Boolean));
+  document.querySelectorAll('.issues input').forEach(c => { c.checked = issues.has(c.value); });
+  renderVerdict();
+  try { history.replaceState(null, '', '#' + encodeURIComponent(it.key)); } catch (e) {}
+  $('#doc-title').textContent = it.title;
+  $('#doc-sub').textContent = [
+    it.kind === 'gap' ? 'Scans that no document covers' : (DATA.method ? `document (${DATA.method})` : 'document'),
+    `scans ${span(it)}`, `${it.translated} of ${it.n} translated`,
+    rv.created_at ? `rated ${rv.created_at.replace('T', ' ')}${rv.reviewer ? ' by ' + rv.reviewer : ''}` : '',
+  ].filter(Boolean).join(' · ');
+  renderToc();
+  $('#rows').innerHTML = '<div class="placeholder">loading…</div>';
+  if (!cache[it.key]) {
+    try { cache[it.key] = (await (await fetch(`${BASE}/review/translations/${RUN}/${INV}/rows/${encodeURIComponent(it.key)}`)).json()).rows; }
+    catch (e) { $('#rows').innerHTML = '<div class="placeholder">Could not load the texts.</div>'; return; }
+  }
+  if (current !== it) return;
+  rows = cache[it.key];
+  renderRows();
+  $('#rows').scrollTop = 0;
+}
+function highlight(text) {
+  const q = $('#find').value.trim();
+  let html = esc(text);
+  if (q.length >= 2) {
+    const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+    html = html.replace(re, m => `<mark>${m}</mark>`);
+  }
+  // margin notes, as set apart for the model
+  return html.replace(/\n?&lt;margin&gt;([\s\S]*?)&lt;\/margin&gt;/g, '<span class="margin-note">$1</span>');
+}
+function renderRows() {
+  const showImg = $('#images').checked;
+  $('#rows').innerHTML = `<div class="cols"><span class="img-col">SCAN</span><span>DUTCH (HTR)</span><span>ENGLISH</span></div>` + rows.map(r => {
+    const en = r.status === 'translated' ? `<div class="text en">${highlight(r.en)}</div>`
+      : r.status === 'skipped' ? `<div class="none">skipped: ${esc(r.reason || '')}</div>`
+      : `<div class="none">not translated${r.reason ? ` (${esc(r.reason)})` : ''}</div>`;
+    const img = r.iiif ? `<div class="img"><img loading="lazy" alt="scan ${num(r.f)}" ${showImg ? `src="${r.iiif}/full/600,/0/default.jpg"` : `data-src="${r.iiif}/full/600,/0/default.jpg"`} data-full="${r.iiif}/full/max/0/default.jpg" /></div>` : '<div class="img none">no image</div>';
+    return `<div class="scan${flagged.has(r.f) ? ' flagged' : ''}" data-f="${esc(r.f)}">
+      <div class="scan-head"><span class="no">scan ${num(r.f)}</span>${r.folio ? `<span>folio ${esc(r.folio)}</span>` : ''}
+        <span class="chip ${r.status.replace(/ /g, '-')}">${esc(r.status)}</span><span class="grow"></span>
+        <button type="button" class="flag${flagged.has(r.f) ? ' on' : ''}" title="Flag this scan: the problem is here">⚑ flag</button>
+        <a href="${BASE}/scan/${encodeURIComponent(r.f)}" target="_blank">scan ↗</a></div>
+      <div class="scan-body">${img}<div class="text nl">${r.nl ? highlight(r.nl) : '<span class="none">(no text)</span>'}</div>${en}</div></div>`;
+  }).join('');
+}
+$('#rows').addEventListener('click', e => {
+  const flag = e.target.closest('.flag');
+  if (flag) {
+    const row = flag.closest('.scan'), f = row.dataset.f;
+    flagged.has(f) ? flagged.delete(f) : flagged.add(f);
+    row.classList.toggle('flagged', flagged.has(f));
+    flag.classList.toggle('on', flagged.has(f));
+    return;
+  }
+  if (e.target.matches('.img img')) window.open(e.target.dataset.full, '_blank');
+});
+function toggleImages(on) {
+  document.body.classList.toggle('images', on);
+  if (on) document.querySelectorAll('.img img[data-src]').forEach(im => { im.src = im.dataset.src; im.removeAttribute('data-src'); });
+  store.set('translation-images', on ? '1' : '');
+}
+$('#images').addEventListener('change', e => toggleImages(e.target.checked));
+let findTimer;
+$('#find').addEventListener('input', () => { clearTimeout(findTimer); findTimer = setTimeout(renderRows, 200); });
+
+// ── rating ───────────────────────────────────────────────────────────────────
+function renderVerdict() { document.querySelectorAll('.verdicts button').forEach(b => b.classList.toggle('on', b.dataset.v === verdict)); }
+document.querySelectorAll('.verdicts button').forEach(b => b.addEventListener('click', () => { verdict = verdict === b.dataset.v ? null : b.dataset.v; renderVerdict(); }));
+async function save(extra) {
+  if (!current) return;
+  const payload = {
+    key: current.key, reviewer: $('#reviewer').value.trim(), verdict, note: $('#note').value.trim(), flagged: [...flagged],
+    issues: [...document.querySelectorAll('.issues input:checked')].map(c => c.value), ...extra,
+  };
+  const msg = $('#msg');
+  msg.className = 'msg'; msg.textContent = 'saving…';
+  let res;
+  try { res = await fetch(`${BASE}/review/translations/${RUN}/${INV}/save`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); }
+  catch (e) { msg.className = 'msg err'; msg.textContent = 'Could not reach the server'; return; }
+  const out = await res.json();
+  if (!res.ok) { msg.className = 'msg err'; msg.textContent = out.error || 'Save failed'; return; }
+  items = out.items;
+  const saved = items.find(it => it.key === out.saved);
+  msg.textContent = extra && extra.clear ? 'cleared' : 'saved';
+  if ($('#advance').checked && !(extra && extra.clear)) next(saved, 1, true);
+  else select(saved);
+}
+$('#save').addEventListener('click', () => save());
+$('#clear').addEventListener('click', () => save({ clear: true }));
+
+// ── navigation ───────────────────────────────────────────────────────────────
+function next(from, dir, todoOnly) {
+  const shown = items.filter(visible);
+  let k = shown.indexOf(from ?? current);
+  for (let i = 0; i < shown.length; i++) {
+    k += dir;
+    if (k < 0 || k >= shown.length) break;
+    if (!todoOnly || !isDone(shown[k])) return select(shown[k]);
+  }
+  if (from && from !== current) select(from);
+}
+document.addEventListener('keydown', e => {
+  if (e.target.matches('input, select, textarea') || e.metaKey || e.ctrlKey || e.altKey) {
+    if (e.key === 'Escape') e.target.blur();
+    return;
+  }
+  const keys = {
+    j: () => next(current, 1), k: () => next(current, -1), n: () => next(current, 1, true),
+    i: () => { $('#images').checked = !$('#images').checked; toggleImages($('#images').checked); },
+    f: () => $('#find').focus(), Enter: () => save(),
+  };
+  {% for v in verdicts %}keys['{{ loop.index }}'] = () => { verdict = verdict === '{{ v }}' ? null : '{{ v }}'; renderVerdict(); };
+  {% endfor %}
+  if (keys[e.key]) { e.preventDefault(); keys[e.key](); }
+});
+
+const reviewer = $('#reviewer');
+reviewer.value = store.get('translation-reviewer') || store.get('segment-reviewer') || '';
+reviewer.addEventListener('change', () => store.set('translation-reviewer', reviewer.value.trim()));
+$('#images').checked = !!store.get('translation-images');
+toggleImages($('#images').checked);
+
+const fromHash = decodeURIComponent(location.hash.slice(1));
+select(items.find(it => it.key === fromHash) || items.find(it => it.kind === 'doc' && it.translated && !isDone(it)) || items.find(it => it.translated) || items[0]);
+</script>
+</body>
+</html>
