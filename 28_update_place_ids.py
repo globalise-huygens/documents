@@ -135,11 +135,14 @@ def link_combined(conn):
 
 
 def check(conn, places: Places):
-    team = pd.read_excel(CHOICES)
-    chosen = {str(c).split()[0] for c in team.iloc[:, 3]}
     globs = {g for (g,) in conn.execute(text("SELECT glob_id FROM settlement"))}
-    print(f"settlements: {len(globs)}; not the team's choice: {sorted(globs - chosen)} (expected {sorted(NOT_THE_TEAMS)}); "
-          f"team's choices not used: {sorted(chosen - globs - {MERGE[0], 'GLOB2_947', 'GLOB_539'})}")
+    if not os.path.exists(CHOICES):  # the team's file (not in the deposit): its choices are in SETTLEMENT_IDS
+        print(f"settlements: {len(globs)}; {os.path.basename(CHOICES)} not found, not compared")
+    else:
+        team = pd.read_excel(CHOICES)
+        chosen = {str(c).split()[0] for c in team.iloc[:, 3]}
+        print(f"settlements: {len(globs)}; not the team's choice: {sorted(globs - chosen)} (expected {sorted(NOT_THE_TEAMS)}); "
+              f"team's choices not used: {sorted(chosen - globs - {MERGE[0], 'GLOB2_947', 'GLOB_539'})}")
     unknown = conn.execute(text("SELECT place_glob_id, count(*) FROM document WHERE place_glob_id IS NOT NULL GROUP BY 1")).fetchall()
     unknown = [(g, n) for g, n in unknown if g not in places.ids or places.current(g) != g]
     print(f"document place GLOB ids not current or not in the places dataset: {unknown or 'none'}")
