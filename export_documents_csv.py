@@ -43,11 +43,7 @@ def get_settlement(document):
     """Get the settlement UUID and label for a document."""
     if document.location:
         settlement_id = document.location.id
-        if document.location.labels:
-            settlement_label = document.location.labels[0].label
-        else:
-            settlement_label = document.location.glob_id
-        return settlement_id, settlement_label
+        return settlement_id, document.location.display_label
     return "", ""
 
 

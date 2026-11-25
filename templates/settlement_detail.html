@@ -1,9 +1,8 @@
-{% extends "base.html" %} {% block title %}{{ settlement.labels[0].label if
-settlement.labels else settlement.glob_id }} - GLOBALISE Documents{% endblock %}
+{% extends "base.html" %} {% block title %}{{ settlement.display_label }} - GLOBALISE Documents{% endblock %}
 {% block content %}
 
 <h1>
-  {{ settlement.labels[0].label if settlement.labels else settlement.glob_id }}
+  {{ settlement.display_label }}
 </h1>
 
 <div class="card">
@@ -15,16 +14,6 @@ settlement.labels else settlement.glob_id }} - GLOBALISE Documents{% endblock %}
   <div class="info-row">
     <strong>URI:</strong>
     <span><a href="https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/place:{{ settlement.glob_id }}">https://data.globalise.huygens.knaw.nl/hdl:20.500.14722/place:{{ settlement.glob_id }}</a></span>
-  </div>
-  <div class="info-row">
-    <strong>All Names:</strong>
-    <span>
-      {% for lbl in settlement.labels %}
-      <span class="badge badge-secondary" style="margin-right: 0.25rem"
-        >{{ lbl.label }}</span
-      >
-      {% endfor %}
-    </span>
   </div>
   <div class="info-row">
     <strong>Total Documents:</strong>

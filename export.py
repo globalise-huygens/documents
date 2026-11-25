@@ -288,10 +288,8 @@ def settlement_to_place_jsonld(settlement) -> Dict[str, Any]:
             f"place:{settlement.glob_id}"
         )
 
-    if deduped_labels:
-        place_obj["identified_by"] = [
-            {"type": "Name", "content": label} for label in deduped_labels
-        ]
+    if deduped_labels:  # only the name shown: the other labels are spellings of the OBP index, kept to match it
+        place_obj["identified_by"] = [{"type": "Name", "content": place_label}]
 
     return place_obj
 

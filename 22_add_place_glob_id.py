@@ -3,7 +3,7 @@
 Step 22: give documents the GLOB id of their place (document.place_glob_id).
 
 The id is that of the GLOBALISE places dataset
-(data/GLOBALISE - Places in the Dutch East India Company Archives (1602-1799).xlsx).
+(data/places_v3_complete_20261125.xlsx).
 Adds the column if missing and fills it for the documents with a settlement
 (location_id) whose GLOB id the places dataset has. The segmentation import
 (segmentation/db_import.py) sets it for the documents it creates, also for

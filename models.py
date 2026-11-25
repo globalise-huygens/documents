@@ -21,6 +21,7 @@ from sqlalchemy import (
     Enum as SQLEnum,
     Table,
     Column,
+    literal_column,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -166,10 +167,12 @@ class Settlement(Base):
         index=True,
         comment="GLOBALISE identifier, e.g. GLOB2_894",
     )
-
     # Relationships
     labels: Mapped[List["SettlementLabel"]] = relationship(
-        "SettlementLabel", back_populates="settlement", cascade="all, delete-orphan"
+        "SettlementLabel",
+        back_populates="settlement",
+        cascade="all, delete-orphan",
+        order_by=lambda: literal_column("settlement_label.rowid"),  # insertion order: the first label is shown
     )
     documents: Mapped[List["Document"]] = relationship(
         "Document", back_populates="location"
@@ -178,11 +181,21 @@ class Settlement(Base):
     def __repr__(self) -> str:
         return f"<Settlement(glob_id='{self.glob_id}')>"
 
-    def __str__(self) -> str:
-        # Return the first label if available, otherwise the glob_id
+    @property
+    def display_label(self) -> str:
+        """The first label (step 27 puts the preferred one first), else the glob_id."""
         if self.labels:
             return self.labels[0].label
         return self.glob_id
+
+    @property
+    def other_labels(self) -> List[str]:
+        """The labels other than the one displayed."""
+        shown = self.display_label
+        return [lbl.label for lbl in self.labels if lbl.label != shown]
+
+    def __str__(self) -> str:
+        return self.display_label
 
 
 class SettlementLabel(Base):

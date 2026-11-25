@@ -93,7 +93,8 @@ The later steps, the segmentation and the inferred titles also read:
 | `<inv> - Document Segmentation.csv` (22 validated inventories) | step 15; ground truth of the segmentation |
 | `EMDCCR - ResDiv - Eindversie v1.2.2 - Public - 2025-09-18.xlsx` | court records (`segmentation/court_records.py`) |
 | `organisational-structure-voc.xlsx` | places of inferred titles (VOC gazetteer) |
-| `GLOBALISE - Places in the Dutch East India Company Archives (1602-1799).xlsx` | step 22; places of inferred titles |
+| `places_v3_complete_20261125.xlsx` (GLOBALISE places dataset, with `deprecated_uris` and `updated_uris`) | steps 22, 27, 28; places of inferred titles |
+| `settlement-place-check.xlsx` (the data team's GLOB id per settlement, column *Choice*) | step 28 (`doc_titles.SETTLEMENT_IDS`) |
 | `concepts.trig` | English document types of inferred titles |
 | `layout/` | PageXML layout per inventory (`segmentation cache-layout`) |
 | `entities/` | entity annotations, fetched by `infer-titles` |
@@ -364,7 +365,7 @@ The Digitized Indexes list some documents once per settlement they were linked t
 uv run python 22_add_place_glob_id.py [--dry-run]
 ```
 
-Adds `document.place_glob_id`: the GLOB id of the document's place in the GLOBALISE places dataset (`data/GLOBALISE - Places in the Dutch East India Company Archives (1602-1799).xlsx`), and fills it for the documents with a settlement (`location_id`). Settlements whose GLOB id the dataset lacks are listed (now only Pontianak, `GLOB_PONTIANAK_PLACEHOLDER`) and get no `place_glob_id`. Run it before the segmentation `import`, which copies the column from the index entries and sets it for inferred titles.
+Adds `document.place_glob_id`: the GLOB id of the document's place in the GLOBALISE places dataset (`data/places_v3_complete_20261125.xlsx`), and fills it for the documents with a settlement (`location_id`). Settlements whose GLOB id the dataset lacks are listed and get no `place_glob_id` (none since the dataset of 2026-11-25; step 28 brings the ids up to date). Run it before the segmentation `import`, which copies the column from the index entries and sets it for inferred titles.
 
 ### Step 23: Dates from the Index Descriptions
 
@@ -386,7 +387,7 @@ uv run python 24_update_inferred_titles.py --old inferred_titles.csv --new infer
 mv inferred_titles.new.csv inferred_titles.csv
 ```
 
-Gives the documents with an inferred title the titles of a new `infer-titles` run without importing the segmentation again (inferred titles come from the text only). A document is found by its inventory, first scan and previous title, and gets the new title, place GLOB id and settlement; dates and types are left as they are. Used for the place as written with its standard name (*Batavia (Jakarta)*) and exact names before fuzzy ones (*Manaar*: Mannar Island, not Manappād).
+Gives the documents with an inferred title the titles of a new `infer-titles` run without importing the segmentation again (inferred titles come from the text only). A document is found by its inventory, first scan and previous title, and gets the new title, place GLOB id and settlement; dates and types are left as they are. Used for the place as written with its standard name (*Batavia (Jakarta)*), exact names before fuzzy ones (*Manaar*: Mannar Island, not Manappād), and the Dutch names and current GLOB ids of step 28 (*Gale (Galle)*, *Casteel de Goede Hoop (Kaap de Goede Hoop)*).
 
 ### Step 25: Check and Correct Index Dates
 
@@ -405,6 +406,38 @@ uv run python 26_clean_titles.py apply [--dry-run]
 ```
 
 The titles of the Digitized Indexes were read by OCR from typoscripts. This corrects only their spacing and hyphenation, not their wording: spaces before punctuation and inside brackets (*haer Eds .tot Batavia* → *haer Eds. tot Batavia*; 232 titles), split words where one part hardly ever occurs as a word in the index titles and the joined form does (*Brie fje* → *Briefje*, *Am sterdam* → *Amsterdam*; 460), and hyphens that cut off one or two letters (*No-vember* → *November*, *Cop-ie* → *Copie*; 237). Left alone: the editors' ellipses, the VOC's colon abbreviations (*ult:o*, *Ed:s*), initials, hyphenated compounds (*gesag-hebber*), *be-eedigde*, function words (*Bossch en Hoven*). `apply` sets the new titles on the 921 index entries and the 919 segmentation documents that copied them, and records the old titles in `title_corrections.csv`; running it again changes nothing.
+
+### Step 27: Fix Settlement Labels and GLOB ids
+
+```bash
+uv run python 27_fix_settlements.py [--dry-run]
+```
+
+- **'Ban' is Bantam.** The OBP index gives *Ban* as the settlement of 20 entries in inventory 2081 (OBP ids 213714–213733, papers from Bantam of 1728), and `location_index.csv` mapped that label to Banda. The label is removed (a truncated *Bantam*, not a spelling of a place), and the 40 documents of inventory 2081 linked to Banda (the 20 entries and the 20 segmentation documents that copied them) are linked to Bantam (`location_id`, `document_settlement`, `place_glob_id`). Fix `location_index.csv` too before running step 6 again.
+- **Preferred labels.** The app and the exports show a settlement by its first label in insertion order (`Settlement.display_label`). For settlements with several labels the VOC name is made the first label, by inserting the others again after it: *Kaap de Goede Hoop* (was *Goede Hoop*), *Bengalen* (was *Bengale*).
+- **Retired GLOB ids** are replaced in `settlement.glob_id` and `document.place_glob_id`, after the `deprecated_uris` sheet of the places dataset and the Pontianak placeholder (`EXTRA_ID_MAP`): Ambon `GLOB2_E_16` → `GLOB_129_HUM_1`, Banda `GLOB2_E_17` → `GLOB3_190_HUM_1`, Makassar `GLOB2_E_19` → `GLOB_189_HUM_1` (VOC administered areas, as before), Pontianak `GLOB_PONTIANAK_PLACEHOLDER` → `GLOB3_115`, and in `place_glob_id` also Ceylon (VOC area), Ayutthaya and Kelang (49,123 documents). The places code (`doc_titles.Places`) maps retired ids the same way, also those of the VOC gazetteer.
+
+Running it again changes nothing.
+
+### Step 28: Current Place GLOB ids
+
+```bash
+uv run python 28_update_place_ids.py [--dry-run]
+uv run python -m segmentation infer-titles --out inferred_titles.new.csv
+uv run python 24_update_inferred_titles.py --old inferred_titles.csv --new inferred_titles.new.csv
+mv inferred_titles.new.csv inferred_titles.csv
+```
+
+Brings the GLOB ids up to the places dataset of 2026-11-25 and the ids the data team chose per settlement (`data/settlement-place-check.xlsx`, column *Choice*; in the code `doc_titles.SETTLEMENT_IDS`):
+
+- **Java's Oostkust** (`GLOB_123`, 11,463 documents) is merged into **Java's (Noord-) Oostkust** (`GLOB2_1848`): its documents and its label move there; the settlement is removed (35 settlements remain).
+- **Settlement ids**: Batavia `GLOB2_894_HUM_1` (city), Ceylon `GLOB_800_HUM_1` (VOC area), Bantam `GLOB2_899_HUM_1`, Cheribon `GLOB_593_HUM_1` (port towns), Bengalen `GLOB_796_HUM_1` (region), Ternate `GLOB2_900_HUM_3` (VOC area), Sumatra's Westkust `GLOB_434` (the VOC area *Sumatra's Western Coast*; the team's list offered only the island `GLOB2_947`), and Siam `GLOB_539_HUM_2` (the kingdom, as in `updated_uris`; `GLOB_539` is now the general record of Ayutthaya). Jambi (`GLOB_533`) keeps the general record the team chose, not the city that `updated_uris` gives.
+- **`document.place_glob_id`** gets the same ids (252,309 documents), and for the places of inferred titles also follows `updated_uris`: an id that became the general record of a place goes to the record that has its old meaning, the meaning the VOC gazetteer linked (Colombo `GLOB_806` → the city `GLOB_806_HUM_1`, 14,762 documents; Cochin `GLOB_299` → `GLOB_299_HUM_3`, 12,191; 34 smaller ones).
+- Pontianak's 284 documents get `GLOB3_115`, now in the dataset; 2,020 inferred titles whose place is now a settlement's id are linked to it (Sumatra's Westkust 1,948, Ceylon 72).
+- The 28 index entries of inventory 2163 that the OBP index gives to *Makassar; Banjarmasin* (step 7 matched the whole value to Makassar only) and their 28 segmentation documents are also linked to Banjarmasin (`document_settlement`; `location_id` stays Makassar). *Siam;Ligor* stays Siam: Ligor is not a settlement.
+- The other labels of a settlement are the spellings of the OBP index's SETTLEMENT column that step 7 matches (*Goede Hoop*, *Bengale*, *Banjermassin*, *Kanton*, *Mallabar*, *Perzïe*, *Palimbang*, *Batavia ressort*, ...), so they stay in `settlement_label`; the app and the JSON-LD export (`identified_by`) give only the first label, the name shown.
+
+The new infer-titles run and step 24 then give the inferred titles the Dutch names and these ids (see *Inferred titles*). Running step 28 again changes nothing; `infer-titles` refuses to run while a settlement still has an id that is not current.
 
 ## Document Segmentation (`segmentation/`)
 
@@ -438,12 +471,12 @@ uv run python -m segmentation import segments.csv [--resume]     # uses inferred
 Documents without a title from the VOC (an index entry or a General Missive) or from the court case dataset get one inferred from their text (`doc_titles.py`): `type, place, date` in English, e.g. *Letter, Cochin, 12 November 1748*; *Unknown document, place, date* when the type is uncertain; *Unknown document* when nothing is known. The volume's own registers of papers come out as *Register of papers*.
 
 - **Type**: the GLOBALISE document type (English label from `data/concepts.trig`), from a classifier on the opening of the first page and the end of the last page, trained on the documents with an index entry (`title-fit`; data/titles/); given from a confidence of 0.5 (cross-validated: 84% right for 78% of the documents).
-- **Place and date**: from the closing formula (*Bantam den 16 maij 1743*, *op 't schip ...*) on the last page or the page before, read with the GLOBALISE entity annotations; else the last full date on the last page; else the date in the running header. Places are found by an exact label of the VOC gazetteer (`data/organisational-structure-voc.xlsx`), else by an exact name or spelling variant of the GLOBALISE places dataset, else by the closest gazetteer label (fuzzy, for misreadings); others are left out. An exact name goes first: *Manaar* is a variant of Mannar Island in the places dataset, though closer to the gazetteer's *Manapaar* (Manappād). The title gives the place as written with its standard name in brackets where they differ (*Bantam (Banten)*, *Batavia (Jakarta)*): the places dataset's preferred label (modern names, see the portal's reference-data page), as in the gazetteer only when the dataset lacks the place; a year outside the inventory's period is left out.
+- **Place and date**: from the closing formula (*Bantam den 16 maij 1743*, *op 't schip ...*) on the last page or the page before, read with the GLOBALISE entity annotations; else the last full date on the last page; else the date in the running header. Places are found by an exact label of the VOC gazetteer (`data/organisational-structure-voc.xlsx`), else by an exact name or spelling variant of the GLOBALISE places dataset, else by the closest gazetteer label (fuzzy, for misreadings); others are left out. An exact name goes first: *Manaar* is a variant of Mannar Island in the places dataset, though closer to the gazetteer's *Manapaar* (Manappād), and *Tegenepatnam* is Devenampatnam, not the gazetteer's *Tengapatnam*. A name of several places in the dataset (*Hollandia*: forts on Banda, Saparua and Ternate) is the one nearest the settlements of the inventory's index entries other than Batavia, when it is within 300 km and at least 3 times nearer than the next; else the title gets the name without a GLOB id (*Middelburg*, *Leiden*: the Dutch city or a fort of that name). Records within 25 km of each other are one place, the town or island before its fort (*Maros*, *Larique*, *Haroeko*); records of one place (`GLOB_38`, `GLOB_38_HUM_1`) count as one, by their general record; a record without coordinates leaves the name without an id unless the nearest is within 100 km (*Amsterdam* in an Ambon volume: Fort Amsterdam, 10 km). Two wrong names are corrected in the code: *Fort St George* is Madras (Chennai, `GLOB_530`), not the church St: Jago near Cochin to which the dataset gives the name *St George* (`NAME_FIXES`), and *Cochin China* is Quinam, not Cochin, whose gazetteer labels include *In Cochin China* (`GAZETTEER_WRONG_LABELS`; an exact alias also goes before one inside a name). The dataset's GAVOC atlas names (`GLOB_GAVOC_…`) are not used: islands and capes that share their names with forts, ships and misreadings (*Leijden*, *Samar*, *Goede H*). The title gives the place as written with its Dutch (VOC) name in brackets where they differ (*Gale (Galle)*, *Rotterdam (Makassar)*, *Houglij (Bengalen)*): the settlement's name where the place is one of the settlements (*Kaap de Goede Hoop*, *Java's (Noord-) Oostkust*), else the gazetteer's name of the VOC office; a place only the places dataset knows is given as written, without its modern name. *Goede Hoop* alone is not a name: *in 't Casteel de Goede Hoop* gives *Casteel de Goede Hoop (Kaap de Goede Hoop)*, else *Kaap de Goede Hoop*. A year outside the inventory's period is left out.
 - Sender, addressee and subject are not attempted (a translator or copyist signs too).
 
 Titles not given by the VOC itself are stored in brackets: inferred titles and court case titles, e.g. *[Letter, Surat, 26 April 1723]* (`title_source` says who made the title, see step 20).
 
-**Identifiers stored with every segmentation document** (by `import`): the document type as GLOBALISE concept (`document2documenttype`; for ToC documents also the OBP/TANAP type of their index entry; court cases *court document*, General Missives without an index entry *letter*) and the place as GLOB id of the GLOBALISE places dataset (`place_glob_id`, see step 22: the settlement's for ToC and court documents, the closing place for inferred titles). When the place is one of the settlements, the document is also linked to it (`location_id`, `document_settlement`); no settlements are added. Places of inferred titles missing from the places dataset get no GLOB id: Godavaram (gazetteer GLOB3_191), Prome (GLOB3_192), Conjimere (GLOB3_194) and Pontianak (GLOB3_115); ships (*on board the ...*) neither.
+**Identifiers stored with every segmentation document** (by `import`): the document type as GLOBALISE concept (`document2documenttype`; for ToC documents also the OBP/TANAP type of their index entry; court cases *court document*, General Missives without an index entry *letter*) and the place as GLOB id of the GLOBALISE places dataset (`place_glob_id`, see step 22: the settlement's for ToC and court documents, the closing place for inferred titles). When the place is one of the settlements, the document is also linked to it (`location_id`, `document_settlement`); no settlements are added. The GLOB id is made current as in step 28 (retired ids, the settlements' chosen ids, `updated_uris`). Places of inferred titles missing from the places dataset get no GLOB id: Conjimere (gazetteer GLOB3_194); ships (*on board the ...*) neither.
 
 `import` creates one document per ToC entry, subdocument and unindexed document (non-document runs are skipped). ToC documents take their title, dates and page range from the ToC entry and are linked to its index ids (OBP_INDEX, TANAP, DIGITIZED TYPOSCRIPTS and NT, the entry's id in OBP NT_gecorrigeerd). Subdocuments point to their parent with `part_of_id` (ToC documents are never part of another document), and a parent's pages include its subdocuments'. All pages of the scans are linked (source `SEGMENTATION_MODEL`, confidence `CANDIDATE`), and how the model found each document is stored as JSON in `document_evidence`. Re-importing an inventory replaces its earlier "Segmentation model" documents.
 

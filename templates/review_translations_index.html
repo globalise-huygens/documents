@@ -14,11 +14,22 @@
     Reviews are stored per run, so translation runs with different settings can be compared.</p>
   {% if not runs %}
   <div class="alert alert-info" style="margin-top: 0.75rem">No translations found in <code>{{ translations_dir }}</code>.
-    Set <code>TRANSLATIONS_DIR</code> to the <code>translations/output</code> folder of globalise-translation-experiments.</div>
+    Set <code>GLOBALISE_TRANSLATIONS_DIR</code> (as in the <code>.env</code> of globalise-translation-experiments) or <code>TRANSLATIONS_DIR</code> (its <code>output</code> folder), and check that the drive is connected.</div>
+  {% endif %}
+  {% if runs %}
+  <form method="get" action="{{ base_url }}/review/translations" style="margin-top: 0.75rem; display: flex; gap: 8px; flex-wrap: wrap; align-items: end">
+    <label>Run<br><select name="run">{% for r in runs %}<option value="{{ r.run }}">{{ r.run }} ({{ r.inventories|length }})</option>{% endfor %}</select></label>
+    <label>Inventory<br><input name="inventory" list="inventories" placeholder="e.g. 1083" size="10" required></label>
+    <datalist id="inventories">{% for inv in runs[0].inventories %}<option value="{{ inv }}">{% endfor %}</datalist>
+    <button class="btn" type="submit">Open</button>
+  </form>
+  <p style="margin-top: 0.5rem; font-size: 0.85em">Translations from <code>{{ translations_dir }}</code>. In run <code>full</code> the redo runs are already applied (overlay); the other runs hold only the scans they translated.</p>
   {% endif %}
   {% for r in runs %}
-  <h3 style="margin-top: 0.75rem">Run <code>{{ r.run }}</code></h3>
-  <div class="inv-list">{% for inv in r.inventories %}<a href="{{ base_url }}/review/translations/{{ r.run }}/{{ inv }}">{{ inv }}</a>{% endfor %}</div>
+  <details style="margin-top: 0.5rem"{% if loop.first and r.inventories|length <= 300 %} open{% endif %}>
+    <summary>Run <code>{{ r.run }}</code> — {{ r.inventories|length }} inventories</summary>
+    <div class="inv-list">{% for inv in r.inventories %}<a href="{{ base_url }}/review/translations/{{ r.run }}/{{ inv }}">{{ inv }}</a>{% endfor %}</div>
+  </details>
   {% endfor %}
 </div>
 

@@ -26,8 +26,7 @@ endblock %} {% block content %}
 <table>
   <thead>
     <tr>
-      <th>Primary Name</th>
-      <th>Alternate Names</th>
+      <th>Name</th>
       <th>GLOB ID</th>
       <th>Documents</th>
     </tr>
@@ -37,12 +36,8 @@ endblock %} {% block content %}
     <tr>
       <td>
         <a href="{{ base_url }}/settlement/{{ s.glob_id }}">
-          {{ s.labels[0].label if s.labels else s.glob_id }}
+          {{ s.display_label }}
         </a>
-      </td>
-      <td class="text-muted">
-        {% set alts = s.labels[1:] %} {% if alts %}{{ alts |
-        map(attribute='label') | join(', ') }}{% else %}—{% endif %}
       </td>
       <td><code>{{ s.glob_id }}</code></td>
       <td>{{ s.documents | length }}</td>

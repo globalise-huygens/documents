@@ -94,9 +94,7 @@ else 'Document' }} - GLOBALISE Documents{% endblock %} {% block content %}{% imp
     <strong>{{ 'Settlements' if settlements | length > 1 else 'Settlement' }}:</strong>
     <span>
       {% for s in settlements %}
-      {% set labels = s.labels | map(attribute='label') | list %}
-      <a href="{{ base_url }}/settlement/{{ s.glob_id }}">{{ labels[0] }}</a>
-      {% if labels | length > 1 %}<small class="text-muted"> (also: {{ labels[1:] | join(', ') }})</small>{% endif %}
+      <a href="{{ base_url }}/settlement/{{ s.glob_id }}">{{ s.display_label }}</a>
       <small class="text-muted">[{{ s.glob_id }}]</small>{% if not loop.last %}<br />{% endif %}
       {% endfor %}
     </span>

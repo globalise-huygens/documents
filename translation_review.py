@@ -3,7 +3,8 @@
 Translations come from the globalise-translation-experiments repo: one parquet
 per inventory and run, a row per translated scan (filename, inventory,
 translation, model, generated_at), in
-TRANSLATIONS_DIR/<run>/<inventory>/<inventory>.parquet. Which scans were skipped,
+TRANSLATIONS_DIR/<run>/<inventory>/<inventory>.parquet (TRANSLATIONS_DIR: the output/
+folder under GLOBALISE_TRANSLATIONS_DIR, read from that repo's .env). Which scans were skipped,
 and why, is in the plan next to it: ../runs/<run>/plans/<inventory>.json. The
 Dutch is the page text in data/texts (the source the translations were made
 from).
@@ -19,16 +20,31 @@ append-only: the latest row per (run, inventory, item_key) is the current one.
 
 from __future__ import annotations
 
-import glob
 import json
 import os
 from datetime import datetime
 from functools import lru_cache
 
-TRANSLATIONS_DIR = os.environ.get(
-    "TRANSLATIONS_DIR",
-    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "globalise-translation-experiments", "translations", "output"),
-)
+_EXPERIMENTS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "globalise-translation-experiments")
+
+
+def _translations_root() -> str:
+    """The translations folder of globalise-translation-experiments (runs/
+    and output/): GLOBALISE_TRANSLATIONS_DIR from the environment or from
+    that repo's .env (only that line is read), else its translations/."""
+    root = os.environ.get("GLOBALISE_TRANSLATIONS_DIR")
+    env = os.path.join(_EXPERIMENTS, ".env")
+    if not root and os.path.exists(env):
+        with open(env, encoding="utf-8") as handle:
+            for line in handle:
+                key, _, value = line.strip().partition("=")
+                if key.strip() == "GLOBALISE_TRANSLATIONS_DIR" and value.strip():
+                    root = value.strip().strip("'\"")
+    return os.path.expanduser(root) if root else os.path.join(_EXPERIMENTS, "translations")
+
+
+# TRANSLATIONS_DIR (the output folder itself) still overrides.
+TRANSLATIONS_DIR = os.environ.get("TRANSLATIONS_DIR") or os.path.join(_translations_root(), "output")
 DOCUMENT_METHODS = [
     "Manual Validation (document)",
     "General Missives Ground Truth",
@@ -52,16 +68,29 @@ ISSUES = {
 
 
 def runs() -> list[dict]:
-    """Translation runs and their inventories."""
+    """Translation runs and their inventories, the full run first. An
+    inventory is a folder in the run's output (one listing per run, cached
+    until the folder changes: a full run has ~7,000 on a slow external
+    drive)."""
     out = []
-    for run_dir in sorted(glob.glob(os.path.join(TRANSLATIONS_DIR, "*"))):
-        invs = sorted(
-            os.path.basename(os.path.dirname(p))
-            for p in glob.glob(os.path.join(run_dir, "*", "*.parquet"))
-        )
-        if invs:
-            out.append({"run": os.path.basename(run_dir), "inventories": invs})
+    if not os.path.isdir(TRANSLATIONS_DIR):
+        return out
+    for entry in sorted(os.scandir(TRANSLATIONS_DIR), key=lambda e: (e.name != "full", e.name)):
+        if entry.is_dir():
+            invs = _inventories(entry.path, entry.stat().st_mtime)
+            if invs:
+                out.append({"run": entry.name, "inventories": invs})
     return out
+
+
+@lru_cache(maxsize=64)
+def _inventories(run_dir: str, mtime: float) -> list[str]:
+    def key(name: str):
+        digits = "".join(c for c in name if c.isdigit())
+        return (int(digits) if digits else 0, name)
+
+    with os.scandir(run_dir) as entries:
+        return sorted((e.name for e in entries if e.is_dir()), key=key)
 
 
 def source_texts(run: str, inventory_number: str) -> dict[str, str] | None:
